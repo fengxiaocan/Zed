@@ -116,6 +116,12 @@ pub struct CrashHandler(pub Arc<crashes::Client>);
 
 impl gpui::Global for CrashHandler {}
 
+fn set_ui_language(language: settings::UiLanguage, cx: &mut App) {
+    update_settings_file(<dyn Fs>::global(cx), cx, move |settings, _| {
+        settings.ui_language = Some(language);
+    });
+}
+
 actions!(
     zed,
     [
@@ -264,6 +270,12 @@ pub fn init(cx: &mut App) {
                 cx,
             );
         });
+    })
+    .on_action(|_: &zed_actions::SetUiLanguageEnglish, cx| {
+        set_ui_language(settings::UiLanguage::English, cx);
+    })
+    .on_action(|_: &zed_actions::SetUiLanguageSimplifiedChinese, cx| {
+        set_ui_language(settings::UiLanguage::SimplifiedChinese, cx);
     })
     .on_action(|_: &OpenAccountSettings, cx| {
         with_active_or_new_workspace(cx, |_, _, cx| {

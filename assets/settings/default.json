@@ -1,5 +1,7 @@
 {
   "$schema": "zed://schemas/settings",
+  // The language used for Zed's user interface.
+  "ui_language": "english",
   // The name of the Zed theme to use for the UI.
   //
   // `mode` is one of:

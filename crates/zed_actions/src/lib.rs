@@ -83,6 +83,10 @@ actions!(
         OpenOnboarding,
         /// Shows the auto-update notification for testing.
         ShowUpdateNotification,
+        /// Switches Zed's user interface to English.
+        SetUiLanguageEnglish,
+        /// Switches Zed's user interface to Simplified Chinese.
+        SetUiLanguageSimplifiedChinese,
     ]
 );
 

@@ -816,6 +816,9 @@ fn main() {
                         client.reconnect(&cx.to_async());
                     }
                 }
+
+                let menus = zed::app_menus(cx);
+                cx.set_menus(menus);
             }
         })
         .detach();
