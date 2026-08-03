@@ -5694,6 +5694,23 @@ Float values between `0.0` and `0.9`, where:
 }
 ```
 
+## UI Language
+
+- Description: The language used for Zed's user interface.
+- Setting: `ui_language`
+- Default: `"english"`
+
+**Options**
+
+1. `"english"`: Display the user interface in English.
+2. `"simplified_chinese"`: Display the user interface in Simplified Chinese.
+
+```json [settings]
+{
+  "ui_language": "simplified_chinese"
+}
+```
+
 ## UI Font Family
 
 - Description: The name of the font to use for text in the UI.

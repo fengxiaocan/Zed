@@ -41,7 +41,19 @@ function Get-VSArch {
 }
 
 Push-Location
-& "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1" -Arch (Get-VSArch -Arch $Architecture) -HostArch (Get-VSArch -Arch $OSArchitecture)
+$vswherePath = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+if (-not (Test-Path $vswherePath)) {
+    throw "Visual Studio locator was not found at $vswherePath."
+}
+$vsInstallPath = & $vswherePath -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+if ([string]::IsNullOrWhiteSpace($vsInstallPath)) {
+    throw "No Visual Studio installation with C++ build tools was found."
+}
+$vsDevShellPath = Join-Path $vsInstallPath "Common7\Tools\Launch-VsDevShell.ps1"
+if (-not (Test-Path $vsDevShellPath)) {
+    throw "Visual Studio developer shell was not found at $vsDevShellPath."
+}
+& $vsDevShellPath -Arch (Get-VSArch -Arch $Architecture) -HostArch (Get-VSArch -Arch $OSArchitecture)
 Pop-Location
 
 $target = "$Architecture-pc-windows-msvc"
@@ -329,6 +341,12 @@ function BuildInstaller {
     # Currently, we are using Windows 2022 runner.
     # Windows runner 2025 doesn't have iscc in PATH for now, https://github.com/actions/runner-images/issues/11228
     $innoSetupPath = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+    if (-not (Test-Path $innoSetupPath)) {
+        $innoSetupPath = Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe"
+    }
+    if (-not (Test-Path $innoSetupPath)) {
+        throw "Inno Setup 6 was not found. Install ISCC.exe before building the installer."
+    }
 
     $definitions = @{
         "AppId"          = $appId

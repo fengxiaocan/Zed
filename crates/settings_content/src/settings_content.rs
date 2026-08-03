@@ -138,9 +138,181 @@ pub enum ReduceMotionMode {
     Off,
 }
 
+/// The language used for Zed's user interface.
+///
+/// Default: english
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Eq,
+    JsonSchema,
+    MergeFrom,
+    strum::VariantArray,
+    strum::VariantNames,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum UiLanguage {
+    /// Display the user interface in English.
+    #[default]
+    #[strum(serialize = "English")]
+    English,
+    /// Display the user interface in Simplified Chinese.
+    #[strum(serialize = "简体中文")]
+    SimplifiedChinese,
+}
+
+impl UiLanguage {
+    /// Returns the localized version of an English UI string.
+    ///
+    /// Strings without a translation intentionally fall back to English while
+    /// the rest of the application is migrated to use this table.
+    pub fn translate(self, text: &'static str) -> &'static str {
+        match self {
+            Self::English => text,
+            Self::SimplifiedChinese => match text {
+                "Zed" => "Zed",
+                "File" => "文件",
+                "Edit" => "编辑",
+                "Selection" => "选择",
+                "View" => "查看",
+                "Go" => "转到",
+                "Run" => "运行",
+                "Window" => "窗口",
+                "Help" => "帮助",
+                "About Zed" => "关于 Zed",
+                "Check for Updates" => "检查更新",
+                "Settings" => "设置",
+                "Open Settings" => "打开设置",
+                "Open Settings File" => "打开设置文件",
+                "Open Project Settings" => "打开项目设置",
+                "Open Project Settings File" => "打开项目设置文件",
+                "Open Default Settings" => "打开默认设置",
+                "Open Keymap" => "打开键位映射",
+                "Open Keymap File" => "打开键位映射文件",
+                "Open Default Key Bindings" => "打开默认键位绑定",
+                "Select Theme..." => "选择主题…",
+                "Select Icon Theme..." => "选择图标主题…",
+                "Language" => "显示语言",
+                "English" => "English",
+                "Simplified Chinese" => "简体中文",
+                "Extensions" => "扩展",
+                "Services" => "服务",
+                "Install CLI" => "安装命令行工具",
+                "Quit Zed" => "退出 Zed",
+                "New" => "新建",
+                "New Window" => "新建窗口",
+                "Open File..." => "打开文件…",
+                "Open Folder..." => "打开文件夹…",
+                "Open…" => "打开…",
+                "Open Recent…" => "打开最近项目…",
+                "Open Remote…" => "打开远程项目…",
+                "Add Folder to Project…" => "将文件夹添加到项目…",
+                "Save" => "保存",
+                "Save As…" => "另存为…",
+                "Save All" => "全部保存",
+                "Close Editor" => "关闭编辑器",
+                "Close Project" => "关闭项目",
+                "Close Window" => "关闭窗口",
+                "Undo" => "撤销",
+                "Redo" => "重做",
+                "Cut" => "剪切",
+                "Copy" => "复制",
+                "Copy and Trim" => "复制并修剪",
+                "Paste" => "粘贴",
+                "Find" => "查找",
+                "Find in Project" => "在项目中查找",
+                "Toggle Line Comment" => "切换行注释",
+                "Select All" => "全选",
+                "Expand Selection" => "扩大选择范围",
+                "Shrink Selection" => "缩小选择范围",
+                "Select Next Sibling" => "选择下一个同级节点",
+                "Select Previous Sibling" => "选择上一个同级节点",
+                "Add Cursor Above" => "在上方添加光标",
+                "Add Cursor Below" => "在下方添加光标",
+                "Select Next Occurrence" => "选择下一个匹配项",
+                "Select Previous Occurrence" => "选择上一个匹配项",
+                "Select All Occurrences" => "选择所有匹配项",
+                "Move Line Up" => "上移行",
+                "Move Line Down" => "下移行",
+                "Duplicate Selection" => "复制选择内容",
+                "Back" => "后退",
+                "Forward" => "前进",
+                "Command Palette..." => "命令面板…",
+                "Go to File..." => "转到文件…",
+                "Go to Symbol in Editor..." => "转到编辑器中的符号…",
+                "Go to Line/Column..." => "转到行/列…",
+                "Go to Definition" => "转到定义",
+                "Go to Declaration" => "转到声明",
+                "Go to Type Definition" => "转到类型定义",
+                "Find All References" => "查找所有引用",
+                "Next Problem" => "下一个问题",
+                "Previous Problem" => "上一个问题",
+                "Spawn Task" => "创建任务",
+                "Start Debugger" => "启动调试器",
+                "Edit tasks.json…" => "编辑 tasks.json…",
+                "Edit debug.json…" => "编辑 debug.json…",
+                "Continue" => "继续",
+                "Step Over" => "单步跳过",
+                "Step Into" => "单步进入",
+                "Step Out" => "单步跳出",
+                "Toggle Breakpoint" => "切换断点",
+                "Edit Breakpoint" => "编辑断点",
+                "Clear All Breakpoints" => "清除所有断点",
+                "Minimize" => "最小化",
+                "Hide Zed" => "隐藏 Zed",
+                "Hide Others" => "隐藏其他",
+                "Show All" => "显示全部",
+                "Zoom" => "缩放",
+                "View Release Notes Locally" => "查看本地发行说明",
+                "View Telemetry" => "查看遥测日志",
+                "View Dependency Licenses" => "查看依赖许可证",
+                "Show Welcome" => "显示欢迎页",
+                "File Bug Report..." => "提交错误报告…",
+                "Request Feature..." => "请求功能…",
+                "Email Us..." => "给我们发邮件…",
+                "Documentation" => "文档",
+                "Zed Repository" => "Zed 仓库",
+                "Zed Twitter" => "Zed Twitter",
+                "Join the Team" => "加入团队",
+                "Zoom In" => "放大",
+                "Zoom Out" => "缩小",
+                "Reset Zoom" => "重置缩放",
+                "Reset All Zoom" => "重置所有缩放",
+                "Toggle Left Dock" => "切换左侧停靠栏",
+                "Toggle Right Dock" => "切换右侧停靠栏",
+                "Toggle Bottom Dock" => "切换底部停靠栏",
+                "Toggle All Docks" => "切换所有停靠栏",
+                "Editor Layout" => "编辑器布局",
+                "Split Up" => "向上拆分",
+                "Split Down" => "向下拆分",
+                "Split Left" => "向左拆分",
+                "Split Right" => "向右拆分",
+                "Project Panel" => "项目面板",
+                "Outline Panel" => "大纲面板",
+                "Collab Panel" => "协作面板",
+                "Terminal Panel" => "终端面板",
+                "Debugger Panel" => "调试器面板",
+                "Agent Panel" => "智能代理面板",
+                "Git Panel" => "Git 面板",
+                "Diagnostics" => "诊断",
+                "Toggle GPUI Inspector" => "切换 GPUI 检查器",
+                _ => text,
+            },
+        }
+    }
+}
+
 #[with_fallible_options]
 #[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize, JsonSchema, MergeFrom)]
 pub struct SettingsContent {
+    /// The language used for Zed's user interface.
+    pub ui_language: Option<UiLanguage>,
+
     #[serde(flatten)]
     pub project: ProjectSettingsContent,
 
@@ -1472,5 +1644,32 @@ impl From<u64> for DelayMs {
 impl std::fmt::Display for DelayMs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}ms", self.0)
+    }
+}
+
+#[cfg(test)]
+mod ui_language_tests {
+    use super::UiLanguage;
+
+    #[test]
+    fn english_is_the_default_language() {
+        assert_eq!(UiLanguage::default(), UiLanguage::English);
+    }
+
+    #[test]
+    fn simplified_chinese_translates_known_menu_labels() {
+        assert_eq!(UiLanguage::SimplifiedChinese.translate("Settings"), "设置");
+        assert_eq!(
+            UiLanguage::SimplifiedChinese.translate("Language"),
+            "显示语言"
+        );
+    }
+
+    #[test]
+    fn untranslated_text_falls_back_to_english() {
+        assert_eq!(
+            UiLanguage::SimplifiedChinese.translate("Future UI text"),
+            "Future UI text"
+        );
     }
 }

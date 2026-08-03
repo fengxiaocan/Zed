@@ -6,6 +6,7 @@ mod granted_write_path;
 mod keymap_file;
 mod settings_file;
 mod settings_store;
+mod ui_language;
 mod vscode_import;
 
 pub use settings_macros::RegisterSetting;
@@ -50,6 +51,7 @@ pub use settings_store::{
     LocalSettingsKind, LocalSettingsPath, MigrationStatus, Settings, SettingsFile,
     SettingsJsonSchemaParams, SettingsKey, SettingsLocation, SettingsParseResult, SettingsStore,
 };
+pub use ui_language::UiLanguageSetting;
 
 pub use vscode_import::{VsCodeSettings, VsCodeSettingsSource};
 

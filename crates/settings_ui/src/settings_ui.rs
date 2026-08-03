@@ -22,7 +22,8 @@ use release_channel::ReleaseChannel;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use settings::{
-    IntoGpui, Settings, SettingsContent, SettingsStore, initial_project_settings_content,
+    IntoGpui, Settings, SettingsContent, SettingsStore, UiLanguage, UiLanguageSetting,
+    initial_project_settings_content,
 };
 use std::{
     any::{Any, TypeId, type_name},
@@ -73,6 +74,445 @@ const CONTENT_GROUP_TAB_INDEX: isize = 5;
 
 const SIDEBAR_WIDTH: Pixels = px(226.);
 const CONTENT_MIN_WIDTH: Pixels = px(400.);
+
+/// Localizes the stable English labels used by the Settings UI. The English
+/// strings remain the canonical identifiers in page data, key bindings, and
+/// deep links; translation is applied only while rendering.
+fn localized(text: &'static str, cx: &App) -> &'static str {
+    match UiLanguageSetting::get_global(cx).0 {
+        UiLanguage::English => text,
+        UiLanguage::SimplifiedChinese => match text {
+            "Zed — Settings" => "Zed — 设置",
+            "Settings" => "设置",
+            "User" => "用户",
+            "Project" => "项目",
+            "Server" => "服务器",
+            "Scope" => "范围",
+            "Search settings…" => "搜索设置…",
+            "Search Settings" => "搜索设置",
+            "Settings File" => "设置文件",
+            "Settings Navigation" => "设置导航",
+            "Settings Content" => "设置内容",
+            "Focus Content" => "聚焦内容",
+            "Focus Navbar" => "聚焦导航栏",
+            "No Results" => "无结果",
+            "No settings match" => "没有匹配的设置",
+            "Configure" => "配置",
+            "Edit in settings.json" => "在 settings.json 中编辑",
+            "View Other Projects" => "查看其他项目",
+            "Change Scope" => "更改范围",
+            "Reset to Default" => "恢复默认值",
+            "Copy Link" => "复制链接",
+            "Modified in" => "修改于",
+            "Overridden by Organization" => "已被组织策略覆盖",
+            "Contact your organization admins to adjust this setting." => {
+                "请联系组织管理员以调整此设置。"
+            }
+            "Restricted Mode" => "受限模式",
+            "This project is in restricted mode. Some project settings may not apply." => {
+                "此项目处于受限模式，部分项目设置可能不会生效。"
+            }
+            "Manage Trust" => "管理信任",
+            "Fix in settings.json" => "在 settings.json 中修复",
+            "Create Skill" => "创建技能",
+            "General" => "常规",
+            "Appearance" => "外观",
+            "Keymap" => "键位映射",
+            "Editor" => "编辑器",
+            "Languages & Tools" => "语言与工具",
+            "Search & Files" => "搜索与文件",
+            "Window & Layout" => "窗口与布局",
+            "Panels" => "面板",
+            "Debugger" => "调试器",
+            "Terminal" => "终端",
+            "Version Control" => "版本控制",
+            "Collaboration" => "协作",
+            "Developer" => "开发者",
+            "Network" => "网络",
+            "Advanced Settings" => "高级设置",
+            "Agent Configuration" => "智能代理配置",
+            "Agent Panel Font" => "智能代理面板字体",
+            "Agent Panel" => "智能代理面板",
+            "Auto Save" => "自动保存",
+            "Auto Update" => "自动更新",
+            "Autoclose" => "自动闭合",
+            "Base Keymap" => "基础键位映射",
+            "Behavior Settings" => "行为设置",
+            "Branch Picker" => "分支选择器",
+            "Buffer Font" => "缓冲区字体",
+            "Calls" => "通话",
+            "Collaboration Panel" => "协作面板",
+            "Completions" => "补全",
+            "Cursor" => "光标",
+            "Debugger Panel" => "调试器面板",
+            "Debuggers" => "调试器",
+            "Diagnostics" => "诊断",
+            "Display Settings" => "显示设置",
+            "Drag And Drop Selection" => "拖放选择",
+            "Edit Predictions" => "编辑预测",
+            "Environment" => "环境",
+            "Feature Flags" => "功能标志",
+            "File Diff" => "文件差异",
+            "File Finder" => "文件查找器",
+            "File Scan" => "文件扫描",
+            "File Types" => "文件类型",
+            "Font" => "字体",
+            "Formatting" => "格式化",
+            "General Settings" => "常规设置",
+            "Git Blame View" => "Git 责任追溯视图",
+            "Git Gutter" => "Git 边栏",
+            "Git Hunks" => "Git 代码块",
+            "Git Integration" => "Git 集成",
+            "Git Panel" => "Git 面板",
+            "Guides" => "辅助线",
+            "Gutter" => "边栏",
+            "Highlighting" => "高亮",
+            "Hover Popover" => "悬停弹窗",
+            "Indent Guides" => "缩进参考线",
+            "Indentation" => "缩进",
+            "Inlay Hints" => "内嵌提示",
+            "Inline Diagnostics" => "内联诊断",
+            "Inline Git Blame" => "内联 Git 责任追溯",
+            "Instrumentation" => "性能分析",
+            "Keybindings" => "键位绑定",
+            "Languages" => "语言",
+            "Layout Settings" => "布局设置",
+            "Layout" => "布局",
+            "LSP Completions" => "LSP 补全",
+            "LSP Highlights" => "LSP 高亮",
+            "LSP Pull Diagnostics" => "LSP 拉取诊断",
+            "Markdown Preview Font" => "Markdown 预览字体",
+            "Minimap" => "小地图",
+            "Miscellaneous" => "杂项",
+            "Modal Editing" => "模态编辑",
+            "Multibuffer" => "多缓冲区",
+            "Outline Panel" => "大纲面板",
+            "Pane Modifiers" => "窗格修饰键",
+            "Pane Split Direction" => "窗格拆分方向",
+            "Preview Tabs" => "预览标签页",
+            "Privacy" => "隐私",
+            "Project Panel" => "项目面板",
+            "Scoped Settings" => "作用域设置",
+            "Scrollbar" => "滚动条",
+            "Scrolling" => "滚动",
+            "Search" => "搜索",
+            "Security" => "安全",
+            "Signature Help" => "签名帮助",
+            "Status Bar" => "状态栏",
+            "Tab Bar" => "标签栏",
+            "Tab Settings" => "标签页设置",
+            "Tasks" => "任务",
+            "Terminal Panel" => "终端面板",
+            "Text Rendering" => "文本渲染",
+            "Theme" => "主题",
+            "Title Bar" => "标题栏",
+            "Toolbar" => "工具栏",
+            "UI Font" => "界面字体",
+            "Which-key Menu" => "Which-key 菜单",
+            "Whitespace" => "空白字符",
+            "Workspace Restoration" => "工作区恢复",
+            "Wrapping" => "换行",
+            "Display Language" => "显示语言",
+            "Accessible Mode" => "辅助功能模式",
+            "When Closing With No Tabs" => "没有标签页时关闭",
+            "On Last Window Closed" => "最后一个窗口关闭时",
+            "Use System Path Prompts" => "使用系统路径对话框",
+            "Use System Prompts" => "使用系统提示框",
+            "Redact Private Values" => "隐藏私密值",
+            "Private Files" => "私密文件",
+            "CLI Default Open Behavior" => "命令行默认打开行为",
+            "Default Open Behavior" => "默认打开行为",
+            "Trust All Projects By Default" => "默认信任所有项目",
+            "Restore Unsaved Buffers" => "恢复未保存的缓冲区",
+            "Restore On Startup" => "启动时恢复",
+            "Preview Channel" => "预览通道",
+            "Settings Profiles" => "设置配置文件",
+            "Telemetry Diagnostics" => "遥测诊断数据",
+            "Telemetry Metrics" => "遥测指标",
+            "Anthropic Data Retention" => "Anthropic 数据保留",
+            "Performance Profiler" => "性能分析器",
+            "Edit Keybindings" => "编辑键位绑定",
+            "Theme Name" => "主题名称",
+            "Theme Mode" => "主题模式",
+            "Icon Theme" => "图标主题",
+            "Icon Theme Name" => "图标主题名称",
+            "UI Font Family" => "界面字体系列",
+            "UI Font Size" => "界面字体大小",
+            "Buffer Font Family" => "缓冲区字体系列",
+            "Buffer Font Size" => "缓冲区字体大小",
+            "Code Font Family" => "代码字体系列",
+            "Font Family" => "字体系列",
+            "Font Size" => "字体大小",
+            "Font Weight" => "字体粗细",
+            "Font Features" => "字体特性",
+            "Font Fallbacks" => "后备字体",
+            "Line Height" => "行高",
+            "Custom Line Height" => "自定义行高",
+            "Text Rendering Mode" => "文本渲染模式",
+            "Reduce Motion" => "减少动画效果",
+            "Cursor Shape" => "光标形状",
+            "Cursor Blink" => "光标闪烁",
+            "Cursor Blinking" => "光标闪烁",
+            "Current Line Highlight" => "高亮当前行",
+            "Show Line Numbers" => "显示行号",
+            "Relative Line Numbers" => "相对行号",
+            "Tab Size" => "制表符大小",
+            "Hard Tabs" => "使用制表符缩进",
+            "Auto Indent" => "自动缩进",
+            "Auto Indent On Paste" => "粘贴时自动缩进",
+            "Soft Wrap" => "自动换行",
+            "Show Wrap Guides" => "显示换行参考线",
+            "Wrap Guides" => "换行参考线",
+            "Preferred Line Length" => "首选行长度",
+            "Format On Save" => "保存时格式化",
+            "Formatter" => "格式化工具",
+            "Line Ending" => "行尾换行符",
+            "Remove Trailing Whitespace On Save" => "保存时删除行尾空白字符",
+            "Ensure Final Newline On Save" => "保存时确保末尾换行",
+            "Use On Type Format" => "输入时格式化",
+            "Code Actions On Format" => "格式化时执行代码操作",
+            "Use Autoclose" => "使用自动闭合",
+            "Use Auto Surround" => "使用自动环绕",
+            "Always Treat Brackets As Autoclosed" => "始终将括号视为自动闭合",
+            "JSX Tag Auto Close" => "自动闭合 JSX 标签",
+            "Show Whitespaces" => "显示空白字符",
+            "Space Whitespace Indicator" => "空格指示符",
+            "Tab Whitespace Indicator" => "制表符指示符",
+            "Show Completions On Input" => "输入时显示补全",
+            "Show Completion Documentation" => "显示补全文档",
+            "Completion Menu Scrollbar" => "补全菜单滚动条",
+            "Completion Detail Alignment" => "补全详情对齐方式",
+            "Completion Menu Item Kind" => "补全项类型显示",
+            "Words" => "单词补全",
+            "Words Min Length" => "单词最小长度",
+            "Enabled" => "启用",
+            "Show Value Hints" => "显示值提示",
+            "Show Type Hints" => "显示类型提示",
+            "Show Parameter Hints" => "显示参数提示",
+            "Show Other Hints" => "显示其他提示",
+            "Show Background" => "显示背景",
+            "Edit Debounce Ms" => "编辑防抖时间（毫秒）",
+            "Scroll Debounce Ms" => "滚动防抖时间（毫秒）",
+            "Toggle On Modifiers Press" => "按下修饰键时切换",
+            "Enable Language Server" => "启用语言服务器",
+            "Language Servers" => "语言服务器",
+            "Linked Edits" => "关联编辑",
+            "Go To Definition Fallback" => "转到定义回退策略",
+            "Go To Definition Scroll Strategy" => "转到定义滚动策略",
+            "LSP Results Location" => "LSP 结果位置",
+            "Semantic Tokens" => "语义令牌",
+            "LSP Folding Ranges" => "LSP 折叠范围",
+            "LSP Document Symbols" => "LSP 文档符号",
+            "Fetch Timeout (milliseconds)" => "获取超时（毫秒）",
+            "Insert Mode" => "插入模式",
+            "Allowed" => "允许",
+            "Parser" => "解析器",
+            "Plugins" => "插件",
+            "Options" => "选项",
+            "Search Results" => "搜索结果",
+            "Case Sensitive" => "区分大小写",
+            "Whole Word" => "全字匹配",
+            "Regex" => "正则表达式",
+            "Regex Search" => "正则搜索",
+            "Use Smartcase Find" => "查找时使用智能大小写",
+            "Use Smartcase Search" => "搜索时使用智能大小写",
+            "Search Wrap" => "循环搜索",
+            "Include Ignored" => "包含已忽略文件",
+            "Include Ignored in Search" => "搜索时包含已忽略文件",
+            "Hidden Files" => "隐藏文件",
+            "File Scan Exclusions" => "文件扫描排除项",
+            "File Scan Inclusions" => "文件扫描包含项",
+            "File Type Associations" => "文件类型关联",
+            "Auto Save Mode" => "自动保存模式",
+            "Auto Reveal Entries" => "自动显示条目",
+            "Auto Fold Directories" => "自动折叠目录",
+            "Show File Icons In Tabs" => "在标签页中显示文件图标",
+            "Show Git Status In Tabs" => "在标签页中显示 Git 状态",
+            "Show Tab Bar" => "显示标签栏",
+            "Show Tab Bar Buttons" => "显示标签栏按钮",
+            "Tab Close Position" => "标签页关闭按钮位置",
+            "Maximum Tabs" => "最大标签页数",
+            "Window Decorations" => "窗口装饰",
+            "Button Layout" => "按钮布局",
+            "Use System Window Tabs" => "使用系统窗口标签页",
+            "Bottom Dock Layout" => "底部停靠栏布局",
+            "Project Panel Dock" => "项目面板停靠位置",
+            "Outline Panel Dock" => "大纲面板停靠位置",
+            "Terminal Dock" => "终端停靠位置",
+            "Git Panel Dock" => "Git 面板停靠位置",
+            "Agent Panel Dock" => "智能代理面板停靠位置",
+            "Collaboration Panel Dock" => "协作面板停靠位置",
+            "Project Panel Default Width" => "项目面板默认宽度",
+            "Outline Panel Default Width" => "大纲面板默认宽度",
+            "Terminal Panel Default Height" => "终端面板默认高度",
+            "Git Panel Default Width" => "Git 面板默认宽度",
+            "Agent Panel Default Width" => "智能代理面板默认宽度",
+            "Agent Panel Default Height" => "智能代理面板默认高度",
+            "Collaboration Panel Default Width" => "协作面板默认宽度",
+            "Project Panel Button" => "项目面板按钮",
+            "Outline Panel Button" => "大纲面板按钮",
+            "Terminal Button" => "终端按钮",
+            "Git Panel Button" => "Git 面板按钮",
+            "Agent Panel Button" => "智能代理面板按钮",
+            "Collaboration Panel Button" => "协作面板按钮",
+            "Debugger Button" => "调试器按钮",
+            "Diagnostics Button" => "诊断按钮",
+            "Project Search Button" => "项目搜索按钮",
+            "Show Scrollbar" => "显示滚动条",
+            "Scroll Beyond Last Line" => "滚动超过最后一行",
+            "Scroll Sensitivity" => "滚动灵敏度",
+            "Scroll Multiplier" => "滚动倍率",
+            "Horizontal Scroll" => "水平滚动",
+            "Horizontal Scrollbar" => "水平滚动条",
+            "Vertical Scrollbar" => "垂直滚动条",
+            "Show Indent Guides" => "显示缩进参考线",
+            "Show Diagnostics" => "显示诊断",
+            "Show Code Lens" => "显示代码透镜",
+            "Code Lens" => "代码透镜",
+            "LSP Document Colors" => "LSP 文档颜色",
+            "Image Viewer" => "图像查看器",
+            "Word Diff Enabled" => "启用单词差异",
+            "Middle Click Paste" => "中键粘贴",
+            "Colorize Brackets" => "括号着色",
+            "Vim/Emacs Modeline Support" => "Vim/Emacs 模式行支持",
+            "Vim Mode" => "Vim 模式",
+            "Helix Mode" => "Helix 模式",
+            "Mode" => "模式",
+            "Shell" => "Shell",
+            "Working Directory" => "工作目录",
+            "Environment Variables" => "环境变量",
+            "Arguments" => "参数",
+            "Program" => "程序",
+            "Audible Bell" => "声音提示",
+            "Terminal Thread Init Command" => "终端线程初始化命令",
+            "Enable Git Status" => "启用 Git 状态",
+            "Enable Git Diff" => "启用 Git 差异",
+            "Disable Git Integration" => "禁用 Git 集成",
+            "Git Diff" => "Git 差异",
+            "Git Status" => "Git 状态",
+            "Git Status Indicator" => "Git 状态指示器",
+            "Git Panel Status Style" => "Git 面板状态样式",
+            "Show Branch Name" => "显示分支名称",
+            "Show Branch Status Icon" => "显示分支状态图标",
+            "Show Commit Summary" => "显示提交摘要",
+            "Show Author Name" => "显示作者名称",
+            "Show Avatar" => "显示头像",
+            "Collapse Untracked Diff" => "折叠未跟踪差异",
+            "Show Full File by Default" => "默认显示完整文件",
+            "Show Stage/Restore Buttons" => "显示暂存/还原按钮",
+            "Mute On Join" => "加入时静音",
+            "Share On Join" => "加入时共享",
+            "Test Audio" => "测试音频",
+            "Output Audio Device" => "音频输出设备",
+            "Input Audio Device" => "音频输入设备",
+            "Disable AI" => "禁用 AI",
+            "Threads Sidebar Side" => "线程侧边栏位置",
+            "LLM Providers" => "LLM 提供商",
+            "External Agents" => "外部智能代理",
+            "MCP Servers" => "MCP 服务器",
+            "Skills" => "技能",
+            "Sandbox" => "沙箱",
+            "Tool Permissions" => "工具权限",
+            "Single File Review" => "单文件审阅",
+            "Enable Feedback" => "启用反馈",
+            "Notify When Agent Waiting" => "智能代理等待时通知",
+            "Play Sound When Agent Done" => "智能代理完成时播放声音",
+            "Expand Edit Card" => "展开编辑卡片",
+            "Expand Terminal Card" => "展开终端卡片",
+            "Thinking Display" => "思考内容显示",
+            "Cancel Generation On Terminal Stop" => "终端停止时取消生成",
+            "Use Modifier To Send" => "使用修饰键发送",
+            "Message Editor Min Lines" => "消息编辑器最小行数",
+            "Show Turn Stats" => "显示轮次统计",
+            "Show Merge Conflict Indicator" => "显示合并冲突指示器",
+            "Auto Compact" => "自动压缩上下文",
+            "Auto Compact Threshold" => "自动压缩阈值",
+            "Display Mode" => "显示模式",
+            "Proxy" => "代理",
+            "Server URL" => "服务器 URL",
+            "The language used for Zed's user interface." => "用于显示 Zed 用户界面的语言。",
+            "Optimize Zed's interface for assistive technology such as screen readers. When enabled, otherwise-collapsed controls stay expanded and keyboard-reachable." => {
+                "为屏幕阅读器等辅助技术优化 Zed 界面。启用后，原本折叠的控件会保持展开并可通过键盘访问。"
+            }
+            "What to do when using the 'close active item' action with no tabs." => {
+                "没有标签页时，执行“关闭活动项”操作的处理方式。"
+            }
+            "What to do when the last window is closed." => "关闭最后一个窗口时的处理方式。",
+            "Use native OS dialogs for 'Open' and 'Save As'." => {
+                "为“打开”和“另存为”使用操作系统原生对话框。"
+            }
+            "Use native OS dialogs for confirmations." => "为确认操作使用操作系统原生对话框。",
+            "Hide the values of variables in private files." => "隐藏私密文件中的变量值。",
+            "Globs to match against file paths to determine if a file is private." => {
+                "用于匹配文件路径、判定文件是否私密的 glob 模式。"
+            }
+            "How `zed <path>` opens directories when no flag is specified." => {
+                "未指定参数时，`zed <path>` 打开目录的方式。"
+            }
+            "How projects open from the UI by default." => "从界面打开项目时的默认方式。",
+            "When opening Zed, avoid Restricted Mode by auto-trusting all projects, enabling use of all features without having to give permission to each new project." => {
+                "打开 Zed 时自动信任所有项目以避免受限模式，无需为每个新项目单独授予权限即可使用全部功能。"
+            }
+            "Whether or not to restore unsaved buffers on restart." => {
+                "重启后是否恢复未保存的缓冲区。"
+            }
+            "What to restore from the previous session when opening Zed." => {
+                "打开 Zed 时从上一会话恢复哪些内容。"
+            }
+            "Which settings should be activated only in Preview build of Zed." => {
+                "仅在 Zed 预览版中启用哪些设置。"
+            }
+            "Any number of settings profiles that are temporarily applied on top of your existing user settings." => {
+                "可临时叠加到现有用户设置之上的任意数量设置配置文件。"
+            }
+            "Send debug information like crash reports." => "发送崩溃报告等调试信息。",
+            "Send anonymized usage data like what languages you're using Zed with." => {
+                "发送匿名使用数据，例如你在 Zed 中使用的编程语言。"
+            }
+            "Allow sending requests to Anthropic models that cannot be offered with Zero Data Retention." => {
+                "允许向不支持零数据保留的 Anthropic 模型发送请求。"
+            }
+            "Whether or not to automatically check for updates." => "是否自动检查更新。",
+            "Failed to load your settings. Some values may be incorrect and changes may be lost." => {
+                "无法加载你的设置。部分值可能不正确，所做更改可能会丢失。"
+            }
+            "Your settings are out of date, and need to be updated." => {
+                "你的设置已过期，需要更新。"
+            }
+            "They can be automatically migrated to the latest version." => {
+                "可以自动迁移到最新版本。"
+            }
+            "They must be manually migrated to the latest version." => "必须手动迁移到最新版本。",
+            "Your settings file is out of date, automatic migration failed" => {
+                "你的设置文件已过期，自动迁移失败"
+            }
+            _ => text,
+        },
+    }
+}
+
+fn localized_shared(text: &SharedString, cx: &App) -> SharedString {
+    if UiLanguageSetting::get_global(cx).0 == UiLanguage::English {
+        return text.clone();
+    }
+
+    match text.as_ref() {
+        "Configure" => "配置",
+        "Configure Providers" => "配置提供商",
+        "Edit Keybindings" => "编辑键位绑定",
+        "Feature Flags" => "功能标志",
+        "LLM Providers" => "LLM 提供商",
+        "External Agents" => "外部智能代理",
+        "MCP Servers" => "MCP 服务器",
+        "Skills" => "技能",
+        "Sandbox" => "沙箱",
+        "Tool Permissions" => "工具权限",
+        "Test Audio" => "测试音频",
+        "Create Skill" => "创建技能",
+        _ => text.as_ref(),
+    }
+    .into()
+}
 
 actions!(
     settings_editor,
@@ -330,8 +770,8 @@ impl SettingFieldRenderer {
                     field,
                     settings_file.clone(),
                     metadata,
-                    item.title,
-                    item.description,
+                    localized(item.title, cx),
+                    localized(item.description, cx),
                     window,
                     cx,
                 );
@@ -511,12 +951,15 @@ fn init_renderers(cx: &mut App) {
                     settings_window,
                     item,
                     settings_file,
-                    Button::new("open-in-settings-file", "Edit in settings.json")
+                    Button::new(
+                        "open-in-settings-file",
+                        localized("Edit in settings.json", cx),
+                    )
                         .style(ButtonStyle::Outlined)
                         .size(ButtonSize::Medium)
                         .tab_index(0_isize)
                         .tooltip(Tooltip::for_action_title_in(
-                            "Edit in settings.json",
+                            localized("Edit in settings.json", cx),
                             &OpenCurrentFile,
                             &settings_window.focus_handle,
                         ))
@@ -530,6 +973,7 @@ fn init_renderers(cx: &mut App) {
             },
         )
         .add_basic_renderer::<bool>(render_toggle_button)
+        .add_basic_renderer::<settings::UiLanguage>(render_dropdown)
         .add_basic_renderer::<String>(render_text_field)
         .add_basic_renderer::<SharedString>(render_text_field)
         .add_basic_renderer::<settings::SaturatingBool>(render_toggle_button)
@@ -846,6 +1290,7 @@ fn open_settings_editor_with(
         let current_rem_size: f32 = theme_settings::ThemeSettings::get_global(cx)
             .ui_font_size(cx)
             .into();
+        let settings_window_title = localized("Zed — Settings", cx);
 
         let default_bounds = DEFAULT_ADDITIONAL_WINDOW_SIZE;
         let default_rem_size = 16.0;
@@ -865,7 +1310,7 @@ fn open_settings_editor_with(
         cx.open_window(
             WindowOptions {
                 titlebar: Some(TitlebarOptions {
-                    title: Some("Zed — Settings".into()),
+                    title: Some(settings_window_title.into()),
                     appears_transparent: true,
                     traffic_light_position: Some(point(px(12.0), px(12.0))),
                 }),
@@ -1170,7 +1615,8 @@ impl SettingsPageItem {
 
         match self {
             SettingsPageItem::SectionHeader(header) => {
-                SettingsSectionHeader::new(SharedString::new_static(header)).into_any_element()
+                SettingsSectionHeader::new(SharedString::new_static(localized(header, cx)))
+                    .into_any_element()
             }
             SettingsPageItem::SettingItem(setting_item) => {
                 let (field_with_padding, _) =
@@ -1183,85 +1629,96 @@ impl SettingsPageItem {
                     .when(bottom_border, |this| this.child(Divider::horizontal()))
                     .into_any_element()
             }
-            SettingsPageItem::SubPageLink(sub_page_link) => v_flex()
-                .group("setting-item")
-                .px_8()
-                .child(
-                    h_flex()
-                        .id(sub_page_link.title.clone())
-                        .w_full()
-                        .min_w_0()
-                        .justify_between()
-                        .map(apply_padding)
-                        .child(
-                            v_flex()
-                                .relative()
-                                .w_full()
-                                .max_w_1_2()
-                                .child(Label::new(sub_page_link.title.clone()))
-                                .when_some(
-                                    sub_page_link.description.as_ref(),
-                                    |this, description| {
+            SettingsPageItem::SubPageLink(sub_page_link) => {
+                let title = localized_shared(&sub_page_link.title, cx);
+                let description = sub_page_link
+                    .description
+                    .as_ref()
+                    .map(|description| localized_shared(description, cx));
+
+                v_flex()
+                    .group("setting-item")
+                    .px_8()
+                    .child(
+                        h_flex()
+                            .id(sub_page_link.title.clone())
+                            .w_full()
+                            .min_w_0()
+                            .justify_between()
+                            .map(apply_padding)
+                            .child(
+                                v_flex()
+                                    .relative()
+                                    .w_full()
+                                    .max_w_1_2()
+                                    .child(Label::new(title.clone()))
+                                    .when_some(description, |this, description| {
                                         this.child(
-                                            Label::new(description.clone())
+                                            Label::new(description)
                                                 .size(LabelSize::Small)
                                                 .color(Color::Muted),
                                         )
-                                    },
-                                ),
-                        )
-                        .child(
-                            Button::new(
-                                ("sub-page".into(), sub_page_link.title.clone()),
-                                "Configure",
+                                    }),
                             )
-                            .aria_label(format!("Configure {}", sub_page_link.title))
-                            .tab_index(0_isize)
-                            .end_icon(
-                                Icon::new(IconName::ChevronRight)
-                                    .size(IconSize::Small)
-                                    .color(Color::Muted),
-                            )
-                            .style(ButtonStyle::OutlinedGhost)
-                            .size(ButtonSize::Medium)
-                            .on_click({
-                                let sub_page_link = sub_page_link.clone();
-                                cx.listener(move |this, _, window, cx| {
-                                    let header_text = this
-                                        .sub_page_stack
-                                        .last()
-                                        .map(|sub_page| sub_page.link.title.clone())
-                                        .or_else(|| {
-                                            this.current_page()
-                                                .items
-                                                .iter()
-                                                .take(item_index)
-                                                .rev()
-                                                .find_map(|item| {
-                                                    item.header_text().map(SharedString::new_static)
-                                                })
-                                        });
+                            .child(
+                                Button::new(
+                                    ("sub-page".into(), sub_page_link.title.clone()),
+                                    localized("Configure", cx),
+                                )
+                                .aria_label(format!("{} {}", localized("Configure", cx), title))
+                                .tab_index(0_isize)
+                                .end_icon(
+                                    Icon::new(IconName::ChevronRight)
+                                        .size(IconSize::Small)
+                                        .color(Color::Muted),
+                                )
+                                .style(ButtonStyle::OutlinedGhost)
+                                .size(ButtonSize::Medium)
+                                .on_click({
+                                    let sub_page_link = sub_page_link.clone();
+                                    cx.listener(move |this, _, window, cx| {
+                                        let header_text = this
+                                            .sub_page_stack
+                                            .last()
+                                            .map(|sub_page| sub_page.link.title.clone())
+                                            .or_else(|| {
+                                                this.current_page()
+                                                    .items
+                                                    .iter()
+                                                    .take(item_index)
+                                                    .rev()
+                                                    .find_map(|item| {
+                                                        item.header_text()
+                                                            .map(SharedString::new_static)
+                                                    })
+                                            });
 
-                                    let Some(header) = header_text else {
-                                        unreachable!(
-                                            "All items always have a section header above them"
+                                        let Some(header) = header_text else {
+                                            unreachable!(
+                                                "All items always have a section header above them"
+                                            )
+                                        };
+
+                                        this.push_sub_page(
+                                            sub_page_link.clone(),
+                                            header,
+                                            window,
+                                            cx,
                                         )
-                                    };
-
-                                    this.push_sub_page(sub_page_link.clone(), header, window, cx)
-                                })
-                            }),
-                        )
-                        .child(render_settings_item_link(
-                            sub_page_link.title.clone(),
-                            sub_page_link.json_path,
-                            false,
-                            settings_window,
-                            cx,
-                        )),
-                )
-                .when(bottom_border, |this| this.child(Divider::horizontal()))
-                .into_any_element(),
+                                    })
+                                }),
+                            )
+                            .child(render_settings_item_link(
+                                sub_page_link.title.clone(),
+                                sub_page_link.json_path,
+                                false,
+                                settings_window,
+                                cx,
+                            )),
+                    )
+                    .when(bottom_border, |this| this.child(Divider::horizontal()))
+                    .into_any_element()
+            }
             SettingsPageItem::DynamicItem(DynamicItem {
                 discriminant: discriminant_setting_item,
                 pick_discriminant,
@@ -1319,56 +1776,61 @@ impl SettingsPageItem {
 
                 return content.into_any_element();
             }
-            SettingsPageItem::ActionLink(action_link) => v_flex()
-                .group("setting-item")
-                .px_8()
-                .child(
-                    h_flex()
-                        .id(action_link.title.clone())
-                        .w_full()
-                        .min_w_0()
-                        .justify_between()
-                        .map(apply_padding)
-                        .child(
-                            v_flex()
-                                .relative()
-                                .w_full()
-                                .max_w_1_2()
-                                .child(Label::new(action_link.title.clone()))
-                                .when_some(
-                                    action_link.description.as_ref(),
-                                    |this, description| {
+            SettingsPageItem::ActionLink(action_link) => {
+                let title = localized_shared(&action_link.title, cx);
+                let description = action_link
+                    .description
+                    .as_ref()
+                    .map(|description| localized_shared(description, cx));
+
+                v_flex()
+                    .group("setting-item")
+                    .px_8()
+                    .child(
+                        h_flex()
+                            .id(action_link.title.clone())
+                            .w_full()
+                            .min_w_0()
+                            .justify_between()
+                            .map(apply_padding)
+                            .child(
+                                v_flex()
+                                    .relative()
+                                    .w_full()
+                                    .max_w_1_2()
+                                    .child(Label::new(title))
+                                    .when_some(description, |this, description| {
                                         this.child(
-                                            Label::new(description.clone())
+                                            Label::new(description)
                                                 .size(LabelSize::Small)
                                                 .color(Color::Muted),
                                         )
-                                    },
-                                ),
-                        )
-                        .child(
-                            Button::new(
-                                ("action-link".into(), action_link.title.clone()),
-                                action_link.button_text.clone(),
+                                    }),
                             )
-                            .tab_index(0_isize)
-                            .end_icon(
-                                Icon::new(IconName::ArrowUpRight)
-                                    .size(IconSize::Small)
-                                    .color(Color::Muted),
-                            )
-                            .style(ButtonStyle::OutlinedGhost)
-                            .size(ButtonSize::Medium)
-                            .on_click({
-                                let on_click = action_link.on_click.clone();
-                                cx.listener(move |this, _, window, cx| {
-                                    on_click(this, window, cx);
-                                })
-                            }),
-                        ),
-                )
-                .when(bottom_border, |this| this.child(Divider::horizontal()))
-                .into_any_element(),
+                            .child(
+                                Button::new(
+                                    ("action-link".into(), action_link.title.clone()),
+                                    localized_shared(&action_link.button_text, cx),
+                                )
+                                .tab_index(0_isize)
+                                .end_icon(
+                                    Icon::new(IconName::ArrowUpRight)
+                                        .size(IconSize::Small)
+                                        .color(Color::Muted),
+                                )
+                                .style(ButtonStyle::OutlinedGhost)
+                                .size(ButtonSize::Medium)
+                                .on_click({
+                                    let on_click = action_link.on_click.clone();
+                                    cx.listener(move |this, _, window, cx| {
+                                        on_click(this, window, cx);
+                                    })
+                                }),
+                            ),
+                    )
+                    .when(bottom_border, |this| this.child(Divider::horizontal()))
+                    .into_any_element()
+            }
         }
     }
 }
@@ -1388,6 +1850,9 @@ fn render_settings_item_layout(
     sub_field: bool,
     cx: &mut Context<'_, SettingsWindow>,
 ) -> Stateful<Div> {
+    let localized_title = localized(title, cx);
+    let localized_description = localized(description, cx);
+
     // Note: the row itself is intentionally not exposed as a labeled group.
     // Each control names and describes itself (via the setting title and
     // description), so adding a group with the same label here would make
@@ -1406,14 +1871,14 @@ fn render_settings_item_layout(
                     h_flex()
                         .w_full()
                         .gap_1()
-                        .child(Label::new(SharedString::new_static(title)))
+                        .child(Label::new(SharedString::new_static(localized_title)))
                         .when_some(reset_fn, |this, reset_to_default| {
                             this.child(
                                 IconButton::new("reset-to-default-btn", IconName::Undo)
                                     .icon_color(Color::Muted)
                                     .icon_size(IconSize::Small)
-                                    .aria_label("Reset to Default")
-                                    .tooltip(Tooltip::text("Reset to Default"))
+                                    .aria_label(localized("Reset to Default", cx))
+                                    .tooltip(Tooltip::text(localized("Reset to Default", cx)))
                                     .on_click(move |_, window, cx| {
                                         reset_to_default(window, cx);
                                     }),
@@ -1421,14 +1886,17 @@ fn render_settings_item_layout(
                         })
                         .when_some(modified_in, |this, modified_in| {
                             this.child(
-                                Label::new(format!("\u{2014}  Modified in {modified_in}"))
-                                    .color(Color::Muted)
-                                    .size(LabelSize::Small),
+                                Label::new(format!(
+                                    "\u{2014}  {} {modified_in}",
+                                    localized("Modified in", cx)
+                                ))
+                                .color(Color::Muted)
+                                .size(LabelSize::Small),
                             )
                         }),
                 )
                 .child(
-                    Label::new(SharedString::new_static(description))
+                    Label::new(SharedString::new_static(localized_description))
                         .size(LabelSize::Small)
                         .color(Color::Muted)
                         .render_code_spans(),
@@ -1467,7 +1935,7 @@ fn render_settings_item(
 
     let modified_in = file_set_in
         .filter(|f| f != &file)
-        .and_then(|f| settings_window.display_name(&f));
+        .and_then(|f| settings_window.display_name(&f, cx));
 
     let control = if setting_item.field.is_overridden_by_organization(cx) {
         h_flex()
@@ -1485,9 +1953,12 @@ fn render_settings_item(
                     )
                     .tooltip(|_, cx| {
                         Tooltip::with_meta(
-                            "Overridden by Organization",
+                            localized("Overridden by Organization", cx),
                             None,
-                            "Contact your organization admins to adjust this setting.",
+                            localized(
+                                "Contact your organization admins to adjust this setting.",
+                                cx,
+                            ),
                             cx,
                         )
                     }),
@@ -1544,8 +2015,8 @@ fn render_settings_item_link(
                 .icon_color(link_icon_color)
                 .icon_size(IconSize::Small)
                 .shape(IconButtonShape::Square)
-                .aria_label("Copy Link")
-                .tooltip(Tooltip::text("Copy Link"))
+                .aria_label(localized("Copy Link", cx))
+                .tooltip(Tooltip::text(localized("Copy Link", cx)))
                 .when_some(json_path, |this, path| {
                     this.on_click(cx.listener(move |this, _, _, cx| {
                         let link = format!("zed://settings/{}", path);
@@ -1768,7 +2239,7 @@ impl SettingsWindow {
         let current_file = SettingsUiFile::User;
         let search_bar = cx.new(|cx| {
             let mut editor = Editor::single_line(window, cx);
-            editor.set_placeholder_text("Search settings…", window, cx);
+            editor.set_placeholder_text(localized("Search settings…", cx), window, cx);
             editor
         });
         cx.subscribe(&search_bar, |this, _, event: &EditorEvent, cx| {
@@ -1785,6 +2256,7 @@ impl SettingsWindow {
         .detach();
 
         let mut ui_font_size = ThemeSettings::get_global(cx).ui_font_size(cx);
+        let mut ui_language = UiLanguageSetting::get_global(cx).0;
         cx.observe_global_in::<SettingsStore>(window, move |this, window, cx| {
             this.fetch_files(window, cx);
 
@@ -1798,6 +2270,18 @@ impl SettingsWindow {
             if new_ui_font_size != ui_font_size {
                 this.list_state.remeasure();
                 ui_font_size = new_ui_font_size;
+            }
+
+            let new_ui_language = UiLanguageSetting::get_global(cx).0;
+            if new_ui_language != ui_language {
+                ui_language = new_ui_language;
+                window.set_window_title(localized("Zed — Settings", cx));
+                this.search_bar.update(cx, |editor, cx| {
+                    editor.set_placeholder_text(localized("Search settings…", cx), window, cx);
+                });
+                this.list_state.remeasure();
+                this.build_search_index(cx);
+                this.update_matches(cx);
             }
 
             cx.notify();
@@ -2009,7 +2493,7 @@ impl SettingsWindow {
 
         this.fetch_files(window, cx);
         this.build_ui(window, cx);
-        this.build_search_index();
+        this.build_search_index(cx);
 
         this.search_bar.update(cx, |editor, cx| {
             editor.focus_handle(cx).focus(window, cx);
@@ -2358,7 +2842,7 @@ impl SettingsWindow {
             .collect::<Vec<_>>();
     }
 
-    fn build_search_index(&mut self) {
+    fn build_search_index(&mut self, cx: &App) {
         fn split_into_words(parts: &[&str]) -> Vec<String> {
             parts
                 .iter()
@@ -2368,6 +2852,13 @@ impl SettingsWindow {
                         .map(|w| w.to_lowercase())
                 })
                 .collect()
+        }
+
+        fn split_localized_into_words(parts: &[&'static str], cx: &App) -> Vec<String> {
+            let mut words = split_into_words(parts);
+            let translated_parts: Vec<_> = parts.iter().map(|part| localized(part, cx)).collect();
+            words.extend(split_into_words(&translated_parts));
+            words
         }
 
         let mut key_lut: Vec<SearchKeyLUTEntry> = vec![];
@@ -2381,6 +2872,19 @@ impl SettingsWindow {
         ) {
             for word in input.split_ascii_whitespace() {
                 fuzzy_match_candidates.push(StringMatchCandidate::new(key_index, word));
+            }
+        }
+
+        fn push_localized_candidates(
+            fuzzy_match_candidates: &mut Vec<StringMatchCandidate>,
+            key_index: usize,
+            input: &'static str,
+            cx: &App,
+        ) {
+            push_candidates(fuzzy_match_candidates, key_index, input);
+            let translated = localized(input, cx);
+            if translated != input {
+                push_candidates(fuzzy_match_candidates, key_index, translated);
             }
         }
 
@@ -2404,22 +2908,35 @@ impl SettingsWindow {
                             .map(|path| path.trim_end_matches('$'));
                         documents.push(SearchDocument {
                             id: key_index,
-                            words: split_into_words(&[
-                                page.title,
-                                header_str,
-                                item.title,
-                                item.description,
-                            ]),
+                            words: split_localized_into_words(
+                                &[page.title, header_str, item.title, item.description],
+                                cx,
+                            ),
                         });
-                        push_candidates(&mut fuzzy_match_candidates, key_index, item.title);
-                        push_candidates(&mut fuzzy_match_candidates, key_index, item.description);
+                        push_localized_candidates(
+                            &mut fuzzy_match_candidates,
+                            key_index,
+                            item.title,
+                            cx,
+                        );
+                        push_localized_candidates(
+                            &mut fuzzy_match_candidates,
+                            key_index,
+                            item.description,
+                            cx,
+                        );
                     }
                     SettingsPageItem::SectionHeader(header) => {
                         documents.push(SearchDocument {
                             id: key_index,
-                            words: split_into_words(&[header]),
+                            words: split_localized_into_words(&[header], cx),
                         });
-                        push_candidates(&mut fuzzy_match_candidates, key_index, header);
+                        push_localized_candidates(
+                            &mut fuzzy_match_candidates,
+                            key_index,
+                            header,
+                            cx,
+                        );
                         header_index = item_index;
                         header_str = *header;
                     }
@@ -2456,8 +2973,8 @@ impl SettingsWindow {
                         );
                     }
                 }
-                push_candidates(&mut fuzzy_match_candidates, key_index, page.title);
-                push_candidates(&mut fuzzy_match_candidates, key_index, header_str);
+                push_localized_candidates(&mut fuzzy_match_candidates, key_index, page.title, cx);
+                push_localized_candidates(&mut fuzzy_match_candidates, key_index, header_str, cx);
 
                 key_lut.push(SearchKeyLUTEntry {
                     page_index,
@@ -2519,7 +3036,7 @@ impl SettingsWindow {
         self.navbar_focus_subscriptions.clear();
         self.content_handles.clear();
         self.build_ui(window, cx);
-        self.build_search_index();
+        self.build_search_index(cx);
     }
 
     #[track_caller]
@@ -2802,7 +3319,7 @@ impl SettingsWindow {
             |ix, file: &SettingsUiFile, focus_handle, cx: &mut Context<SettingsWindow>| {
                 Button::new(
                     ix,
-                    self.display_name(&file)
+                    self.display_name(&file, cx)
                         .expect("Files should always have a name"),
                 )
                 .toggle_state(file == &self.current_file)
@@ -2837,7 +3354,7 @@ impl SettingsWindow {
         h_flex()
             .id("settings-ui-files-header")
             .role(Role::Group)
-            .aria_label("Settings File")
+            .aria_label(localized("Settings File", cx))
             .w_full()
             .gap_1()
             .justify_between()
@@ -2861,7 +3378,7 @@ impl SettingsWindow {
                                     DropdownMenu::new(
                                         "more-files",
                                         format!("+{}", self.files.len() - (OVERFLOW_LIMIT + 1)),
-                                        ContextMenu::build(window, cx, move |mut menu, _, _| {
+                                        ContextMenu::build(window, cx, move |mut menu, _, cx| {
                                             for (mut ix, (file, focus_handle)) in self
                                                 .files
                                                 .iter()
@@ -2872,12 +3389,15 @@ impl SettingsWindow {
                                                     if selected_file_ix == ix {
                                                         ix = OVERFLOW_LIMIT;
                                                         (
-                                                            self.display_name(&self.files[ix].0),
+                                                            self.display_name(
+                                                                &self.files[ix].0,
+                                                                cx,
+                                                            ),
                                                             self.files[ix].1.clone(),
                                                         )
                                                     } else {
                                                         (
-                                                            self.display_name(&file),
+                                                            self.display_name(&file, cx),
                                                             focus_handle.clone(),
                                                         )
                                                     };
@@ -2902,7 +3422,10 @@ impl SettingsWindow {
                                         }),
                                     )
                                     .style(DropdownStyle::Subtle)
-                                    .trigger_tooltip(Tooltip::text("View Other Projects"))
+                                    .trigger_tooltip(Tooltip::text(localized(
+                                        "View Other Projects",
+                                        cx,
+                                    )))
                                     .trigger_icon(IconName::ChevronDown)
                                     .attach(gpui::Anchor::BottomLeft)
                                     .offset(gpui::Point {
@@ -2915,11 +3438,11 @@ impl SettingsWindow {
                     }),
             )
             .child(
-                Button::new(edit_in_json_id, "Edit in settings.json")
+                Button::new(edit_in_json_id, localized("Edit in settings.json", cx))
                     .tab_index(0_isize)
                     .style(ButtonStyle::OutlinedGhost)
                     .tooltip(Tooltip::for_action_title_in(
-                        "Edit in settings.json",
+                        localized("Edit in settings.json", cx),
                         &OpenCurrentFile,
                         &self.focus_handle,
                     ))
@@ -2929,9 +3452,9 @@ impl SettingsWindow {
             )
     }
 
-    pub(crate) fn display_name(&self, file: &SettingsUiFile) -> Option<String> {
+    pub(crate) fn display_name(&self, file: &SettingsUiFile, cx: &App) -> Option<String> {
         match file {
-            SettingsUiFile::User => Some("User".to_string()),
+            SettingsUiFile::User => Some(localized("User", cx).to_string()),
             SettingsUiFile::Project((worktree_id, path)) => self
                 .worktree_root_dirs
                 .get(&worktree_id)
@@ -2982,7 +3505,7 @@ impl SettingsWindow {
         h_flex()
             .id("settings-ui-search")
             .role(Role::SearchInput)
-            .aria_label("Search Settings")
+            .aria_label(localized("Search Settings", cx))
             .aria_value(a11y_value)
             .track_focus(&self.search_bar.focus_handle(cx))
             .a11y_synthetic_children(a11y_text_runs)
@@ -3157,7 +3680,7 @@ impl SettingsWindow {
                 v_flex()
                     .id("settings-ui-nav")
                     .role(Role::Tree)
-                    .aria_label("Settings Navigation")
+            .aria_label(localized("Settings Navigation", cx))
                     .flex_1()
                     .overflow_hidden()
                     .track_focus(&self.navbar_focus_handle.focus_handle(cx))
@@ -3174,7 +3697,7 @@ impl SettingsWindow {
                                     .map(|(entry_index, entry)| {
                                         TreeViewItem::new(
                                             ("settings-ui-navbar-entry", entry_index),
-                                            entry.title,
+                                            localized(entry.title, cx),
                                         )
                                         .track_focus(&entry.focus_handle)
                                         .root_item(entry.is_root)
@@ -3249,7 +3772,7 @@ impl SettingsWindow {
                             ),
                             cx.theme().colors().surface_background.opacity(0.5),
                         )
-                        .suffix(focus_keybind_label),
+                        .suffix(localized(focus_keybind_label, cx)),
                     ),
             )
     }
@@ -3415,8 +3938,8 @@ impl SettingsWindow {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let scope_name: SharedString = self
-            .display_name(&self.current_file)
-            .unwrap_or_else(|| self.current_file.setting_type().to_string())
+            .display_name(&self.current_file, cx)
+            .unwrap_or_else(|| localized(self.current_file.setting_type(), cx).to_string())
             .into();
 
         // Only offer scopes in which every sub-page in the stack is available.
@@ -3439,13 +3962,13 @@ impl SettingsWindow {
             DropdownMenu::new(
                 "sub-page-scope-picker",
                 scope_name,
-                ContextMenu::build(window, cx, move |mut menu, _, _| {
-                    menu = menu.header("Scope");
+                ContextMenu::build(window, cx, move |mut menu, _, cx| {
+                    menu = menu.header(localized("Scope", cx));
 
                     for ix in allowed_file_indices {
                         let (file, focus_handle) = &self.files[ix];
                         let display_name = self
-                            .display_name(file)
+                            .display_name(file, cx)
                             .expect("Files should always have a name");
 
                         menu = menu.toggleable_entry(
@@ -3470,7 +3993,7 @@ impl SettingsWindow {
                 }),
             )
             .style(DropdownStyle::Subtle)
-            .trigger_tooltip(Tooltip::text("Change Scope"))
+            .trigger_tooltip(Tooltip::text(localized("Change Scope", cx)))
             .attach(gpui::Anchor::BottomLeft)
             .offset(gpui::Point {
                 x: px(0.0),
@@ -3492,15 +4015,15 @@ impl SettingsWindow {
             .child(Label::new("/").color(Color::Muted))
             .children(
                 itertools::intersperse(
-                    std::iter::once(self.current_page().title.into()).chain(
+                    std::iter::once(localized(self.current_page().title, cx).into()).chain(
                         self.sub_page_stack
                             .iter()
                             .enumerate()
                             .flat_map(|(index, page)| {
                                 (index == 0)
-                                    .then(|| page.section_header.clone())
+                                    .then(|| localized_shared(&page.section_header, cx))
                                     .into_iter()
-                                    .chain(std::iter::once(page.link.title.clone()))
+                                    .chain(std::iter::once(localized_shared(&page.link.title, cx)))
                             }),
                     ),
                     "/".into(),
@@ -3517,11 +4040,15 @@ impl SettingsWindow {
             .items_center()
             .justify_center()
             .gap_1()
-            .child(Label::new("No Results"))
+            .child(Label::new(localized("No Results", cx)))
             .child(
-                Label::new(format!("No settings match \"{}\"", search_query))
-                    .size(LabelSize::Small)
-                    .color(Color::Muted),
+                Label::new(format!(
+                    "{} \"{}\"",
+                    localized("No settings match", cx),
+                    search_query
+                ))
+                .size(LabelSize::Small)
+                .color(Color::Muted),
             )
     }
 
@@ -3534,7 +4061,7 @@ impl SettingsWindow {
         let mut page_content = v_flex()
             .id("settings-ui-page")
             .role(Role::Group)
-            .aria_label("Settings Content")
+            .aria_label(localized("Settings Content", cx))
             .size_full();
 
         let has_active_search = !self.search_bar.read(cx).is_empty(cx);
@@ -3565,7 +4092,10 @@ impl SettingsWindow {
                             .when(this.sub_page_stack.is_empty(), |this| {
                                 this.when_some(root_nav_label, |this, title| {
                                     this.child(
-                                        Label::new(title).size(LabelSize::Large).mt_2().mb_3(),
+                                        Label::new(localized(title, cx))
+                                            .size(LabelSize::Large)
+                                            .mt_2()
+                                            .mb_3(),
                                     )
                                 })
                             })
@@ -3682,7 +4212,12 @@ impl SettingsWindow {
             page_content
                 .when(self.sub_page_stack.is_empty(), |this| {
                     this.when_some(root_nav_label, |this, title| {
-                        this.child(Label::new(title).size(LabelSize::Large).mt_2().mb_3())
+                        this.child(
+                            Label::new(localized(title, cx))
+                                .size(LabelSize::Large)
+                                .mt_2()
+                                .mb_3(),
+                        )
                     })
                 })
                 .children(items.clone().into_iter().enumerate().map(
@@ -3753,17 +4288,22 @@ impl SettingsWindow {
                         .flex_shrink_0()
                         .when(current_sub_page.link.in_json, |this| {
                             this.child(
-                                Button::new("open-in-settings-file", "Edit in settings.json")
-                                    .tab_index(0_isize)
-                                    .style(ButtonStyle::OutlinedGhost)
-                                    .tooltip(Tooltip::for_action_title_in(
-                                        "Edit in settings.json",
-                                        &OpenCurrentFile,
-                                        &self.focus_handle,
-                                    ))
-                                    .on_click(cx.listener(|this, _, window, cx| {
+                                Button::new(
+                                    "open-in-settings-file",
+                                    localized("Edit in settings.json", cx),
+                                )
+                                .tab_index(0_isize)
+                                .style(ButtonStyle::OutlinedGhost)
+                                .tooltip(Tooltip::for_action_title_in(
+                                    localized("Edit in settings.json", cx),
+                                    &OpenCurrentFile,
+                                    &self.focus_handle,
+                                ))
+                                .on_click(cx.listener(
+                                    |this, _, window, cx| {
                                         this.open_current_settings_file(window, cx);
-                                    })),
+                                    },
+                                )),
                             )
                         })
                         .when(is_llm_providers_page, |this| {
@@ -3771,7 +4311,7 @@ impl SettingsWindow {
                         })
                         .when(is_skills_page, |this| {
                             this.child(
-                                Button::new("open-skill-creator", "Create Skill")
+                                Button::new("open-skill-creator", localized("Create Skill", cx))
                                     .tab_index(0_isize)
                                     .style(ButtonStyle::OutlinedGhost)
                                     .on_click(cx.listener(|this, _, window, cx| {
@@ -3829,7 +4369,7 @@ impl SettingsWindow {
                     )
                     .action_slot(
                         div().pr_1().pb_1().child(
-                            Button::new("fix-in-json", "Fix in settings.json")
+                            Button::new("fix-in-json", localized("Fix in settings.json", cx))
                                 .tab_index(0_isize)
                                 .style(ButtonStyle::Tinted(ui::TintColor::Warning))
                                 .on_click(cx.listener(|this, _, window, cx| {
@@ -3846,7 +4386,10 @@ impl SettingsWindow {
                 .gap_2()
                 .when_some(parse_error, |this, err| {
                     this.child(banner(
-                        "Failed to load your settings. Some values may be incorrect and changes may be lost.",
+                        localized(
+                            "Failed to load your settings. Some values may be incorrect and changes may be lost.",
+                            cx,
+                        ),
                         err,
                         &mut self.shown_errors,
                         cx,
@@ -3854,17 +4397,26 @@ impl SettingsWindow {
                 })
                 .map(|this| match &error.migration_status {
                     settings::MigrationStatus::Succeeded => this.child(banner(
-                        "Your settings are out of date, and need to be updated.",
+                        localized("Your settings are out of date, and need to be updated.", cx),
                         match &self.current_file {
-                            SettingsUiFile::User => "They can be automatically migrated to the latest version.",
-                            SettingsUiFile::Server(_) | SettingsUiFile::Project(_)  => "They must be manually migrated to the latest version."
+                            SettingsUiFile::User => localized(
+                                "They can be automatically migrated to the latest version.",
+                                cx,
+                            ),
+                            SettingsUiFile::Server(_) | SettingsUiFile::Project(_) => localized(
+                                "They must be manually migrated to the latest version.",
+                                cx,
+                            ),
                         }.to_string(),
                         &mut self.shown_errors,
                         cx,
                     )),
                     settings::MigrationStatus::Failed { error: err } if !parse_failed => this
                         .child(banner(
-                            "Your settings file is out of date, automatic migration failed",
+                            localized(
+                                "Your settings file is out of date, automatic migration failed",
+                                cx,
+                            ),
                             err.clone(),
                             &mut self.shown_errors,
                             cx,
@@ -3896,18 +4448,19 @@ impl SettingsWindow {
                         v_flex()
                             .my_0p5()
                             .gap_0p5()
-                            .child(Label::new("Restricted Mode"))
+                            .child(Label::new(localized("Restricted Mode", cx)))
                             .child(
-                                Label::new(
+                                Label::new(localized(
                                     "This project is in restricted mode. Some project settings may not apply.",
-                                )
+                                    cx,
+                                ))
                                 .size(LabelSize::Small)
                                 .color(Color::Muted),
                             ),
                     )
                     .action_slot(
                         div().pr_2().pb_1().child(
-                            Button::new("manage-trust", "Manage Trust")
+                            Button::new("manage-trust", localized("Manage Trust", cx))
                                 .style(ButtonStyle::Tinted(ui::TintColor::Warning))
                                 .on_click(cx.listener(move |_this, _, window, cx| {
                                     if let Some(original_window) = original_window {
