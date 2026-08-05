@@ -5,7 +5,7 @@ use crate::git_panel::{
 use crate::git_panel_settings::GitPanelSettings;
 use git::{Amend, Commit, GenerateCommitMessage, Signoff, SkipHooks};
 use project::DisableAiSettings;
-use settings::Settings;
+use settings::{Settings, translate_ui};
 use ui::{
     ButtonLike, ContextMenu, ContextMenuEntry, DocumentationSide, ElevationIndex, KeybindingHint,
     PopoverMenu, PopoverMenuHandle, SplitButton, Tooltip, prelude::*,
@@ -288,6 +288,9 @@ impl CommitModal {
                     let signoff_enabled = git_panel.signoff_enabled();
                     let skip_hooks_enabled = git_panel.skip_hooks_enabled();
                     let has_previous_commit = git_panel.head_commit(cx).is_some();
+                    let amend_label = translate_ui("Amend", cx);
+                    let signoff_label = translate_ui("Signoff", cx);
+                    let skip_hooks_label = translate_ui("Skip Hooks", cx);
 
                     Some(ContextMenu::build(window, cx, |context_menu, _, _| {
                         context_menu
@@ -296,7 +299,7 @@ impl CommitModal {
                             })
                             .when(has_previous_commit, |this| {
                                 this.toggleable_entry(
-                                    "Amend",
+                                    amend_label,
                                     amend_enabled,
                                     IconPosition::Start,
                                     Some(Box::new(Amend)),
@@ -313,7 +316,7 @@ impl CommitModal {
                                 )
                             })
                             .toggleable_entry(
-                                "Signoff",
+                                signoff_label,
                                 signoff_enabled,
                                 IconPosition::Start,
                                 Some(Box::new(Signoff)),
@@ -327,7 +330,7 @@ impl CommitModal {
                                 },
                             )
                             .item(
-                                ContextMenuEntry::new("Skip Hooks")
+                                ContextMenuEntry::new(skip_hooks_label)
                                     .toggleable(IconPosition::Start, skip_hooks_enabled)
                                     .action(Box::new(SkipHooks))
                                     .handler(move |window, cx| {
@@ -360,7 +363,7 @@ impl CommitModal {
             is_generating,
         ) = self.git_panel.update(cx, |git_panel, cx| {
             let (can_commit, tooltip) = git_panel.configure_commit_button(cx);
-            let title = git_panel.commit_button_title();
+            let title = git_panel.commit_button_title(cx);
             let co_authors = git_panel.render_co_authors(cx);
             let generate_commit_message = git_panel.render_generate_commit_message_button(cx);
             let active_repo = git_panel.active_repository.clone();
@@ -383,7 +386,7 @@ impl CommitModal {
             .as_ref()
             .and_then(|repo| repo.read(cx).branch.as_ref())
             .map(|b| b.name().to_owned())
-            .unwrap_or_else(|| "<no branch>".to_owned());
+            .unwrap_or_else(|| translate_ui("<no branch>", cx).to_owned());
 
         let branch_picker_button = Button::new("branch_picker_button", branch)
             .label_size(LabelSize::Small)
@@ -409,7 +412,10 @@ impl CommitModal {
             .with_handle(self.branch_list_handle.clone())
             .trigger_with_tooltip(
                 branch_picker_button,
-                Tooltip::for_action_title("Switch Branch", &zed_actions::git::Branch),
+                Tooltip::for_action_title(
+                    translate_ui("Switch Branch", cx),
+                    &zed_actions::git::Branch,
+                ),
             )
             .anchor(Anchor::BottomLeft)
             .offset(gpui::Point {
@@ -420,7 +426,8 @@ impl CommitModal {
         let focus_handle = self.focus_handle(cx);
 
         let close_kb_hint = ui::KeyBinding::for_action(&menu::Cancel, cx).map(|close_kb| {
-            KeybindingHint::new(close_kb, cx.theme().colors().editor_background).suffix("Cancel")
+            KeybindingHint::new(close_kb, cx.theme().colors().editor_background)
+                .suffix(translate_ui("Cancel", cx))
         });
 
         h_flex()
@@ -688,9 +695,16 @@ impl Render for CommitModal {
                                         .color(Color::Warning),
                                 )
                                 .child(
-                                    Label::new(format!(
-                                        "Commit message title exceeds {max_title_length}-character limit."
-                                    ))
+                                    Label::new(
+                                        translate_ui(
+                                            "Commit message title exceeds {max_title_length}-character limit.",
+                                            cx,
+                                        )
+                                        .replace(
+                                            "{max_title_length}",
+                                            &max_title_length.to_string(),
+                                        ),
+                                    )
                                     .size(LabelSize::Small),
                                 ),
                         )

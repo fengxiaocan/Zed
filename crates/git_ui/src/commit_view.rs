@@ -25,7 +25,7 @@ use language::{
 use markdown::{Markdown, MarkdownElement};
 use multi_buffer::PathKey;
 use project::{Project, ProjectPath, WorktreeId, git_store::Repository};
-use settings::{DiffViewStyle, Settings};
+use settings::{DiffViewStyle, Settings, translate_ui};
 use std::{
     any::{Any, TypeId},
     collections::HashSet,
@@ -141,7 +141,7 @@ impl Addon for CommitDiffAddon {
         menu.when_some(file_to_open, |menu, file| {
             let commit_view = self.commit_view.clone();
             menu.entry(
-                "Open File in Project",
+                translate_ui("Open File in Project", cx),
                 Some(Box::new(OpenFileAtHead)),
                 move |window, cx| {
                     commit_view
@@ -600,9 +600,9 @@ impl CommitView {
         let has_more = self.commit.message.trim().contains('\n');
         let is_expanded = self.message_expanded;
         let expand_tooltip = if is_expanded {
-            "Fold Commit Description"
+            translate_ui("Fold Commit Description", cx)
         } else {
-            "Expand Commit Description"
+            translate_ui("Expand Commit Description", cx)
         };
 
         v_flex()
@@ -675,7 +675,7 @@ impl CommitView {
                     )
                     .when(self.stash.is_none(), |this| {
                         this.child(
-                            Button::new("sha", "Commit SHA")
+                            Button::new("sha", translate_ui("Commit SHA", cx))
                                 .start_icon(
                                     Icon::new(copy_icon)
                                         .size(IconSize::Small)
@@ -685,7 +685,7 @@ impl CommitView {
                                     let commit_sha = commit_sha.clone();
                                     move |_, cx| {
                                         Tooltip::with_meta(
-                                            "Copy Commit SHA",
+                                            translate_ui("Copy Commit SHA", cx),
                                             None,
                                             commit_sha.clone(),
                                             cx,
@@ -861,7 +861,7 @@ impl CommitView {
             PromptLevel::Info,
             &format!("{} stash@{{{}}}?", str_action, stash),
             None,
-            &[str_action, "Cancel"],
+            &[str_action, translate_ui("Cancel", cx)],
             cx,
         );
 
@@ -1309,7 +1309,7 @@ impl Render for CommitViewToolbar {
                     .icon_size(IconSize::Small)
                     .tooltip(move |_, cx| {
                         Tooltip::for_action(
-                            "Buffer Search",
+                            translate_ui("Buffer Search", cx),
                             &zed_actions::buffer_search::Deploy::find(),
                             cx,
                         )
@@ -1325,7 +1325,7 @@ impl Render for CommitViewToolbar {
                 this.child(
                     IconButton::new("show-in-git-graph", IconName::GitGraph)
                         .icon_size(IconSize::Small)
-                        .tooltip(Tooltip::text("Show in Git Graph"))
+                        .tooltip(Tooltip::text(translate_ui("Show in Git Graph", cx)))
                         .on_click(move |_, window, cx| {
                             window.dispatch_action(
                                 Box::new(crate::git_graph::OpenAtCommit {
@@ -1340,7 +1340,11 @@ impl Render for CommitViewToolbar {
 
                     IconButton::new("view_on_provider", icon)
                         .icon_size(IconSize::Small)
-                        .tooltip(Tooltip::text(format!("View on {}", provider_name)))
+                        .tooltip(Tooltip::text(format!(
+                            "{} {}",
+                            translate_ui("View on", cx),
+                            provider_name
+                        )))
                         .on_click(move |_, _, cx| cx.open_url(&url))
                 }))
             })

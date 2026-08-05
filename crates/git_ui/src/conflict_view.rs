@@ -14,7 +14,7 @@ use project::{
     ConflictRegion, ConflictSet, ConflictSetUpdate, Project,
     git_store::{GitStore, GitStoreEvent, RepositoryEvent},
 };
-use settings::Settings;
+use settings::{Settings, translate_ui};
 use std::{ops::Range, sync::Arc};
 use ui::{ButtonLike, Divider, Tooltip, prelude::*};
 use util::debug_panic;
@@ -374,7 +374,7 @@ fn render_conflict_buttons(
                 }),
         )
         .child(
-            Button::new("both", "Use Both")
+            Button::new("both", translate_ui("Use Both", cx))
                 .label_size(LabelSize::Small)
                 .on_click({
                     let editor = editor.clone();
@@ -395,7 +395,7 @@ fn render_conflict_buttons(
         )
         .when(is_ai_enabled, |this| {
             this.child(Divider::vertical()).child(
-                Button::new("resolve-with-agent", "Resolve with Agent")
+                Button::new("resolve-with-agent", translate_ui("Resolve with Agent", cx))
                     .label_size(LabelSize::Small)
                     .start_icon(
                         Icon::new(IconName::ZedAssistant)
@@ -616,22 +616,21 @@ impl Render for MergeConflictIndicator {
 
         let file_count = self.conflicted_paths.len();
 
-        let message: SharedString = format!(
-            "Resolve Merge Conflict{} with Agent",
-            if file_count == 1 { "" } else { "s" }
-        )
-        .into();
+        let message: SharedString = if file_count == 1 {
+            translate_ui("Resolve Merge Conflict with Agent", cx).into()
+        } else {
+            translate_ui("Resolve Merge Conflicts with Agent", cx).into()
+        };
 
-        let tooltip_label: SharedString = format!(
-            "Found {} {} across the codebase",
-            file_count,
-            if file_count == 1 {
-                "conflict"
-            } else {
-                "conflicts"
-            }
-        )
-        .into();
+        let tooltip_label: SharedString = if file_count == 1 {
+            translate_ui("Found {} conflict across the codebase", cx)
+                .replace("{}", &file_count.to_string())
+                .into()
+        } else {
+            translate_ui("Found {} conflicts across the codebase", cx)
+                .replace("{}", &file_count.to_string())
+                .into()
+        };
 
         let border_color = cx.theme().colors().text_accent.opacity(0.2);
 
@@ -659,7 +658,7 @@ impl Render for MergeConflictIndicator {
                         Tooltip::with_meta(
                             tooltip_label.clone(),
                             None,
-                            "Click to Resolve with Agent",
+                            translate_ui("Click to Resolve with Agent", cx),
                             cx,
                         )
                     })

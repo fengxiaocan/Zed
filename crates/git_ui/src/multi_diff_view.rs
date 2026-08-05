@@ -12,6 +12,7 @@ use gpui::{
 use language::{Buffer, Capability, HighlightedText, OffsetRangeExt};
 use multi_buffer::PathKey;
 use project::{Project, ProjectPath};
+use settings::translate_ui;
 use std::{
     any::{Any, TypeId},
     path::{Path, PathBuf},
@@ -208,13 +209,18 @@ impl MultiDiffView {
         Self { editor, file_count }
     }
 
-    fn title(&self) -> SharedString {
-        let suffix = if self.file_count == 1 {
-            "1 file".to_string()
+    fn title(&self, cx: &App) -> SharedString {
+        if self.file_count == 1 {
+            translate_ui("Diff (1 file)", cx).into()
         } else {
-            format!("{} files", self.file_count)
-        };
-        format!("Diff ({suffix})").into()
+            format!(
+                "{} ({} {})",
+                translate_ui("Diff", cx),
+                self.file_count,
+                translate_ui("files", cx)
+            )
+            .into()
+        }
     }
 }
 
@@ -233,8 +239,8 @@ impl Item for MultiDiffView {
         Some(Icon::new(IconName::Diff).color(Color::Muted))
     }
 
-    fn tab_content(&self, params: TabContentParams, _window: &Window, _cx: &App) -> AnyElement {
-        Label::new(self.title())
+    fn tab_content(&self, params: TabContentParams, _window: &Window, cx: &App) -> AnyElement {
+        Label::new(self.title(cx))
             .color(if params.selected {
                 Color::Default
             } else {
@@ -243,12 +249,12 @@ impl Item for MultiDiffView {
             .into_any_element()
     }
 
-    fn tab_tooltip_text(&self, _cx: &App) -> Option<ui::SharedString> {
-        Some(self.title())
+    fn tab_tooltip_text(&self, cx: &App) -> Option<ui::SharedString> {
+        Some(self.title(cx))
     }
 
-    fn tab_content_text(&self, _detail: usize, _cx: &App) -> SharedString {
-        self.title()
+    fn tab_content_text(&self, _detail: usize, cx: &App) -> SharedString {
+        self.title(cx)
     }
 
     fn to_item_events(event: &EditorEvent, f: &mut dyn FnMut(ItemEvent)) {

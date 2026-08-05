@@ -19,7 +19,7 @@ use project::{
     git_store::diff_buffer_list::{DiffBase, DiffBufferList},
     project_settings::ProjectSettings,
 };
-use settings::Settings;
+use settings::{Settings, translate_ui};
 use std::{
     any::{Any, TypeId},
     ops::Range,
@@ -140,9 +140,9 @@ impl DiffHunkDelegate for UnstagedDiffDelegate {
             .block_mouse_except_scroll()
             .shadow_md()
             .child(
-                Button::new(("stage", row as u64), "Stage")
+                Button::new(("stage", row as u64), translate_ui("Stage", cx))
                     .alpha(if status.is_pending() { 0.66 } else { 1.0 })
-                    .tooltip(Tooltip::text("Stage Hunk"))
+                    .tooltip(Tooltip::text(translate_ui("Stage Hunk", cx)))
                     .on_click({
                         let editor = editor.clone();
                         move |_event, window, cx| {
@@ -158,8 +158,8 @@ impl DiffHunkDelegate for UnstagedDiffDelegate {
                     }),
             )
             .child(
-                Button::new(("restore", row as u64), "Restore")
-                    .tooltip(Tooltip::text("Restore Hunk"))
+                Button::new(("restore", row as u64), translate_ui("Restore", cx))
+                    .tooltip(Tooltip::text(translate_ui("Restore Hunk", cx)))
                     .on_click({
                         let editor = editor.clone();
                         let hunk_range = hunk_range_for_restore;
@@ -276,11 +276,12 @@ impl UnstagedDiff {
         let branch_diff =
             cx.new(|cx| DiffBufferList::new(DiffBase::Index, project.clone(), window, cx));
         let workspace_handle = workspace.downgrade();
+        let no_unstaged_label = translate_ui("No unstaged changes", cx);
         let diff = cx.new(|cx| {
             DiffMultibuffer::new(
                 branch_diff,
                 Capability::ReadWrite,
-                "No unstaged changes",
+                no_unstaged_label,
                 move |editor, cx| {
                     editor.set_diff_hunk_delegate(Some(Arc::new(UnstagedDiffDelegate)), cx);
                     editor.rhs_editor().update(cx, |rhs_editor, _cx| {
@@ -417,8 +418,8 @@ impl Item for UnstagedDiff {
             .update(cx, |diff, cx| diff.navigate(data, window, cx))
     }
 
-    fn tab_tooltip_text(&self, _: &App) -> Option<SharedString> {
-        Some("Unstaged Changes".into())
+    fn tab_tooltip_text(&self, cx: &App) -> Option<SharedString> {
+        Some(translate_ui("Unstaged Changes", cx).into())
     }
 
     fn tab_content(&self, params: TabContentParams, _window: &Window, _cx: &App) -> AnyElement {
@@ -431,8 +432,8 @@ impl Item for UnstagedDiff {
             .into_any_element()
     }
 
-    fn tab_content_text(&self, _detail: usize, _cx: &App) -> SharedString {
-        "Unstaged Changes".into()
+    fn tab_content_text(&self, _detail: usize, cx: &App) -> SharedString {
+        translate_ui("Unstaged Changes", cx).into()
     }
 
     fn telemetry_event_text(&self) -> Option<&'static str> {
@@ -765,7 +766,7 @@ impl Render for UnstagedDiffToolbar {
                             .icon_size(IconSize::Small)
                             .disabled(!button_states.prev_next)
                             .tooltip(Tooltip::for_action_title_in(
-                                "Go to Previous Hunk",
+                                translate_ui("Go to Previous Hunk", cx),
                                 &GoToPreviousHunk,
                                 &focus_handle,
                             ))
@@ -778,7 +779,7 @@ impl Render for UnstagedDiffToolbar {
                             .icon_size(IconSize::Small)
                             .disabled(!button_states.prev_next)
                             .tooltip(Tooltip::for_action_title_in(
-                                "Go to Next Hunk",
+                                translate_ui("Go to Next Hunk", cx),
                                 &GoToHunk,
                                 &focus_handle,
                             ))
@@ -792,9 +793,9 @@ impl Render for UnstagedDiffToolbar {
                 h_group_sm()
                     .when(button_states.selection, |this| {
                         this.child(
-                            Button::new("stage", "Stage")
+                            Button::new("stage", translate_ui("Stage", cx))
                                 .disabled(!button_states.stage)
-                                .tooltip(Tooltip::text("Stage Selected Hunks"))
+                                .tooltip(Tooltip::text(translate_ui("Stage Selected Hunks", cx)))
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.stage_selected_unstaged_hunks(false, window, cx)
                                 })),
@@ -802,10 +803,10 @@ impl Render for UnstagedDiffToolbar {
                     })
                     .when(!button_states.selection, |this| {
                         this.child(
-                            Button::new("stage", "Stage")
+                            Button::new("stage", translate_ui("Stage", cx))
                                 .disabled(!button_states.stage)
                                 .tooltip(Tooltip::for_action_title_in(
-                                    "Stage and Go to Next Hunk",
+                                    translate_ui("Stage and Go to Next Hunk", cx),
                                     &StageAndNext,
                                     &focus_handle,
                                 ))
@@ -815,9 +816,9 @@ impl Render for UnstagedDiffToolbar {
                         )
                     })
                     .child(
-                        Button::new("restore", "Restore")
+                        Button::new("restore", translate_ui("Restore", cx))
                             .disabled(!button_states.restore)
-                            .tooltip(Tooltip::text("Restore Selected Hunks"))
+                            .tooltip(Tooltip::text(translate_ui("Restore Selected Hunks", cx)))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.restore_selected_unstaged_hunks(false, window, cx)
                             })),
@@ -825,11 +826,11 @@ impl Render for UnstagedDiffToolbar {
             )
             .child(Divider::vertical())
             .child(
-                Button::new("stage-all", "Stage All")
+                Button::new("stage-all", translate_ui("Stage All", cx))
                     .width(rems_from_px(80.))
                     .disabled(!button_states.stage_all)
                     .tooltip(Tooltip::for_action_title_in(
-                        "Stage All Changes",
+                        translate_ui("Stage All Changes", cx),
                         &StageAll,
                         &focus_handle,
                     ))
@@ -837,10 +838,10 @@ impl Render for UnstagedDiffToolbar {
             )
             .child(Divider::vertical())
             .child(
-                Button::new("restore-all", "Restore All")
+                Button::new("restore-all", translate_ui("Restore All", cx))
                     .width(rems_from_px(80.))
                     .disabled(!button_states.restore_all)
-                    .tooltip(Tooltip::text("Restore All Changes"))
+                    .tooltip(Tooltip::text(translate_ui("Restore All Changes", cx)))
                     .on_click(cx.listener(|this, _, window, cx| this.restore_all(window, cx))),
             )
     }

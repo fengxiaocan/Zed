@@ -19,7 +19,7 @@ use project::{
     git_store::diff_buffer_list::{DiffBase, DiffBufferList},
     project_settings::ProjectSettings,
 };
-use settings::Settings;
+use settings::{Settings, translate_ui};
 use std::{
     any::{Any, TypeId},
     ops::Range,
@@ -110,9 +110,9 @@ impl DiffHunkDelegate for StagedDiffDelegate {
             .block_mouse_except_scroll()
             .shadow_md()
             .child(
-                Button::new(("unstage", row as u64), "Unstage")
+                Button::new(("unstage", row as u64), translate_ui("Unstage", cx))
                     .alpha(if status.is_pending() { 0.66 } else { 1.0 })
-                    .tooltip(Tooltip::text("Unstage Hunk"))
+                    .tooltip(Tooltip::text(translate_ui("Unstage Hunk", cx)))
                     .on_click({
                         let editor = editor.clone();
                         move |_event, window, cx| {
@@ -222,11 +222,12 @@ impl StagedDiff {
         let branch_diff =
             cx.new(|cx| DiffBufferList::new(DiffBase::Staged, project.clone(), window, cx));
         let workspace_handle = workspace.downgrade();
+        let no_staged_label = translate_ui("No staged changes", cx);
         let diff = cx.new(|cx| {
             DiffMultibuffer::new(
                 branch_diff,
                 Capability::ReadOnly,
-                "No staged changes",
+                no_staged_label,
                 move |editor, cx| {
                     editor.set_diff_hunk_delegate(Some(Arc::new(StagedDiffDelegate)), cx);
                     editor.rhs_editor().update(cx, |rhs_editor, _cx| {
@@ -344,8 +345,8 @@ impl Item for StagedDiff {
             .update(cx, |diff, cx| diff.navigate(data, window, cx))
     }
 
-    fn tab_tooltip_text(&self, _: &App) -> Option<SharedString> {
-        Some("Staged Changes".into())
+    fn tab_tooltip_text(&self, cx: &App) -> Option<SharedString> {
+        Some(translate_ui("Staged Changes", cx).into())
     }
 
     fn tab_content(&self, params: TabContentParams, _window: &Window, _cx: &App) -> AnyElement {
@@ -358,8 +359,8 @@ impl Item for StagedDiff {
             .into_any_element()
     }
 
-    fn tab_content_text(&self, _detail: usize, _cx: &App) -> SharedString {
-        "Staged Changes".into()
+    fn tab_content_text(&self, _detail: usize, cx: &App) -> SharedString {
+        translate_ui("Staged Changes", cx).into()
     }
 
     fn telemetry_event_text(&self) -> Option<&'static str> {
@@ -659,7 +660,7 @@ impl Render for StagedDiffToolbar {
                             .icon_size(IconSize::Small)
                             .disabled(!button_states.prev_next)
                             .tooltip(Tooltip::for_action_title_in(
-                                "Go to Previous Hunk",
+                                translate_ui("Go to Previous Hunk", cx),
                                 &GoToPreviousHunk,
                                 &focus_handle,
                             ))
@@ -672,7 +673,7 @@ impl Render for StagedDiffToolbar {
                             .icon_size(IconSize::Small)
                             .disabled(!button_states.prev_next)
                             .tooltip(Tooltip::for_action_title_in(
-                                "Go to Next Hunk",
+                                translate_ui("Go to Next Hunk", cx),
                                 &GoToHunk,
                                 &focus_handle,
                             ))
@@ -686,9 +687,9 @@ impl Render for StagedDiffToolbar {
                 h_group_sm()
                     .when(button_states.selection, |this| {
                         this.child(
-                            Button::new("unstage", "Unstage")
+                            Button::new("unstage", translate_ui("Unstage", cx))
                                 .disabled(!button_states.unstage)
-                                .tooltip(Tooltip::text("Unstage Selected Hunks"))
+                                .tooltip(Tooltip::text(translate_ui("Unstage Selected Hunks", cx)))
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.unstage_selected_staged_hunks(false, window, cx)
                                 })),
@@ -696,10 +697,10 @@ impl Render for StagedDiffToolbar {
                     })
                     .when(!button_states.selection, |this| {
                         this.child(
-                            Button::new("unstage", "Unstage")
+                            Button::new("unstage", translate_ui("Unstage", cx))
                                 .disabled(!button_states.unstage)
                                 .tooltip(Tooltip::for_action_title_in(
-                                    "Unstage and Go to Next Hunk",
+                                    translate_ui("Unstage and Go to Next Hunk", cx),
                                     &UnstageAndNext,
                                     &focus_handle,
                                 ))
@@ -711,11 +712,11 @@ impl Render for StagedDiffToolbar {
             )
             .child(Divider::vertical())
             .child(
-                Button::new("unstage-all", "Unstage All")
+                Button::new("unstage-all", translate_ui("Unstage All", cx))
                     .width(rems_from_px(80.))
                     .disabled(!button_states.unstage_all)
                     .tooltip(Tooltip::for_action_title_in(
-                        "Unstage All Changes",
+                        translate_ui("Unstage All Changes", cx),
                         &UnstageAll,
                         &focus_handle,
                     ))
@@ -723,9 +724,9 @@ impl Render for StagedDiffToolbar {
             )
             .child(Divider::vertical())
             .child(
-                Button::new("commit", "Commit")
+                Button::new("commit", translate_ui("Commit", cx))
                     .tooltip(Tooltip::for_action_title_in(
-                        "Commit",
+                        translate_ui("Commit", cx),
                         &Commit,
                         &focus_handle,
                     ))

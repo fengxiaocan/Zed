@@ -18,6 +18,7 @@ use gpui::{
 use menu::{Cancel, Confirm};
 use project::git_store::Repository;
 use project_diff::ProjectDiff;
+use settings::translate_ui;
 use time::OffsetDateTime;
 use ui::{ButtonLike, ContextMenu, ElevationIndex, PopoverMenuHandle, TintColor, prelude::*};
 use workspace::{
@@ -455,7 +456,7 @@ impl RenameBranchModal {
                 Err(_) => Err(anyhow!("Operation was canceled")),
             }
         })
-        .detach_and_prompt_err("Failed to rename branch", window, cx, |_, _, _| None);
+        .detach_and_prompt_err(translate_ui("Failed to rename branch", cx), window, cx, |_, _, _| None);
         cx.emit(DismissEvent);
     }
 }
@@ -553,7 +554,7 @@ impl RefPickerModal {
     ) -> Self {
         let editor = cx.new(|cx| {
             let mut editor = Editor::single_line(window, cx);
-            editor.set_placeholder_text("Enter git ref...", window, cx);
+            editor.set_placeholder_text(translate_ui("Enter git ref...", cx), window, cx);
             editor
         });
 
@@ -738,7 +739,7 @@ impl Render for RefPickerModal {
                     .w_full()
                     .gap_1p5()
                     .child(Icon::new(IconName::Hash).size(IconSize::XSmall))
-                    .child(Headline::new("View Commit").size(HeadlineSize::XSmall)),
+                    .child(Headline::new(translate_ui("View Commit", cx)).size(HeadlineSize::XSmall)),
             )
             .child(div().px_3().w_full().child(self.editor.clone()))
             .when_some(commit_preview, |el, preview| {
@@ -771,6 +772,7 @@ fn render_remote_button(
     show_fetch_button: bool,
     in_progress_operation: Option<RemoteOperationKind>,
     menu_handle: PopoverMenuHandle<ContextMenu>,
+    cx: &App,
 ) -> Option<impl IntoElement> {
     let id = id.into();
     let upstream = branch.upstream.as_ref();
@@ -784,6 +786,7 @@ fn render_remote_button(
                 id,
                 in_progress_operation,
                 menu_handle,
+                cx,
             )),
             (0, 0) => None,
             (ahead, 0) => Some(remote_button::render_push_button(
@@ -792,6 +795,7 @@ fn render_remote_button(
                 ahead,
                 in_progress_operation,
                 menu_handle,
+                cx,
             )),
             (ahead, behind) => Some(remote_button::render_pull_button(
                 keybinding_target,
@@ -800,6 +804,7 @@ fn render_remote_button(
                 behind,
                 in_progress_operation,
                 menu_handle,
+                cx,
             )),
         },
         Some(Upstream {
@@ -810,19 +815,22 @@ fn render_remote_button(
             id,
             in_progress_operation,
             menu_handle,
+            cx,
         )),
         None => Some(remote_button::render_publish_button(
             keybinding_target,
             id,
             in_progress_operation,
             menu_handle,
+            cx,
         )),
     }
 }
 
 mod remote_button {
     use crate::git_panel::RemoteOperationKind;
-    use gpui::{Action, Anchor, AnyView, ClickEvent, FocusHandle};
+    use gpui::{Action, Anchor, AnyView, App, ClickEvent, FocusHandle};
+    use settings::translate_ui;
     use ui::{
         ButtonLike, CommonAnimationExt, ContextMenu, ElevationIndex, PopoverMenu,
         PopoverMenuHandle, SplitButton, Tooltip, prelude::*,
@@ -833,10 +841,11 @@ mod remote_button {
         id: SharedString,
         in_progress_operation: Option<RemoteOperationKind>,
         menu_handle: PopoverMenuHandle<ContextMenu>,
+        cx: &App,
     ) -> SplitButton {
         split_button(
             id,
-            "Fetch",
+            translate_ui("Fetch", cx),
             0,
             0,
             Some(IconName::ArrowCircle),
@@ -848,7 +857,7 @@ mod remote_button {
             },
             move |_window, cx| {
                 git_action_tooltip(
-                    "Fetch updates from remote",
+                    translate_ui("Fetch updates from remote", cx),
                     &git::Fetch,
                     "git fetch",
                     keybinding_target.clone(),
@@ -864,10 +873,11 @@ mod remote_button {
         ahead: u32,
         in_progress_operation: Option<RemoteOperationKind>,
         menu_handle: PopoverMenuHandle<ContextMenu>,
+        cx: &App,
     ) -> SplitButton {
         split_button(
             id,
-            "Push",
+            translate_ui("Push", cx),
             ahead as usize,
             0,
             None,
@@ -879,7 +889,7 @@ mod remote_button {
             },
             move |_window, cx| {
                 git_action_tooltip(
-                    "Push committed changes to remote",
+                    translate_ui("Push committed changes to remote", cx),
                     &git::Push,
                     "git push",
                     keybinding_target.clone(),
@@ -896,10 +906,11 @@ mod remote_button {
         behind: u32,
         in_progress_operation: Option<RemoteOperationKind>,
         menu_handle: PopoverMenuHandle<ContextMenu>,
+        cx: &App,
     ) -> SplitButton {
         split_button(
             id,
-            "Pull",
+            translate_ui("Pull", cx),
             ahead as usize,
             behind as usize,
             None,
@@ -911,7 +922,7 @@ mod remote_button {
             },
             move |_window, cx| {
                 git_action_tooltip(
-                    "Pull",
+                    translate_ui("Pull", cx),
                     &git::Pull,
                     "git pull",
                     keybinding_target.clone(),
@@ -926,10 +937,11 @@ mod remote_button {
         id: SharedString,
         in_progress_operation: Option<RemoteOperationKind>,
         menu_handle: PopoverMenuHandle<ContextMenu>,
+        cx: &App,
     ) -> SplitButton {
         split_button(
             id,
-            "Publish",
+            translate_ui("Publish", cx),
             0,
             0,
             Some(IconName::ExpandUp),
@@ -941,7 +953,7 @@ mod remote_button {
             },
             move |_window, cx| {
                 git_action_tooltip(
-                    "Publish branch to remote",
+                    translate_ui("Publish branch to remote", cx),
                     &git::Push,
                     "git push --set-upstream",
                     keybinding_target.clone(),
@@ -956,10 +968,11 @@ mod remote_button {
         id: SharedString,
         in_progress_operation: Option<RemoteOperationKind>,
         menu_handle: PopoverMenuHandle<ContextMenu>,
+        cx: &App,
     ) -> SplitButton {
         split_button(
             id,
-            "Republish",
+            translate_ui("Republish", cx),
             0,
             0,
             Some(IconName::ExpandUp),
@@ -971,7 +984,7 @@ mod remote_button {
             },
             move |_window, cx| {
                 git_action_tooltip(
-                    "Re-publish branch to remote",
+                    translate_ui("Re-publish branch to remote", cx),
                     &git::Push,
                     "git push --set-upstream",
                     keybinding_target.clone(),
@@ -981,11 +994,11 @@ mod remote_button {
         )
     }
 
-    fn in_progress_tooltip(operation: RemoteOperationKind) -> &'static str {
+    fn in_progress_tooltip(operation: RemoteOperationKind, cx: &App) -> &'static str {
         match operation {
-            RemoteOperationKind::Fetch => "Fetch in Progress…",
-            RemoteOperationKind::Pull => "Pull in Progress…",
-            RemoteOperationKind::Push => "Push in Progress…",
+            RemoteOperationKind::Fetch => translate_ui("Fetch in Progress…", cx),
+            RemoteOperationKind::Pull => translate_ui("Pull in Progress…", cx),
+            RemoteOperationKind::Push => translate_ui("Push in Progress…", cx),
         }
     }
 
@@ -1020,19 +1033,19 @@ mod remote_button {
             ))
             .with_handle(menu_handle)
             .menu(move |window, cx| {
-                Some(ContextMenu::build(window, cx, |context_menu, _, _| {
+                Some(ContextMenu::build(window, cx, |context_menu, _, cx| {
                     context_menu
                         .when_some(keybinding_target.clone(), |el, keybinding_target| {
                             el.context(keybinding_target)
                         })
-                        .action("Fetch", git::Fetch.boxed_clone())
-                        .action("Fetch From", git::FetchFrom.boxed_clone())
-                        .action("Pull", git::Pull.boxed_clone())
-                        .action("Pull (Rebase)", git::PullRebase.boxed_clone())
+                        .action(translate_ui("Fetch", cx), git::Fetch.boxed_clone())
+                        .action(translate_ui("Fetch From", cx), git::FetchFrom.boxed_clone())
+                        .action(translate_ui("Pull", cx), git::Pull.boxed_clone())
+                        .action(translate_ui("Pull (Rebase)", cx), git::PullRebase.boxed_clone())
                         .separator()
-                        .action("Push", git::Push.boxed_clone())
-                        .action("Push To", git::PushTo.boxed_clone())
-                        .action("Force Push", git::ForcePush.boxed_clone())
+                        .action(translate_ui("Push", cx), git::Push.boxed_clone())
+                        .action(translate_ui("Push To", cx), git::PushTo.boxed_clone())
+                        .action(translate_ui("Force Push", cx), git::ForcePush.boxed_clone())
                 }))
             })
             .anchor(Anchor::TopRight)
@@ -1112,7 +1125,7 @@ mod remote_button {
             .on_click(left_on_click)
             .tooltip(move |window, cx| {
                 if let Some(operation) = in_progress_operation {
-                    Tooltip::simple(in_progress_tooltip(operation), cx)
+                    Tooltip::simple(in_progress_tooltip(operation, cx), cx)
                 } else {
                     tooltip(window, cx)
                 }
@@ -1243,7 +1256,7 @@ impl GitCloneModal {
     pub fn show(panel: Entity<GitPanel>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let repo_input = cx.new(|cx| {
             let mut editor = Editor::single_line(window, cx);
-            editor.set_placeholder_text("Enter repository URL…", window, cx);
+            editor.set_placeholder_text(translate_ui("Enter repository URL…", cx), window, cx);
             editor
         });
         let focus_handle = repo_input.focus_handle(cx);
@@ -1287,12 +1300,12 @@ impl Render for GitCloneModal {
                     .rounded_b_sm()
                     .bg(cx.theme().colors().editor_background)
                     .child(
-                        Label::new("Clone a repository from GitHub or other sources.")
+                        Label::new(translate_ui("Clone a repository from GitHub or other sources.", cx))
                             .color(Color::Muted)
                             .size(LabelSize::Small),
                     )
                     .child(
-                        Button::new("learn-more", "Learn More")
+                        Button::new("learn-more", translate_ui("Learn More", cx))
                             .label_size(LabelSize::Small)
                             .end_icon(Icon::new(IconName::ArrowUpRight).size(IconSize::XSmall))
                             .on_click(|_, _, cx| {
