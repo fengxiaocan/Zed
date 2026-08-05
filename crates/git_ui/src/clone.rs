@@ -1,5 +1,6 @@
 use gpui::{App, Context, WeakEntity, Window};
 use notifications::status_toast::StatusToast;
+use settings::translate_ui;
 use std::sync::Arc;
 use ui::{Color, Icon, IconName, IconSize, SharedString};
 use util::ResultExt;
@@ -18,7 +19,7 @@ pub fn clone_and_open(
         files: false,
         directories: true,
         multiple: false,
-        prompt: Some("Select as Repository Destination".into()),
+        prompt: Some(translate_ui("Select as Repository Destination", cx).into()),
     });
 
     window
@@ -71,9 +72,12 @@ pub fn clone_and_open(
                 cx.update(|window, cx| {
                     window.prompt(
                         gpui::PromptLevel::Info,
-                        &format!("Git Clone: {}", repo_name),
+                        &format!("{}: {}", translate_ui("Git Clone", cx), repo_name),
                         None,
-                        &["Add repo to project", "Open repo in new project"],
+                        &[
+                            translate_ui("Add repo to project", cx),
+                            translate_ui("Open repo in new project", cx),
+                        ],
                         cx,
                     )
                 })

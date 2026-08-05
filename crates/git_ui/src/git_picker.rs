@@ -6,6 +6,7 @@ use gpui::{
     Subscription, WeakEntity, Window, actions, rems,
 };
 use project::git_store::Repository;
+use settings::translate_ui;
 use ui::{
     FluentBuilder, ToggleButtonGroup, ToggleButtonGroupStyle, ToggleButtonSimple, Tooltip,
     prelude::*,
@@ -209,7 +210,7 @@ impl GitPicker {
                     )
                     .tooltip(move |_, cx| {
                         Tooltip::for_action_in(
-                            "Toggle Branch Picker",
+                            translate_ui("Toggle Branch Picker", cx),
                             &ActivateBranchesTab,
                             &branches_focus_handle,
                             cx,
@@ -226,7 +227,7 @@ impl GitPicker {
                     )
                     .tooltip(move |_, cx| {
                         Tooltip::for_action_in(
-                            "Toggle Stash Picker",
+                            translate_ui("Toggle Stash Picker", cx),
                             &ActivateStashTab,
                             &stash_focus_handle,
                             cx,

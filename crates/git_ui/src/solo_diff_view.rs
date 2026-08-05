@@ -21,7 +21,7 @@ use project::{
     Project,
     git_store::{Repository, RepositoryId},
 };
-use settings::{Settings, SettingsStore, StatusStyle};
+use settings::{Settings, SettingsStore, StatusStyle, translate_ui};
 use std::{
     any::{Any, TypeId},
     ops::Range,
@@ -630,9 +630,9 @@ impl Render for SoloDiffStyleToolbar {
             GitPanelSettings::get_global(cx).status_style != StatusStyle::LabelColor;
 
         let (expand_icon, expand_tooltip) = if showing_full_file {
-            (IconName::ChevronDownUp, "Show Changes Only")
+            (IconName::ChevronDownUp, translate_ui("Show Changes Only", cx))
         } else {
-            (IconName::ChevronUpDown, "Show Full File")
+            (IconName::ChevronUpDown, translate_ui("Show Full File", cx))
         };
 
         h_flex()
@@ -793,7 +793,7 @@ impl Render for SoloDiffGitToolbar {
                             .icon_size(IconSize::Small)
                             .disabled(!button_states.prev_next)
                             .tooltip(Tooltip::for_action_title_in(
-                                "Go to Previous Hunk",
+                                translate_ui("Go to Previous Hunk", cx),
                                 &GoToPreviousHunk,
                                 &focus_handle,
                             ))
@@ -806,7 +806,7 @@ impl Render for SoloDiffGitToolbar {
                             .icon_size(IconSize::Small)
                             .disabled(!button_states.prev_next)
                             .tooltip(Tooltip::for_action_title_in(
-                                "Go to Next Hunk",
+                                translate_ui("Go to Next Hunk", cx),
                                 &GoToHunk,
                                 &focus_handle,
                             ))
@@ -820,10 +820,10 @@ impl Render for SoloDiffGitToolbar {
                 h_group_sm()
                     .when(button_states.selection, |el| {
                         el.child(
-                            Button::new("stage", "Toggle Staged")
+                            Button::new("stage", translate_ui("Toggle Staged", cx))
                                 .disabled(!button_states.stage && !button_states.unstage)
                                 .tooltip(Tooltip::for_action_title_in(
-                                    "Toggle Staged",
+                                    translate_ui("Toggle Staged", cx),
                                     &ToggleStaged,
                                     &focus_handle,
                                 ))
@@ -834,10 +834,10 @@ impl Render for SoloDiffGitToolbar {
                     })
                     .when(!button_states.selection, |el| {
                         el.child(
-                            Button::new("stage", "Stage")
+                            Button::new("stage", translate_ui("Stage", cx))
                                 .disabled(!button_states.stage)
                                 .tooltip(Tooltip::for_action_title_in(
-                                    "Stage and Go to Next Hunk",
+                                    translate_ui("Stage and Go to Next Hunk", cx),
                                     &StageAndNext,
                                     &focus_handle,
                                 ))
@@ -846,10 +846,10 @@ impl Render for SoloDiffGitToolbar {
                                 })),
                         )
                         .child(
-                            Button::new("unstage", "Unstage")
+                            Button::new("unstage", translate_ui("Unstage", cx))
                                 .disabled(!button_states.unstage)
                                 .tooltip(Tooltip::for_action_title_in(
-                                    "Unstage and Go to Next Hunk",
+                                    translate_ui("Unstage and Go to Next Hunk", cx),
                                     &UnstageAndNext,
                                     &focus_handle,
                                 ))
@@ -859,9 +859,9 @@ impl Render for SoloDiffGitToolbar {
                         )
                     })
                     .child(
-                        Button::new("restore", "Restore")
+                        Button::new("restore", translate_ui("Restore", cx))
                             .tooltip(Tooltip::for_action_title_in(
-                                "Restore selected hunk",
+                                translate_ui("Restore selected hunk", cx),
                                 &Restore,
                                 &focus_handle,
                             ))
@@ -873,21 +873,21 @@ impl Render for SoloDiffGitToolbar {
             )
             .child(Divider::vertical())
             .child(h_group_sm().child(if button_states.stage_file {
-                Button::new("stage-file", "Stage All")
+                Button::new("stage-file", translate_ui("Stage All", cx))
                     .width(rems_from_px(80.))
                     .disabled(!button_states.stage_file)
                     .tooltip(Tooltip::for_action_title_in(
-                        "Stage All",
+                        translate_ui("Stage All", cx),
                         &StageFile,
                         &focus_handle,
                     ))
                     .on_click(cx.listener(|this, _, window, cx| this.stage_file(window, cx)))
             } else {
-                Button::new("unstage-file", "Unstage All")
+                Button::new("unstage-file", translate_ui("Unstage All", cx))
                     .width(rems_from_px(80.))
                     .disabled(!button_states.unstage_file)
                     .tooltip(Tooltip::for_action_title_in(
-                        "Unstage All",
+                        translate_ui("Unstage All", cx),
                         &UnstageFile,
                         &focus_handle,
                     ))
@@ -895,9 +895,9 @@ impl Render for SoloDiffGitToolbar {
             }))
             .child(Divider::vertical())
             .child(
-                Button::new("commit", "Commit")
+                Button::new("commit", translate_ui("Commit", cx))
                     .tooltip(Tooltip::for_action_title_in(
-                        "Commit",
+                        translate_ui("Commit", cx),
                         &Commit,
                         &focus_handle,
                     ))

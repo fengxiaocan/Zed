@@ -1,4 +1,5 @@
 mod components;
+mod enum_labels;
 mod page_data;
 pub mod pages;
 
@@ -485,6 +486,1085 @@ fn localized(text: &'static str, cx: &App) -> &'static str {
             "They must be manually migrated to the latest version." => "必须手动迁移到最新版本。",
             "Your settings file is out of date, automatic migration failed" => {
                 "你的设置文件已过期，自动迁移失败"
+            }
+            "AI" => "AI",
+            "Activate On Close" => "关闭时激活",
+            "Active Encoding Button" => "当前编码按钮",
+            "Active File Name" => "当前文件名",
+            "Active Language Button" => "当前语言按钮",
+            "Active Line Width" => "活动参考线宽度",
+            "Agent Panel Flexible Sizing" => "智能代理面板弹性尺寸",
+            "Agent Review" => "智能代理审阅",
+            "Allow Rewrap" => "允许重排",
+            "Alternate Scroll" => "备用滚动",
+            "Auto Open Files On Create" => "创建文件后自动打开",
+            "Auto Open Files On Drop" => "拖放文件后自动打开",
+            "Auto Open Files On Paste" => "粘贴文件后自动打开",
+            "Auto Signature Help" => "自动签名帮助",
+            "Autoscroll On Clicks" => "点击时自动滚动",
+            "Background Coloring" => "背景着色",
+            "Bold Folder Labels" => "文件夹名称加粗",
+            "Border Size" => "边框大小",
+            "Breadcrumbs" => "面包屑导航",
+            "Center on Match" => "居中显示匹配项",
+            "Centered Layout Left Padding" => "居中布局左侧内边距",
+            "Centered Layout Right Padding" => "居中布局右侧内边距",
+            "Close on File Delete" => "文件删除时关闭",
+            "Code Actions" => "代码操作",
+            "Coloring" => "着色",
+            "Commit Title Max Length" => "提交标题最大长度",
+            "Copy On Select" => "选中即复制",
+            "Cursor Position Button" => "光标位置按钮",
+            "Cursor Shape - Insert Mode" => "光标形状 - 插入模式",
+            "Cursor Shape - Normal Mode" => "光标形状 - 普通模式",
+            "Cursor Shape - Replace Mode" => "光标形状 - 替换模式",
+            "Cursor Shape - Visual Mode" => "光标形状 - 可视模式",
+            "Cursors" => "光标",
+            "Custom Button Layout" => "自定义按钮布局",
+            "Custom Digraphs" => "自定义二合字母",
+            "Dark Icon Theme" => "深色图标主题",
+            "Dark Theme" => "深色主题",
+            "Data Collection" => "数据收集",
+            "Debounce" => "防抖",
+            "Debugger Panel Dock" => "调试器面板停靠位置",
+            "Default Height" => "默认高度",
+            "Default Mode" => "默认模式",
+            "Default Width" => "默认宽度",
+            "Delay" => "延迟",
+            "Delay (milliseconds)" => "延迟（毫秒）",
+            "Detect Virtual Environment" => "检测虚拟环境",
+            "Diagnostic Badges" => "诊断徽章",
+            "Diff Stats" => "差异统计",
+            "Diff View Style" => "差异视图样式",
+            "Directory" => "目录",
+            "Disable in Language Scopes" => "在语言作用域中禁用",
+            "Display In" => "显示位置",
+            "Double Click In Multibuffer" => "在多缓冲区中双击",
+            "Drag and Drop" => "拖放",
+            "Drop Size Target" => "放置目标大小",
+            "Enable Keep Preview On Code Navigation" => "代码导航时保留预览",
+            "Enable Preview File From Code Navigation" => "代码导航时以预览打开文件",
+            "Enable Preview From File Finder" => "从文件查找器打开预览",
+            "Enable Preview From Multibuffer" => "从多缓冲区打开预览",
+            "Enable Preview From Project Panel" => "从项目面板打开预览",
+            "Enable Preview Multibuffer From Code Navigation" => "代码导航时以预览打开多缓冲区",
+            "Entry Spacing" => "条目间距",
+            "Excerpt Context Lines" => "摘录上下文行数",
+            "Expand Excerpt Lines" => "展开摘录行数",
+            "Expand Outlines With Depth" => "按深度展开大纲",
+            "Extend Comment On Newline" => "换行时延续注释",
+            "Fallback Branch Name" => "回退分支名称",
+            "Fast Scroll Sensitivity" => "快速滚动灵敏度",
+            "File Icons" => "文件图标",
+            "Focus Follows Mouse" => "焦点跟随鼠标",
+            "Focus Follows Mouse Debounce ms" => "焦点跟随鼠标防抖（毫秒）",
+            "Folder Icons" => "文件夹图标",
+            "Format DAP Log Messages" => "格式化 DAP 日志消息",
+            "Global Substitution Default" => "全局替换默认值",
+            "Group By" => "分组方式",
+            "Hide .gitignore" => "隐藏 .gitignore 条目",
+            "Hide Hidden" => "隐藏隐藏条目",
+            "Hide Mouse" => "隐藏鼠标",
+            "Hide Root" => "隐藏根目录",
+            "Hiding Delay" => "隐藏延迟",
+            "Highlight on Yank Duration" => "复制高亮时长",
+            "Horizontal Scroll Margin" => "水平滚动边距",
+            "Horizontal Split Direction" => "水平拆分方向",
+            "Hunk Style" => "代码块样式",
+            "Inactive Opacity" => "非活动不透明度",
+            "Include Warnings" => "包含警告",
+            "Indent Size" => "缩进大小",
+            "Inline Code Actions" => "内联代码操作",
+            "Keep Selection On Copy" => "复制后保留选区",
+            "Light Icon Theme" => "浅色图标主题",
+            "Light Theme" => "浅色主题",
+            "Limit Content Width" => "限制内容宽度",
+            "Limit Markdown Preview Width" => "限制 Markdown 预览宽度",
+            "Line Endings Button" => "行尾符按钮",
+            "Line Width" => "参考线宽度",
+            "Location" => "位置",
+            "Log DAP Communications" => "记录 DAP 通信",
+            "Max Content Width" => "最大内容宽度",
+            "Max Scroll History Lines" => "最大回滚历史行数",
+            "Max Severity" => "最大严重级别",
+            "Max Width" => "最大宽度",
+            "Max Width Columns" => "最大宽度列数",
+            "Menu Delay" => "菜单延迟",
+            "Min Line Number Digits" => "行号最小位数",
+            "Minimum Column" => "最小列号",
+            "Minimum Contrast" => "最小对比度",
+            "Minimum Contrast For Highlights" => "高亮最小对比度",
+            "Minimum Split Diff Width" => "拆分差异最小宽度",
+            "Mouse Wheel Zoom" => "鼠标滚轮缩放",
+            "Multi Cursor Modifier" => "多光标修饰键",
+            "Open Links In Mouse Mode" => "鼠标模式下打开链接",
+            "Option As Meta" => "Option 键作为 Meta 键",
+            "Padding" => "内边距",
+            "Path Style" => "路径样式",
+            "Pinned Tabs Layout" => "固定标签页布局",
+            "Prefer LSP" => "优先使用 LSP",
+            "Preview Tabs Enabled" => "启用预览标签页",
+            "Primary Click Behavior" => "主键点击行为",
+            "Quick Actions" => "快捷操作",
+            "Restore File State" => "恢复文件状态",
+            "Rounded Selection" => "圆角选区",
+            "Save Breakpoints" => "保存断点",
+            "Scan Symbolic Links" => "扫描符号链接",
+            "Scroll Bar" => "滚动条",
+            "Seed Search Query From Cursor" => "从光标处生成搜索词",
+            "Selected Symbol" => "选中符号",
+            "Selected Text" => "选中文本",
+            "Selection Highlight" => "选区高亮",
+            "Selections Menu" => "选区菜单",
+            "Show" => "显示",
+            "Show Bookmarks" => "显示书签",
+            "Show Breakpoints" => "显示断点",
+            "Show Close Button" => "显示关闭按钮",
+            "Show Count Badge" => "显示数量徽章",
+            "Show Edit Predictions" => "显示编辑预测",
+            "Show Edit Predictions in Normal Mode" => "在普通模式下显示编辑预测",
+            "Show Folds" => "显示折叠",
+            "Show Menus" => "显示菜单",
+            "Show Navigation History Buttons" => "显示导航历史按钮",
+            "Show Onboarding Banner" => "显示引导横幅",
+            "Show Project Items" => "显示项目条目",
+            "Show Runnables" => "显示可运行项",
+            "Show Sign In" => "显示登录",
+            "Show Signature Help After Edits" => "编辑后显示签名帮助",
+            "Show User Menu" => "显示用户菜单",
+            "Show User Picture" => "显示用户头像",
+            "Show Which-key Menu" => "显示 Which-key 菜单",
+            "Show Worktree Name" => "显示工作树名称",
+            "Skip Focus For Active In Search" => "搜索结果中跳过当前文件焦点",
+            "Snippet Sort Order" => "代码片段排序方式",
+            "Sort By" => "排序依据",
+            "Sort Mode" => "排序模式",
+            "Sort Order" => "排序方式",
+            "Starts Open" => "启动时打开",
+            "Stepping Granularity" => "单步粒度",
+            "Sticky" => "粘性显示",
+            "Sticky Scroll" => "粘性滚动",
+            "Tab Show Diagnostics" => "标签页显示诊断",
+            "Terminal Panel Flexible Sizing" => "终端面板弹性尺寸",
+            "Thumb" => "滑块",
+            "Thumb Border" => "滑块边框",
+            "Timeout" => "超时",
+            "Title Override" => "标题覆盖",
+            "Toggle Relative Line Numbers" => "切换相对行号",
+            "Tree View" => "树形视图",
+            "Unnecessary Code Fade" => "未使用代码淡化",
+            "Update Debounce" => "更新防抖",
+            "Use System Clipboard" => "使用系统剪贴板",
+            "Variables" => "变量",
+            "Vertical Scroll Margin" => "垂直滚动边距",
+            "Vertical Split Direction" => "垂直拆分方向",
+            "Visibility" => "可见性",
+            "Zoomed Padding" => "缩放内边距",
+            "LSP" => "LSP",
+            "Prettier" => "Prettier",
+            "Vim" => "Vim",
+            "(Linux only) choose how window control buttons are laid out in the titlebar." => {
+                "（仅限 Linux）选择窗口控制按钮在标题栏中的布局方式。"
+            }
+            "(Linux only) whether Zed or your compositor should draw window decorations." => {
+                "（仅限 Linux）由 Zed 还是合成器绘制窗口装饰。"
+            }
+            "(macOS only) whether to allow Windows to tab together." => {
+                "（仅限 macOS）是否允许窗口合并为标签页。"
+            }
+            "A mapping from languages to files and file extensions that should be treated as that language." => {
+                "将语言映射到应视为该语言的文件及扩展名。"
+            }
+            "Activates the Python virtual environment, if one is found, in the terminal's working directory." => {
+                "如果在终端工作目录中找到 Python 虚拟环境，则将其激活。"
+            }
+            "Additional code actions to run when formatting." => "格式化时要额外运行的代码操作。",
+            "Amount of indentation for nested items." => "嵌套条目的缩进量。",
+            "Amount of time to wait before changing focus." => "切换焦点前等待的时间。",
+            "An optional string to override the title of the terminal tab." => {
+                "用于覆盖终端标签页标题的可选字符串。"
+            }
+            "Automatically close files that have been deleted." => "自动关闭已被删除的文件。",
+            "Automatically compact the agent's context when it grows too large, summarizing earlier messages to free up room in the model's context window." => {
+                "当智能代理的上下文过大时自动压缩，通过总结较早的消息为模型的上下文窗口腾出空间。"
+            }
+            "Automatically show a signature help pop-up." => "自动显示签名帮助弹窗。",
+            "Border style for the minimap's scrollbar thumb." => "小地图滚动条滑块的边框样式。",
+            "Character counts at which to show wrap guides in the editor." => {
+                "在编辑器中显示换行参考线的字符位置。"
+            }
+            "Character counts at which to show wrap guides." => "显示换行参考线的字符位置。",
+            "Choose a static, fixed theme or dynamically select themes based on appearance and light/dark modes." => {
+                "选择静态固定主题，或根据外观和明暗模式动态选择主题。"
+            }
+            "Choose whether to use the selected light or dark icon theme or to follow your OS appearance configuration." => {
+                "选择使用所选的浅色或深色图标主题，或跟随操作系统外观设置。"
+            }
+            "Choose whether to use the selected light or dark theme or to follow your OS appearance configuration." => {
+                "选择使用所选的浅色或深色主题，或跟随操作系统外观设置。"
+            }
+            "Collect timing data for foreground and background executor tasks so they can be inspected via `zed: open performance profiler`. May lead to increased memory usage." => {
+                "收集前台和后台执行器任务的计时数据，以便通过 `zed: open performance profiler` 查看。可能会增加内存占用。"
+            }
+            "Command to automatically run when Zed creates a Terminal Thread shell in the agent panel. Runs in your configured shell." => {
+                "Zed 在智能代理面板中创建终端线程 shell 时自动运行的命令，在你配置的 shell 中执行。"
+            }
+            "Control when to show the active encoding in the status bar." => {
+                "控制何时在状态栏显示当前编码。"
+            }
+            "Control whether Git status is shown in the editor's gutter." => {
+                "控制是否在编辑器边栏显示 Git 状态。"
+            }
+            "Controls automatic indentation behavior when typing." => "控制输入时的自动缩进行为。",
+            "Controls how LSP completions are inserted." => "控制 LSP 补全的插入方式。",
+            "Controls how words are completed." => "控制单词的补全方式。",
+            "Controls line number display in the editor's gutter. \"disabled\" shows absolute line numbers, \"enabled\" shows relative line numbers for each absolute line, and \"wrapped\" shows relative line numbers for every line, absolute or wrapped." => {
+                "控制编辑器边栏的行号显示。“disabled”显示绝对行号，“enabled”为每个绝对行显示相对行号，“wrapped”则为每一行（无论绝对行还是换行行）显示相对行号。"
+            }
+            "Controls the appearance behavior of the tab's close button." => {
+                "控制标签页关闭按钮的显示行为。"
+            }
+            "Controls when to use system clipboard in Vim mode." => {
+                "控制在 Vim 模式下何时使用系统剪贴板。"
+            }
+            "Controls where the `editor::rewrap` action is allowed for this language." => {
+                "控制该语言允许在何处使用 `editor::rewrap` 操作。"
+            }
+            "Controls whether Zed may collect training data when using Zed's Edit Predictions. Data is only collected for files in projects detected as open source. The default value uses the preference previously set via the status-bar toggle, or false if no preference has been stored." => {
+                "控制 Zed 在使用编辑预测时是否可收集训练数据。仅对检测为开源的项目中的文件收集数据。默认值使用此前通过状态栏开关设置的偏好，若未存储偏好则为 false。"
+            }
+            "Controls whether edit predictions are shown immediately or manually." => {
+                "控制编辑预测是立即显示还是手动显示。"
+            }
+            "Controls whether edit predictions are shown in the given language scopes." => {
+                "控制编辑预测是否在给定的语言作用域中显示。"
+            }
+            "Controls whether the closing characters are always skipped over and auto-removed no matter how they were inserted." => {
+                "控制无论闭合字符以何种方式插入，是否始终跳过并自动删除它们。"
+            }
+            "Cursor shape for insert mode. Inherit uses the editor's cursor shape." => {
+                "插入模式下的光标形状。“继承”使用编辑器的光标形状。"
+            }
+            "Cursor shape for normal mode." => "普通模式下的光标形状。",
+            "Cursor shape for replace mode." => "替换模式下的光标形状。",
+            "Cursor shape for the editor." => "编辑器的光标形状。",
+            "Cursor shape for visual mode." => "可视模式下的光标形状。",
+            "Custom digraph mappings for Vim mode." => "Vim 模式的自定义二合字母映射。",
+            "Custom line height value (must be at least 1.0)." => {
+                "自定义行高值（必须至少为 1.0）。"
+            }
+            "Debounce threshold in milliseconds after which changes are reflected in the Git gutter." => {
+                "更改反映到 Git 边栏前的防抖阈值（毫秒）。"
+            }
+            "Default Prettier options, in the format as in package.json section for Prettier." => {
+                "默认 Prettier 选项，格式与 package.json 中的 Prettier 配置段相同。"
+            }
+            "Default action when clicking a changed file in the Git panel." => {
+                "在 Git 面板中点击已更改文件时的默认操作。"
+            }
+            "Default branch name will be when init.defaultbranch is not set in Git." => {
+                "当 Git 中未设置 init.defaultbranch 时使用的默认分支名称。"
+            }
+            "Default cursor shape for the terminal (bar, block, underline, or hollow)." => {
+                "终端的默认光标形状（竖条、方块、下划线或空心）。"
+            }
+            "Default depth to expand outline items in the current file." => {
+                "当前文件中大纲条目的默认展开深度。"
+            }
+            "Default height when the agent panel is docked to the bottom." => {
+                "智能代理面板停靠在底部时的默认高度。"
+            }
+            "Default height when the terminal is docked to the bottom (in pixels)." => {
+                "终端停靠在底部时的默认高度（像素）。"
+            }
+            "Default width of the Git panel in pixels." => "Git 面板的默认宽度（像素）。",
+            "Default width of the collaboration panel in pixels." => "协作面板的默认宽度（像素）。",
+            "Default width of the outline panel in pixels." => "大纲面板的默认宽度（像素）。",
+            "Default width of the project panel in pixels." => "项目面板的默认宽度（像素）。",
+            "Default width when the agent panel is docked to the left or right." => {
+                "智能代理面板停靠在左侧或右侧时的默认宽度。"
+            }
+            "Default width when the terminal is docked to the left or right (in pixels)." => {
+                "终端停靠在左侧或右侧时的默认宽度（像素）。"
+            }
+            "Delay in milliseconds before drag and drop selection starts." => {
+                "开始拖放选择前的延迟（毫秒）。"
+            }
+            "Delay in milliseconds before the which-key menu appears." => {
+                "Which-key 菜单出现前的延迟（毫秒）。"
+            }
+            "Determines how indent guide backgrounds are colored." => {
+                "确定缩进参考线背景的着色方式。"
+            }
+            "Determines how indent guides are colored." => "确定缩进参考线的着色方式。",
+            "Determines how snippets are sorted relative to other completion items." => {
+                "确定代码片段相对于其他补全项的排序方式。"
+            }
+            "Determines the stepping granularity for debug operations." => {
+                "确定调试操作的单步粒度。"
+            }
+            "Direction to split horizontally." => "水平拆分的方向。",
+            "Direction to split vertically." => "垂直拆分的方向。",
+            "Disable all Git integration features in Zed." => "禁用 Zed 中的所有 Git 集成功能。",
+            "Display indent guides in the editor." => "在编辑器中显示缩进参考线。",
+            "Display the terminal title in breadcrumbs inside the terminal pane." => {
+                "在终端窗格的面包屑导航中显示终端标题。"
+            }
+            "Display the which-key menu with matching bindings while a multi-stroke binding is pending." => {
+                "在多键绑定待定时显示包含匹配绑定的 Which-key 菜单。"
+            }
+            "Duration in milliseconds to highlight yanked text in Vim mode." => {
+                "Vim 模式下高亮复制文本的时长（毫秒）。"
+            }
+            "Enable Helix mode and key bindings." => "启用 Helix 模式和键位绑定。",
+            "Enable Vim mode and key bindings." => "启用 Vim 模式和键位绑定。",
+            "Enable drag and drop selection." => "启用拖放选择。",
+            "Enable middle-click paste on Linux." => "在 Linux 上启用中键粘贴。",
+            "Enable smartcase searching in Vim mode." => "在 Vim 模式下启用智能大小写搜索。",
+            "Enable to show entries in tree view list, disable to show in flat view list." => {
+                "启用则以树形视图列表显示条目，禁用则以平铺视图列表显示。"
+            }
+            "Enables or disables formatting with Prettier for a given language." => {
+                "为指定语言启用或禁用 Prettier 格式化。"
+            }
+            "Extra task variables to set for a particular language." => {
+                "为特定语言设置的额外任务变量。"
+            }
+            "Fast scroll sensitivity multiplier for both horizontal and vertical scrolling." => {
+                "水平和垂直滚动的快速滚动灵敏度倍率。"
+            }
+            "Files or globs of files that will be excluded by Zed entirely. They will be skipped during file scans, file searches, and not be displayed in the project file tree. Takes precedence over \"File Scan Inclusions\"" => {
+                "将被 Zed 完全排除的文件或文件 glob 模式。它们会在文件扫描和搜索时被跳过，也不会显示在项目文件树中。优先级高于“文件扫描包含项”。"
+            }
+            "Files or globs of files that will be included by Zed, even when ignored by git. This is useful for files that are not tracked by git, but are still important to your project. Note that globs that are overly broad can slow down Zed's file scanning. \"File Scan Exclusions\" takes precedence over these inclusions" => {
+                "即使被 git 忽略也会被 Zed 包含的文件或文件 glob 模式。适用于不被 git 跟踪但对项目仍很重要的文件。注意，过于宽泛的 glob 会减慢 Zed 的文件扫描速度。“文件扫描排除项”的优先级高于这些包含项。"
+            }
+            "Font fallbacks for terminal text. If not set, defaults to buffer font fallbacks." => {
+                "终端文本的后备字体。未设置时默认使用缓冲区后备字体。"
+            }
+            "Font family for UI elements." => "界面元素的字体系列。",
+            "Font family for agent response text in the agent panel. Falls back to the regular UI font family." => {
+                "智能代理面板中代理回复文本的字体系列，回退到常规界面字体系列。"
+            }
+            "Font family for code blocks in the markdown preview. Falls back to the editor font family." => {
+                "Markdown 预览中代码块的字体系列，回退到编辑器字体系列。"
+            }
+            "Font family for editor text." => "编辑器文本的字体系列。",
+            "Font family for terminal text. If not set, defaults to buffer font family." => {
+                "终端文本的字体系列。未设置时默认使用缓冲区字体系列。"
+            }
+            "Font family for the markdown preview. Falls back to the UI font family." => {
+                "Markdown 预览的字体系列，回退到界面字体系列。"
+            }
+            "Font family for user messages in the agent panel. Falls back to the regular buffer font family." => {
+                "智能代理面板中用户消息的字体系列，回退到常规缓冲区字体系列。"
+            }
+            "Font features for terminal text." => "终端文本的字体特性。",
+            "Font size for UI elements." => "界面元素的字体大小。",
+            "Font size for agent response text in the agent panel. Falls back to the regular UI font size." => {
+                "智能代理面板中代理回复文本的字体大小，回退到常规界面字体大小。"
+            }
+            "Font size for editor text." => "编辑器文本的字体大小。",
+            "Font size for terminal text. If not set, defaults to buffer font size." => {
+                "终端文本的字体大小。未设置时默认使用缓冲区字体大小。"
+            }
+            "Font size for the markdown preview. Falls back to the editor font size." => {
+                "Markdown 预览的字体大小，回退到编辑器字体大小。"
+            }
+            "Font size for user messages text in the agent panel." => {
+                "智能代理面板中用户消息文本的字体大小。"
+            }
+            "Font weight for UI elements (100-900)." => "界面元素的字体粗细（100-900）。",
+            "Font weight for editor text (100-900)." => "编辑器文本的字体粗细（100-900）。",
+            "Font weight for terminal text in CSS weight units (100-900)." => {
+                "终端文本的字体粗细，以 CSS 字重单位表示（100-900）。"
+            }
+            "Forces Prettier integration to use a specific parser name when formatting files with the language." => {
+                "强制 Prettier 集成在格式化该语言文件时使用指定的解析器名称。"
+            }
+            "Forces Prettier integration to use specific plugins when formatting files with the language." => {
+                "强制 Prettier 集成在格式化该语言文件时使用指定的插件。"
+            }
+            "GNOME-style layout string such as \"close:minimize,maximize\"." => {
+                "GNOME 风格的布局字符串，例如 \\\"close:minimize,maximize\\\"。"
+            }
+            "Global switch to toggle hints on and off." => "全局开关，用于开启或关闭提示。",
+            "Global switch to toggle inline values on and off when debugging." => {
+                "全局开关，用于调试时开启或关闭内联值。"
+            }
+            "Globs to match files that will be considered \"hidden\" and can be hidden from the project panel." => {
+                "用于匹配将被视为“隐藏”并可在项目面板中隐藏的文件的 glob 模式。"
+            }
+            "Highlight all occurrences of selected text." => "高亮所选文本的所有出现位置。",
+            "How Git hunks are displayed visually in the editor." => {
+                "Git 代码块在编辑器中的视觉显示方式。"
+            }
+            "How and when the scrollbar should be displayed." => "滚动条的显示方式和时机。",
+            "How entry statuses are displayed." => "条目状态的显示方式。",
+            "How line endings should be handled for new files and during format and save operations." => {
+                "新建文件以及格式化和保存操作时行尾符的处理方式。"
+            }
+            "How many characters has to be in the completions query to automatically show the words-based completions." => {
+                "补全查询需要多少个字符才会自动显示基于单词的补全。"
+            }
+            "How many columns a tab should occupy." => "一个制表符应占用的列数。",
+            "How many lines of context to provide in multibuffer excerpts by default." => {
+                "多缓冲区摘录默认提供的上下文行数。"
+            }
+            "How many lines to expand the multibuffer excerpts by default." => {
+                "多缓冲区摘录默认展开的行数。"
+            }
+            "How much to fade out unused code (0.0 - 0.9)." => {
+                "未使用代码的淡化程度（0.0 - 0.9）。"
+            }
+            "How thinking blocks should be displayed by default. 'Auto' fully expands during streaming, then auto-collapses when done. 'Preview' auto-expands with a height constraint during streaming. 'Always Expanded' shows full content. 'Always Collapsed' keeps them collapsed." => {
+                "思考块默认的显示方式。“自动”在流式输出期间完全展开，完成后自动折叠。“预览”在流式输出期间按高度限制自动展开。“始终展开”显示完整内容。“始终折叠”保持折叠。"
+            }
+            "How to display diffs in the editor." => "在编辑器中显示差异的方式。",
+            "How to display the LSP item kind (function, method, variable, etc.) of each entry in the completions menu." => {
+                "在补全菜单中如何显示每个条目的 LSP 项类型（函数、方法、变量等）。"
+            }
+            "How to group entries in the git panel." => "Git 面板中条目的分组方式。",
+            "How to highlight the current line in the minimap." => "在小地图中如何高亮当前行。",
+            "How to highlight the current line." => "如何高亮当前行。",
+            "How to perform a buffer format." => "执行缓冲区格式化的方式。",
+            "How to render LSP color previews in the editor." => {
+                "在编辑器中渲染 LSP 颜色预览的方式。"
+            }
+            "How to scroll the target into view when navigating to a definition or reference." => {
+                "导航到定义或引用时如何将目标滚动到可视区域。"
+            }
+            "How to soft-wrap long lines of text." => "如何对长文本行进行自动换行。",
+            "How to sort entries in the git panel." => "Git 面板中条目的排序方式。",
+            "Include ignored files in search results by default." => {
+                "默认在搜索结果中包含已忽略的文件。"
+            }
+            "Key-value pairs to add to the terminal's environment." => "要添加到终端环境的键值对。",
+            "Layout mode for the bottom dock." => "底部停靠栏的布局模式。",
+            "Left padding for centered layout." => "居中布局的左侧内边距。",
+            "Line height for editor text." => "编辑器文本的行高。",
+            "Line height for terminal text." => "终端文本的行高。",
+            "Maximum content width in pixels. Content will be centered when the pane is wider than this value." => {
+                "内容最大宽度（像素）。当窗格宽于该值时内容将居中显示。"
+            }
+            "Maximum content width in pixels. Content will be centered when the panel is wider than this value." => {
+                "内容最大宽度（像素）。当面板宽于该值时内容将居中显示。"
+            }
+            "Maximum length of the commit message title before a warning is shown. Set to 0 to disable." => {
+                "显示警告前提交信息标题的最大长度。设为 0 表示禁用。"
+            }
+            "Maximum number of columns to display in the minimap." => "小地图中显示的最大列数。",
+            "Maximum number of lines to keep in scrollback history (max: 100,000; 0 disables scrolling)." => {
+                "回滚历史中保留的最大行数（最大：100,000；0 表示禁用滚动）。"
+            }
+            "Maximum open tabs in a pane. Will not close an unsaved tab." => {
+                "窗格中打开的最大标签页数。不会关闭未保存的标签页。"
+            }
+            "Minimum number of characters to reserve space for in the gutter." => {
+                "在边栏中预留空间的最小字符数。"
+            }
+            "Minimum number of lines to display in the agent message editor." => {
+                "智能代理消息编辑器中显示的最小行数。"
+            }
+            "Minimum time to wait before pulling diagnostics from the language server(s)." => {
+                "从语言服务器拉取诊断前等待的最短时间。"
+            }
+            "Modifier key for adding multiple cursors." => "用于添加多个光标的修饰键。",
+            "Number of lines to search for modelines (set to 0 to disable)." => {
+                "搜索模式行的行数（设为 0 表示禁用）。"
+            }
+            "On: format the whole buffer.\nOff: do not format.\nModifications: format only lines with unstaged changes; skips formatting when a git diff or LSP range formatting is unavailable.\nModifications If Available: same, but falls back to formatting the whole buffer." => {
+                "开启：格式化整个缓冲区。\\n关闭：不格式化。\\n修改：仅格式化包含未暂存更改的行；当 git 差异或 LSP 范围格式化不可用时跳过格式化。\\n可用时按修改：同上，但会回退为格式化整个缓冲区。"
+            }
+            "Opacity of inactive panels (0.0 - 1.0)." => "非活动面板的不透明度（0.0 - 1.0）。",
+            "Padding between the end of the source line and the start of the inline blame in columns." => {
+                "源代码行末尾与内联责任追溯起始之间以列计的间距。"
+            }
+            "Position of the close button in a tab." => "标签页中关闭按钮的位置。",
+            "Preferred debuggers for this language." => "此语言的首选调试器。",
+            "Relative size of the drop target in the editor that will open dropped file as a split pane." => {
+                "编辑器中用于将拖放文件以拆分窗格打开的放置目标的相对大小。"
+            }
+            "Restore previous file state when reopening." => "重新打开时恢复之前的文件状态。",
+            "Right padding for centered layout." => "居中布局的右侧内边距。",
+            "Save after inactivity period (in milliseconds)." => "在一段无操作时间后保存（毫秒）。",
+            "Scroll sensitivity multiplier for both horizontal and vertical scrolling." => {
+                "水平和垂直滚动的滚动灵敏度倍率。"
+            }
+            "Search case-sensitively by default." => "默认区分大小写搜索。",
+            "Search for whole words by default." => "默认全字匹配搜索。",
+            "Select input audio device" => "选择输入音频设备",
+            "Select output audio device" => "选择输出音频设备",
+            "Sets the cursor blinking behavior in the terminal." => "设置终端中的光标闪烁行为。",
+            "Should the name or path be displayed first in the git view." => {
+                "在 Git 视图中优先显示名称还是路径。"
+            }
+            "Show Git diff indicators in the scrollbar." => "在滚动条中显示 Git 差异指示。",
+            "Show Git diff information in the editor." => "在编辑器中显示 Git 差异信息。",
+            "Show Git status information in the editor." => "在编辑器中显示 Git 状态信息。",
+            "Show a background for inlay hints." => "为内嵌提示显示背景。",
+            "Show a badge on the terminal panel icon with the count of open terminals." => {
+                "在终端面板图标上显示已打开终端数量的徽章。"
+            }
+            "Show a git status indicator next to file names in the project panel." => {
+                "在项目面板的文件名旁显示 Git 状态指示器。"
+            }
+            "Show agent review buttons in the editor toolbar." => {
+                "在编辑器工具栏中显示智能代理审阅按钮。"
+            }
+            "Show author name as part of the commit information in branch picker." => {
+                "在分支选择器的提交信息中显示作者名称。"
+            }
+            "Show banners announcing new features in the titlebar." => {
+                "在标题栏中显示介绍新功能的横幅。"
+            }
+            "Show bookmarks in the gutter." => "在边栏中显示书签。",
+            "Show breadcrumbs." => "显示面包屑导航。",
+            "Show breakpoints in the gutter." => "在边栏中显示断点。",
+            "Show buffer search result indicators in the scrollbar." => {
+                "在滚动条中显示缓冲区搜索结果指示。"
+            }
+            "Show code action button at start of buffer line." => "在缓冲区行首显示代码操作按钮。",
+            "Show code action buttons in the editor toolbar." => {
+                "在编辑器工具栏中显示代码操作按钮。"
+            }
+            "Show code folding controls in the gutter." => "在边栏中显示代码折叠控件。",
+            "Show commit summary as part of the inline blame." => "在内联责任追溯中显示提交摘要。",
+            "Show cursor positions in the scrollbar." => "在滚动条中显示光标位置。",
+            "Show error and warning count badges next to file names in the project panel." => {
+                "在项目面板的文件名旁显示错误和警告数量徽章。"
+            }
+            "Show file icons in the file finder." => "在文件查找器中显示文件图标。",
+            "Show file icons in the outline panel." => "在大纲面板中显示文件图标。",
+            "Show file icons in the project panel." => "在项目面板中显示文件图标。",
+            "Show file icons next to the Git status icon." => "在 Git 状态图标旁显示文件图标。",
+            "Show git status indicators on the branch icon in the titlebar." => {
+                "在标题栏的分支图标上显示 Git 状态指示。"
+            }
+            "Show indent guides in the project panel." => "在项目面板中显示缩进参考线。",
+            "Show line numbers in the gutter." => "在边栏中显示行号。",
+            "Show opened editors as preview tabs." => "将打开的编辑器显示为预览标签页。",
+            "Show padding for zoomed panes." => "为放大的窗格显示内边距。",
+            "Show pinned tabs in a separate row above unpinned tabs." => {
+                "将固定的标签页显示在未固定标签页上方的单独一行中。"
+            }
+            "Show quick action buttons (e.g., search, selection, editor controls, etc.)." => {
+                "显示快捷操作按钮（例如搜索、选择、编辑器控件等）。"
+            }
+            "Show runnable buttons in the gutter." => "在边栏中显示可运行按钮。",
+            "Show selected symbol occurrences in the scrollbar." => {
+                "在滚动条中显示所选符号的出现位置。"
+            }
+            "Show selected text occurrences in the scrollbar." => {
+                "在滚动条中显示所选文本的出现位置。"
+            }
+            "Show the Git file status on a tab item." => "在标签页上显示 Git 文件状态。",
+            "Show the Git panel button in the status bar." => "在状态栏中显示 Git 面板按钮。",
+            "Show the Git status in the outline panel." => "在大纲面板中显示 Git 状态。",
+            "Show the Git status in the project panel." => "在项目面板中显示 Git 状态。",
+            "Show the active language button in the status bar." => "在状态栏中显示当前语言按钮。",
+            "Show the active line endings button in the status bar." => {
+                "在状态栏中显示当前行尾符按钮。"
+            }
+            "Show the avatar of the author of the commit." => "显示提交作者的头像。",
+            "Show the branch name button in the titlebar." => "在标题栏中显示分支名称按钮。",
+            "Show the collaboration panel button in the status bar." => {
+                "在状态栏中显示协作面板按钮。"
+            }
+            "Show the cursor position button in the status bar." => "在状态栏中显示光标位置按钮。",
+            "Show the debugger button in the status bar." => "在状态栏中显示调试器按钮。",
+            "Show the file icon for a tab." => "显示标签页的文件图标。",
+            "Show the informational hover box when moving the mouse over symbols in the editor." => {
+                "将鼠标移到编辑器中的符号上时显示信息悬停框。"
+            }
+            "Show the menus in the titlebar." => "在标题栏中显示菜单。",
+            "Show the name of the active file in the status bar." => {
+                "在状态栏中显示当前文件的名称。"
+            }
+            "Show the navigation history buttons in the tab bar." => "在标签栏中显示导航历史按钮。",
+            "Show the outline panel button in the status bar." => "在状态栏中显示大纲面板按钮。",
+            "Show the project diagnostics button in the status bar." => {
+                "在状态栏中显示项目诊断按钮。"
+            }
+            "Show the project host and name in the titlebar." => "在标题栏中显示项目主机和名称。",
+            "Show the project panel button in the status bar." => "在状态栏中显示项目面板按钮。",
+            "Show the project search button in the status bar." => "在状态栏中显示项目搜索按钮。",
+            "Show the scrollbar in the project panel." => "在项目面板中显示滚动条。",
+            "Show the selections menu in the editor toolbar." => "在编辑器工具栏中显示选区菜单。",
+            "Show the sign in button in the titlebar." => "在标题栏中显示登录按钮。",
+            "Show the signature help pop-up after completions or bracket pairs are inserted." => {
+                "在插入补全或括号对后显示签名帮助弹窗。"
+            }
+            "Show the tab bar buttons (New, Split Pane, Zoom)." => {
+                "显示标签栏按钮（新建、拆分窗格、缩放）。"
+            }
+            "Show the tab bar in the editor." => "在编辑器中显示标签栏。",
+            "Show the terminal button in the status bar." => "在状态栏中显示终端按钮。",
+            "Show the user menu button in the titlebar." => "在标题栏中显示用户菜单按钮。",
+            "Show the worktree name button in the titlebar." => "在标题栏中显示工作树名称按钮。",
+            "Show user picture in the titlebar." => "在标题栏中显示用户头像。",
+            "Show voting thumbs up/down icon buttons for feedback on agent edits." => {
+                "显示用于对智能代理编辑进行反馈的点赞/点踩图标按钮。"
+            }
+            "Show wrap guides (vertical rulers)." => "显示换行参考线（垂直标尺）。",
+            "Show wrap guides in the editor." => "在编辑器中显示换行参考线。",
+            "Size of the border surrounding the active pane." => "活动窗格周围边框的大小。",
+            "Sort order for entries in the project panel." => "项目面板中条目的排序方式。",
+            "Spacing between worktree entries in the project panel." => {
+                "项目面板中工作树条目之间的间距。"
+            }
+            "The OpenType features to enable for rendering in UI elements." => {
+                "在界面元素中渲染时启用的 OpenType 特性。"
+            }
+            "The OpenType features to enable for rendering in text buffers." => {
+                "在文本缓冲区中渲染时启用的 OpenType 特性。"
+            }
+            "The URL of the Zed server to connect to." => "要连接的 Zed 服务器的 URL。",
+            "The amount of padding between the end of the source line and the start of the inline diagnostic." => {
+                "源代码行末尾与内联诊断起始之间的间距。"
+            }
+            "The arguments to pass to the shell program." => "传递给 shell 程序的参数。",
+            "The column at which to soft-wrap lines, for buffers where soft-wrap is enabled." => {
+                "启用自动换行的缓冲区中进行换行的列位置。"
+            }
+            "The custom set of icons Zed will associate with files and directories." => {
+                "Zed 将关联到文件和目录的自定义图标集。"
+            }
+            "The debounce delay before querying highlights from the language." => {
+                "从语言查询高亮前的防抖延迟。"
+            }
+            "The default mode when Vim starts." => "Vim 启动时的默认模式。",
+            "The delay after which the inline blame information is shown." => {
+                "显示内联责任追溯信息前的延迟。"
+            }
+            "The delay in milliseconds to show inline diagnostics after the last diagnostic update." => {
+                "上次诊断更新后显示内联诊断的延迟（毫秒）。"
+            }
+            "The directory path to use (will be shell expanded)." => {
+                "要使用的目录路径（将进行 shell 展开）。"
+            }
+            "The dock position of the debug panel." => "调试面板的停靠位置。",
+            "The font fallbacks to use for rendering in text buffers." => {
+                "在文本缓冲区中渲染时使用的后备字体。"
+            }
+            "The font fallbacks to use for rendering in the UI." => {
+                "在界面中渲染时使用的后备字体。"
+            }
+            "The icon theme to use when mode is set to dark, or when mode is set to system and it is in dark mode." => {
+                "当模式设为深色，或模式设为系统且系统处于深色模式时使用的图标主题。"
+            }
+            "The icon theme to use when mode is set to light, or when mode is set to system and it is in light mode." => {
+                "当模式设为浅色，或模式设为系统且系统处于浅色模式时使用的图标主题。"
+            }
+            "The list of language servers to use (or disable) for this language." => {
+                "此语言要使用（或禁用）的语言服务器列表。"
+            }
+            "The minimum APCA perceptual contrast between foreground and background colors (0-106)." => {
+                "前景色与背景色之间的最小 APCA 感知对比度（0-106）。"
+            }
+            "The minimum APCA perceptual contrast to maintain when rendering text over highlight backgrounds." => {
+                "在高亮背景上渲染文本时保持的最小 APCA 感知对比度。"
+            }
+            "The minimum column at which to display inline diagnostics." => {
+                "显示内联诊断的最小列号。"
+            }
+            "The minimum column number at which to show the inline blame information." => {
+                "显示内联责任追溯信息的最小列号。"
+            }
+            "The minimum width (in columns) at which the split diff view is used. When the editor is narrower, the diff view automatically switches to unified mode. Set to 0 to disable." => {
+                "使用拆分差异视图的最小宽度（以列计）。当编辑器更窄时，差异视图会自动切换为统一模式。设为 0 表示禁用。"
+            }
+            "The multiplier for scrolling in the terminal with the mouse wheel" => {
+                "终端中使用鼠标滚轮滚动的倍率"
+            }
+            "The name of a base set of key bindings to use." => "要使用的基础键位绑定集的名称。",
+            "The name of your selected icon theme." => "你所选图标主题的名称。",
+            "The name of your selected theme." => "你所选主题的名称。",
+            "The number of characters to keep on either side when scrolling with the mouse." => {
+                "使用鼠标滚动时在两侧保留的字符数。"
+            }
+            "The number of lines to keep above/below the cursor when auto-scrolling." => {
+                "自动滚动时在光标上方/下方保留的行数。"
+            }
+            "The proxy to use for network requests." => "用于网络请求的代理。",
+            "The shell program to run." => "要运行的 shell 程序。",
+            "The shell program to use." => "要使用的 shell 程序。",
+            "The text rendering mode to use." => "要使用的文本渲染模式。",
+            "The theme to use when mode is set to dark, or when mode is set to system and it is in dark mode." => {
+                "当模式设为深色，或模式设为系统且系统处于深色模式时使用的主题。"
+            }
+            "The theme to use when mode is set to light, or when mode is set to system and it is in light mode." => {
+                "当模式设为浅色，或模式设为系统且系统处于浅色模式时使用的主题。"
+            }
+            "The unit for image file sizes." => "图像文件大小的单位。",
+            "The width of the active indent guide in pixels, between 1 and 10." => {
+                "活动缩进参考线的宽度（像素，介于 1 和 10 之间）。"
+            }
+            "The width of the indent guides in pixels, between 1 and 10." => {
+                "缩进参考线的宽度（像素，介于 1 和 10 之间）。"
+            }
+            "Time in milliseconds until timeout error when connecting to a TCP debug adapter." => {
+                "连接 TCP 调试适配器时发生超时错误前的时间（毫秒）。"
+            }
+            "Time to wait in milliseconds before hiding the hover popover after the mouse moves away." => {
+                "鼠标移开后隐藏悬停弹窗前等待的时间（毫秒）。"
+            }
+            "Time to wait in milliseconds before showing the informational hover box." => {
+                "显示信息悬停框前等待的时间（毫秒）。"
+            }
+            "Toggle relative line numbers in Vim mode." => "在 Vim 模式下切换相对行号。",
+            "Toggles inlay hints (hides or shows) when the user presses the modifiers specified." => {
+                "当用户按下指定的修饰键时切换内嵌提示（隐藏或显示）。"
+            }
+            "Use LSP tasks over Zed language extension tasks." => {
+                "优先使用 LSP 任务而非 Zed 语言扩展任务。"
+            }
+            "Use gitignored files when searching." => "搜索时使用被 git 忽略的文件。",
+            "Use regex search by default in Vim search." => "在 Vim 搜索中默认使用正则表达式搜索。",
+            "Use regex search by default." => "默认使用正则表达式搜索。",
+            "Visible character used to render space characters when show_whitespaces is enabled (default: \"•\")" => {
+                "启用 show_whitespaces 时用于渲染空格字符的可见字符（默认：\\\"•\\\"）"
+            }
+            "Visible character used to render tab characters when show_whitespaces is enabled (default: \"→\")" => {
+                "启用 show_whitespaces 时用于渲染制表符的可见字符（默认：\\\"→\\\"）"
+            }
+            "What shell to use when opening a terminal." => "打开终端时使用的 shell。",
+            "What to do after closing the current tab." => "关闭当前标签页后的处理方式。",
+            "What to do when multibuffer is double-clicked in some of its excerpts." => {
+                "在多缓冲区的某些摘录中双击时的处理方式。"
+            }
+            "What working directory to use when launching the terminal." => {
+                "启动终端时使用的工作目录。"
+            }
+            "When auto compaction runs. A percentage string like \"90%\" is measured against the context window. A positive integer is the number of used tokens to compact after. A negative integer is the number of tokens remaining in the context window before compacting." => {
+                "何时运行自动压缩。像 \\\"90%\\\" 这样的百分比字符串是相对于上下文窗口来衡量的。正整数表示在使用的令牌数达到该值后进行压缩。负整数表示在上下文窗口剩余令牌数达到该值前进行压缩。"
+            }
+            "When enabled, agent edits will also be displayed in single-file buffers for review." => {
+                "启用后，智能代理的编辑也会显示在单文件缓冲区中以供审阅。"
+            }
+            "When enabled, the :substitute command replaces all matches in a line by default. The 'g' flag then toggles this behavior." => {
+                "启用后，:substitute 命令默认替换一行中的所有匹配项。此时 'g' 标志用于切换此行为。"
+            }
+            "When enabled, use folding ranges from the language server instead of indent-based folding." => {
+                "启用后，使用语言服务器的折叠范围而非基于缩进的折叠。"
+            }
+            "When enabled, use the language server's document symbols for outlines and breadcrumbs instead of tree-sitter." => {
+                "启用后，使用语言服务器的文档符号（而非 tree-sitter）来生成大纲和面包屑导航。"
+            }
+            "When false, forcefully disables the horizontal scrollbar." => {
+                "为 false 时，强制禁用水平滚动条。"
+            }
+            "When false, forcefully disables the vertical scrollbar." => {
+                "为 false 时，强制禁用垂直滚动条。"
+            }
+            "When fetching LSP completions, determines how long to wait for a response of a particular server (set to 0 to wait indefinitely)." => {
+                "获取 LSP 补全时，确定等待特定服务器响应的时长（设为 0 表示无限期等待）。"
+            }
+            "When to auto save buffer changes." => "何时自动保存缓冲区更改。",
+            "When to hide the mouse cursor." => "何时隐藏鼠标光标。",
+            "When to play a sound when the agent has either completed its response, or needs user input." => {
+                "当智能代理完成响应或需要用户输入时，何时播放提示音。"
+            }
+            "When to populate a new search's query based on the text under the cursor." => {
+                "何时根据光标下的文本填充新搜索的查询词。"
+            }
+            "When to scan content of linked directories" => "何时扫描链接目录的内容",
+            "When to show edit predictions previews in buffer. The eager mode displays them inline, while the subtle mode displays them only when holding a modifier key." => {
+                "何时在缓冲区中显示编辑预测预览。急切模式将其内联显示，而微妙模式仅在按住修饰键时显示。"
+            }
+            "When to show indent guides in the outline panel." => {
+                "何时在大纲面板中显示缩进参考线。"
+            }
+            "When to show the minimap in the editor." => "何时在编辑器中显示小地图。",
+            "When to show the minimap thumb." => "何时显示小地图滑块。",
+            "When to show the scrollbar in the completion menu." => "何时在补全菜单中显示滚动条。",
+            "When to show the scrollbar in the editor." => "何时在编辑器中显示滚动条。",
+            "When to show the scrollbar in the terminal." => "何时在终端中显示滚动条。",
+            "Where to dock the Git panel." => "Git 面板的停靠位置。",
+            "Where to dock the agent panel." => "智能代理面板的停靠位置。",
+            "Where to dock the collaboration panel." => "协作面板的停靠位置。",
+            "Where to dock the outline panel." => "大纲面板的停靠位置。",
+            "Where to dock the project panel." => "项目面板的停靠位置。",
+            "Where to dock the terminal panel." => "终端面板的停靠位置。",
+            "Where to render Git blame when it is enabled." => "启用 Git 责任追溯时的渲染位置。",
+            "Where to show LSP results that can contain multiple locations (Go to Definition, Go to Implementation, Find All References)." => {
+                "显示可能包含多个位置的 LSP 结果（转到定义、转到实现、查找所有引用）的位置。"
+            }
+            "Where to show notifications when the agent has completed its response or needs confirmation before running a tool action." => {
+                "当智能代理完成响应或在运行工具操作前需要确认时，显示通知的位置。"
+            }
+            "Where to show the minimap in the editor." => "在编辑器中显示小地图的位置。",
+            "Whether alternate scroll mode is active by default (converts mouse scroll to arrow keys in apps like Vim)." => {
+                "默认是否启用备用滚动模式（在 Vim 等应用中将鼠标滚动转换为方向键）。"
+            }
+            "Whether and how to display code lenses from language servers." => {
+                "是否以及如何显示来自语言服务器的代码透镜。"
+            }
+            "Whether breakpoints should be reused across Zed sessions." => {
+                "是否在不同 Zed 会话间复用断点。"
+            }
+            "Whether clicking the stop button on a running terminal tool should also cancel the agent's generation. Note that this only applies to the stop button, not to ctrl+c inside the terminal." => {
+                "点击正在运行的终端工具的停止按钮时，是否同时取消智能代理的生成。注意，这仅适用于停止按钮，不适用于终端内的 ctrl+c。"
+            }
+            "Whether cmd-click (ctrl-click on Linux and Windows) opens hyperlinks even when the terminal application has enabled mouse reporting. When disabled, these clicks are forwarded to the application; links can still be opened with shift-cmd-click." => {
+                "即使终端应用已启用鼠标报告，cmd+点击（Linux 和 Windows 上为 ctrl+点击）是否仍打开超链接。禁用后，这些点击会被转发给应用；仍可通过 shift+cmd+点击打开链接。"
+            }
+            "Whether edit predictions are shown in normal mode. By default, edit predictions are only shown in insert and replace modes." => {
+                "是否在普通模式下显示编辑预测。默认情况下，编辑预测仅在插入和替换模式下显示。"
+            }
+            "Whether indentation of pasted content should be adjusted based on the context." => {
+                "是否根据上下文调整粘贴内容的缩进。"
+            }
+            "Whether newly opened file diffs show the full file instead of changes only." => {
+                "新打开的文件差异是否显示完整文件而非仅显示更改。"
+            }
+            "Whether or not to debounce inlay hints updates after buffer edits (set to 0 to disable debouncing)." => {
+                "是否在缓冲区编辑后对内嵌提示更新进行防抖（设为 0 表示禁用防抖）。"
+            }
+            "Whether or not to debounce inlay hints updates after buffer scrolls (set to 0 to disable debouncing)." => {
+                "是否在缓冲区滚动后对内嵌提示更新进行防抖（设为 0 表示禁用防抖）。"
+            }
+            "Whether or not to ensure there's a single newline at the end of a buffer when saving it." => {
+                "保存缓冲区时是否确保其末尾只有一个换行符。"
+            }
+            "Whether or not to remove any trailing whitespace from lines of a buffer before saving it." => {
+                "保存缓冲区前是否删除各行末尾的空白字符。"
+            }
+            "Whether or not to show Git blame data for the currently focused line." => {
+                "是否显示当前聚焦行的 Git 责任追溯数据。"
+            }
+            "Whether other hints should be shown." => "是否显示其他提示。",
+            "Whether parameter hints should be shown." => "是否显示参数提示。",
+            "Whether selecting text in the terminal automatically copies to the system clipboard." => {
+                "在终端中选择文本时是否自动复制到系统剪贴板。"
+            }
+            "Whether tasks are enabled for this language." => "是否为此语言启用任务。",
+            "Whether the agent panel should use flexible (proportional) sizing when docked to the left or right." => {
+                "智能代理面板停靠在左侧或右侧时是否使用弹性（比例）尺寸。"
+            }
+            "Whether the cursor blinks in the editor." => "编辑器中的光标是否闪烁。",
+            "Whether the editor search results will loop." => "编辑器搜索结果是否循环。",
+            "Whether the editor will scroll beyond the last line." => {
+                "编辑器是否可滚动超过最后一行。"
+            }
+            "Whether the file finder should skip focus for the active file in search results." => {
+                "文件查找器是否应在搜索结果中跳过当前文件的焦点。"
+            }
+            "Whether the hover popover sticks when the mouse moves toward it, allowing interaction with its contents." => {
+                "当鼠标移向悬停弹窗时，弹窗是否保持固定以允许与其内容交互。"
+            }
+            "Whether the microphone should be muted when joining a channel or a call." => {
+                "加入频道或通话时是否将麦克风静音。"
+            }
+            "Whether the option key behaves as the meta key." => "Option 键是否作为 Meta 键使用。",
+            "Whether the project panel should open on startup." => "启动时是否打开项目面板。",
+            "Whether the terminal panel should use flexible (proportional) sizing when docked to the left or right." => {
+                "终端面板停靠在左侧或右侧时是否使用弹性（比例）尺寸。"
+            }
+            "Whether the text selection should have rounded corners." => "文本选区是否使用圆角。",
+            "Whether to align detail text in code completions context menus left or right." => {
+                "代码补全上下文菜单中的详情文本左对齐还是右对齐。"
+            }
+            "Whether to allow horizontal scrolling in the project panel. When disabled, the view is always locked to the leftmost position and long file names are clipped." => {
+                "是否允许在项目面板中水平滚动。禁用后，视图始终锁定在最左位置，长文件名将被截断。"
+            }
+            "Whether to always use cmd-enter (or ctrl-enter on Linux or Windows) to send messages." => {
+                "是否始终使用 cmd+回车（Linux 或 Windows 上为 ctrl+回车）发送消息。"
+            }
+            "Whether to automatically close JSX tags." => "是否自动闭合 JSX 标签。",
+            "Whether to automatically enable case-sensitive search based on the search query." => {
+                "是否根据搜索查询自动启用区分大小写搜索。"
+            }
+            "Whether to automatically open files after pasting or duplicating them." => {
+                "粘贴或复制文件后是否自动打开它们。"
+            }
+            "Whether to automatically open files dropped from external sources." => {
+                "是否自动打开从外部来源拖放的文件。"
+            }
+            "Whether to automatically open newly created files in the editor." => {
+                "是否在编辑器中自动打开新创建的文件。"
+            }
+            "Whether to automatically surround text with characters for you. For example, when you select text and type '(', Zed will automatically surround text with ()." => {
+                "是否自动用字符环绕文本。例如，当选中文本并输入 '(' 时，Zed 会自动用 () 将文本环绕。"
+            }
+            "Whether to automatically type closing characters for you. For example, when you type '(', Zed will automatically add a closing ')' at the correct position." => {
+                "是否自动为你输入闭合字符。例如，当你输入 '(' 时，Zed 会自动在正确的位置添加闭合的 ')'。"
+            }
+            "Whether to center the current match in the editor" => {
+                "是否在编辑器中居中显示当前匹配项"
+            }
+            "Whether to change focus to a pane when the mouse hovers over it." => {
+                "当鼠标悬停在窗格上时是否将焦点切换到该窗格。"
+            }
+            "Whether to collapse untracked files in the diff panel." => {
+                "是否在差异面板中折叠未跟踪的文件。"
+            }
+            "Whether to colorize brackets in the editor." => "是否在编辑器中为括号着色。",
+            "Whether to constrain the agent panel content to a maximum width, centering it when the panel is wider, for optimal readability." => {
+                "是否将智能代理面板内容限制为最大宽度，在面板更宽时居中显示，以获得最佳可读性。"
+            }
+            "Whether to constrain the markdown preview content to a maximum width, centering it when the pane is wider, for optimal readability." => {
+                "是否将 Markdown 预览内容限制为最大宽度，在窗格更宽时居中显示，以获得最佳可读性。"
+            }
+            "Whether to disable all AI features in Zed." => "是否禁用 Zed 中的所有 AI 功能。",
+            "Whether to display inline and alongside documentation for items in the completions menu." => {
+                "是否为补全菜单中的项内联及并排显示文档。"
+            }
+            "Whether to enable drag-and-drop operations in the project panel." => {
+                "是否在项目面板中启用拖放操作。"
+            }
+            "Whether to enable word diff highlighting in the editor. When enabled, changed words within modified lines are highlighted to show exactly what changed." => {
+                "是否在编辑器中启用单词差异高亮。启用后，修改行中发生变化的单词会被高亮，以准确显示更改内容。"
+            }
+            "Whether to fetch LSP completions or not." => "是否获取 LSP 补全。",
+            "Whether to fold directories automatically and show compact folders when a directory has only one subdirectory inside." => {
+                "当某个目录只包含一个子目录时，是否自动折叠目录并显示为紧凑文件夹。"
+            }
+            "Whether to fold directories automatically when a directory contains only one subdirectory." => {
+                "当某个目录只包含一个子目录时，是否自动折叠目录。"
+            }
+            "Whether to follow-up empty Go to definition responses from the language server." => {
+                "是否对语言服务器返回的空“转到定义”响应进行后续处理。"
+            }
+            "Whether to format DAP messages when adding them to debug adapter logger." => {
+                "将 DAP 消息添加到调试适配器日志记录器时是否格式化它们。"
+            }
+            "Whether to have edit cards in the agent panel expanded, showing a Preview of the diff." => {
+                "是否展开智能代理面板中的编辑卡片，显示差异预览。"
+            }
+            "Whether to have terminal cards in the agent panel expanded, showing the whole command output." => {
+                "是否展开智能代理面板中的终端卡片，显示完整的命令输出。"
+            }
+            "Whether to hide the gitignore entries in the project panel." => {
+                "是否在项目面板中隐藏 gitignore 条目。"
+            }
+            "Whether to hide the hidden entries in the project panel." => {
+                "是否在项目面板中隐藏隐藏条目。"
+            }
+            "Whether to hide the root entry when only one folder is open in the window." => {
+                "当窗口中只打开一个文件夹时，是否隐藏根条目。"
+            }
+            "Whether to indent lines using tab characters, as opposed to multiple spaces." => {
+                "是否使用制表符（而非多个空格）缩进行。"
+            }
+            "Whether to keep tabs in preview mode when code navigation is used to navigate away from them. If `enable_preview_file_from_code_navigation` or `enable_preview_multibuffer_from_code_navigation` is also true, the new tab may replace the existing one." => {
+                "当使用代码导航离开时，是否让标签页保持预览模式。如果 `enable_preview_file_from_code_navigation` 或 `enable_preview_multibuffer_from_code_navigation` 也为 true，新标签页可能会替换现有标签页。"
+            }
+            "Whether to keep the text selection after copying it to the clipboard." => {
+                "将文本复制到剪贴板后是否保留选区。"
+            }
+            "Whether to log messages between active debug adapters and Zed." => {
+                "是否记录活动调试适配器与 Zed 之间的消息。"
+            }
+            "Whether to open tabs in preview mode when code navigation is used to open a multibuffer." => {
+                "当使用代码导航打开多缓冲区时，是否以预览模式打开标签页。"
+            }
+            "Whether to open tabs in preview mode when code navigation is used to open a single file." => {
+                "当使用代码导航打开单个文件时，是否以预览模式打开标签页。"
+            }
+            "Whether to open tabs in preview mode when opened from a multibuffer." => {
+                "从多缓冲区打开时，是否以预览模式打开标签页。"
+            }
+            "Whether to open tabs in preview mode when opened from the project panel with a single click." => {
+                "从项目面板单击打开时，是否以预览模式打开标签页。"
+            }
+            "Whether to open tabs in preview mode when selected from the file finder." => {
+                "从文件查找器选择时，是否以预览模式打开标签页。"
+            }
+            "Whether to perform linked edits of associated ranges, if the LS supports it. For example, when editing opening <html> tag, the contents of the closing </html> tag will be edited as well." => {
+                "如果语言服务器支持，是否对关联范围执行关联编辑。例如，编辑开始 <html> 标签时，结束 </html> 标签的内容也会被一并编辑。"
+            }
+            "Whether to play a sound when the BEL character (`\\a`, `0x07`) is printed" => {
+                "当打印 BEL 字符（`\\\\a`、`0x07`）时是否播放提示音"
+            }
+            "Whether to pop the completions menu while typing in an editor without explicitly requesting it." => {
+                "在编辑器中输入时，是否在未明确请求的情况下弹出补全菜单。"
+            }
+            "Whether to pull for language server-powered diagnostics or not." => {
+                "是否拉取由语言服务器提供的诊断。"
+            }
+            "Whether to reduce non-essential motion, such as loading spinners, by rendering them in a static state." => {
+                "是否通过以静态状态渲染来减少非必要的动画效果，例如加载指示器。"
+            }
+            "Whether to reveal entries in the project panel automatically when a corresponding project entry becomes active." => {
+                "当对应的项目条目变为活动状态时，是否在项目面板中自动显示该条目。"
+            }
+            "Whether to reveal when a corresponding outline entry becomes active." => {
+                "当对应的大纲条目变为活动状态时，是否显示该条目。"
+            }
+            "Whether to scroll when clicking near the edge of the visible text area." => {
+                "点击可视文本区域边缘附近时是否滚动。"
+            }
+            "Whether to show a badge on the git panel icon with the count of uncommitted changes." => {
+                "是否在 Git 面板图标上显示未提交更改数量的徽章。"
+            }
+            "Whether to show diagnostics inline or not." => "是否内联显示诊断。",
+            "Whether to show folder icons or chevrons for directories in the git panel." => {
+                "在 Git 面板中，目录显示文件夹图标还是箭头。"
+            }
+            "Whether to show folder icons or chevrons for directories in the outline panel." => {
+                "在大纲面板中，目录显示文件夹图标还是箭头。"
+            }
+            "Whether to show folder icons or chevrons for directories in the project panel." => {
+                "在项目面板中，目录显示文件夹图标还是箭头。"
+            }
+            "Whether to show folder names with bold text in the project panel." => {
+                "是否在项目面板中以粗体显示文件夹名称。"
+            }
+            "Whether to show tabs and spaces in the editor." => "是否在编辑器中显示制表符和空格。",
+            "Whether to show the addition/deletion change count next to each file in the Git panel." => {
+                "是否在 Git 面板中每个文件旁显示新增/删除的更改数量。"
+            }
+            "Whether to show the agent panel button in the status bar." => {
+                "是否在状态栏中显示智能代理面板按钮。"
+            }
+            "Whether to show the merge conflict indicator in the status bar that offers to resolve conflicts using the agent." => {
+                "是否在状态栏中显示可使用智能代理解决冲突的合并冲突指示器。"
+            }
+            "Whether to show the stage and restore buttons on diff hunks." => {
+                "是否在差异代码块上显示暂存和还原按钮。"
+            }
+            "Whether to show turn statistics like elapsed time during generation and final turn duration." => {
+                "是否显示轮次统计信息，例如生成期间的已用时间和最终轮次时长。"
+            }
+            "Whether to show warnings or not by default." => "默认是否显示警告。",
+            "Whether to sort file and folder names case-sensitively in the project panel." => {
+                "是否在项目面板中按区分大小写的方式对文件和文件夹名称排序。"
+            }
+            "Whether to start a new line with a comment when a previous line is a comment as well." => {
+                "当前一行也是注释时，新行是否以注释开头。"
+            }
+            "Whether to stick parent directories at top of the project panel." => {
+                "是否将父目录固定在项目面板顶部。"
+            }
+            "Whether to stick scopes to the top of the editor" => "是否将作用域固定在编辑器顶部",
+            "Whether to use additional LSP queries to format (and amend) the code after every \"trigger\" symbol input, defined by LSP server capabilities" => {
+                "是否在每次输入由 LSP 服务器能力定义的“触发”符号后，使用额外的 LSP 查询来格式化（和修正）代码"
+            }
+            "Whether to use language servers to provide code intelligence." => {
+                "是否使用语言服务器提供代码智能。"
+            }
+            "Whether to zoom the editor font size with the mouse wheel while holding the primary modifier key." => {
+                "是否在按住主修饰键时用鼠标滚轮缩放编辑器字体大小。"
+            }
+            "Whether type hints should be shown." => "是否显示类型提示。",
+            "Whether your current project should be shared when joining an empty channel." => {
+                "加入空频道时是否共享当前项目。"
+            }
+            "Which diagnostic indicators to show in the scrollbar." => {
+                "在滚动条中显示哪些诊断指示。"
+            }
+            "Which files containing diagnostic errors/warnings to mark in the project panel." => {
+                "在项目面板中标记哪些包含诊断错误/警告的文件。"
+            }
+            "Which files containing diagnostic errors/warnings to mark in the tabs." => {
+                "在标签页中标记哪些包含诊断错误/警告的文件。"
+            }
+            "Which level to use to filter out diagnostics displayed in the editor." => {
+                "用于过滤编辑器中显示的诊断的级别。"
+            }
+            "Which side of the window the threads sidebar appears on." => {
+                "线程侧边栏显示在窗口的哪一侧。"
             }
             _ => text,
         },
@@ -5561,6 +6641,15 @@ where
         .and_then(|metadata| metadata.should_do_titlecase)
         .unwrap_or(true);
 
+    // Localized variant labels (only when the UI is in Simplified Chinese and a
+    // translation exists for this enum). Proper-noun enums return `None` and
+    // keep their English labels.
+    let localized_labels = if UiLanguageSetting::get_global(cx).0 == UiLanguage::SimplifiedChinese {
+        enum_labels::localized_enum_labels::<T>()
+    } else {
+        None
+    };
+
     let current_value = get_current_value(&SettingsStore::global(cx), &file, &field, cx);
     let (current_value, disabled) = current_value
         .map(|current_value| (*current_value.value, current_value.disabled))
@@ -5582,6 +6671,9 @@ where
             )
             .log_err(); // todo(settings_ui) don't log err
         }
+    })
+    .when_some(localized_labels, |this, labels| {
+        this.localized_labels(labels)
     })
     .aria_label(title)
     .when(!description.is_empty(), |this| {

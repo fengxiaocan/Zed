@@ -26,6 +26,7 @@ use project::{
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
+use settings::translate_ui;
 use std::any::{Any, TypeId};
 use std::sync::Arc;
 use ui::{DiffStat, Divider, Tooltip, prelude::*};
@@ -212,7 +213,7 @@ impl ProjectDiff {
             DiffMultibuffer::new(
                 branch_diff,
                 Capability::ReadWrite,
-                "No uncommitted changes",
+                translate_ui("No uncommitted changes", cx),
                 move |editor, cx| {
                     editor.set_diff_hunk_delegate(Some(Arc::new(UncommittedDiffHunkDelegate)), cx);
                     editor.rhs_editor().update(cx, |rhs_editor, _cx| {
@@ -419,8 +420,8 @@ impl Item for ProjectDiff {
             .into_any_element()
     }
 
-    fn tab_content_text(&self, _detail: usize, _cx: &App) -> SharedString {
-        "Uncommitted Changes".into()
+    fn tab_content_text(&self, _detail: usize, cx: &App) -> SharedString {
+        translate_ui("Uncommitted Changes", cx).into()
     }
 
     fn telemetry_event_text(&self) -> Option<&'static str> {
@@ -824,7 +825,7 @@ impl Render for ProjectDiffToolbar {
                             .icon_size(IconSize::Small)
                             .disabled(!button_states.prev_next)
                             .tooltip(Tooltip::for_action_title_in(
-                                "Go to Previous Hunk",
+                                translate_ui("Go to Previous Hunk", cx),
                                 &GoToPreviousHunk,
                                 &focus_handle,
                             ))
@@ -837,7 +838,7 @@ impl Render for ProjectDiffToolbar {
                             .icon_size(IconSize::Small)
                             .disabled(!button_states.prev_next)
                             .tooltip(Tooltip::for_action_title_in(
-                                "Go to Next Hunk",
+                                translate_ui("Go to Next Hunk", cx),
                                 &GoToHunk,
                                 &focus_handle,
                             ))
@@ -851,9 +852,9 @@ impl Render for ProjectDiffToolbar {
                 h_group_sm()
                     .when(button_states.selection, |this| {
                         this.child(
-                            Button::new("stage", "Toggle Staged")
+                            Button::new("stage", translate_ui("Toggle Staged", cx))
                                 .tooltip(Tooltip::for_action_title_in(
-                                    "Toggle Staged",
+                                    translate_ui("Toggle Staged", cx),
                                     &ToggleStaged,
                                     &focus_handle,
                                 ))
@@ -865,10 +866,10 @@ impl Render for ProjectDiffToolbar {
                     })
                     .when(!button_states.selection, |this| {
                         this.child(
-                            Button::new("stage", "Stage")
+                            Button::new("stage", translate_ui("Stage", cx))
                                 .disabled(!button_states.stage)
                                 .tooltip(Tooltip::for_action_title_in(
-                                    "Stage and Go to Next Hunk",
+                                    translate_ui("Stage and Go to Next Hunk", cx),
                                     &StageAndNext,
                                     &focus_handle,
                                 ))
@@ -877,10 +878,10 @@ impl Render for ProjectDiffToolbar {
                                 })),
                         )
                         .child(
-                            Button::new("unstage", "Unstage")
+                            Button::new("unstage", translate_ui("Unstage", cx))
                                 .disabled(!button_states.unstage)
                                 .tooltip(Tooltip::for_action_title_in(
-                                    "Unstage and Go to Next Hunk",
+                                    translate_ui("Unstage and Go to Next Hunk", cx),
                                     &UnstageAndNext,
                                     &focus_handle,
                                 ))
@@ -895,10 +896,10 @@ impl Render for ProjectDiffToolbar {
                 button_states.unstage_all && !button_states.stage_all,
                 |this| {
                     this.child(
-                        Button::new("unstage-all", "Unstage All")
+                        Button::new("unstage-all", translate_ui("Unstage All", cx))
                             .width(stage_all_button_width)
                             .tooltip(Tooltip::for_action_title_in(
-                                "Unstage All Changes",
+                                translate_ui("Unstage All Changes", cx),
                                 &UnstageAll,
                                 &focus_handle,
                             ))
@@ -912,11 +913,11 @@ impl Render for ProjectDiffToolbar {
                 !button_states.unstage_all || button_states.stage_all,
                 |this| {
                     this.child(
-                        Button::new("stage-all", "Stage All")
+                        Button::new("stage-all", translate_ui("Stage All", cx))
                             .width(stage_all_button_width)
                             .disabled(!button_states.stage_all)
                             .tooltip(Tooltip::for_action_title_in(
-                                "Stage All Changes",
+                                translate_ui("Stage All Changes", cx),
                                 &StageAll,
                                 &focus_handle,
                             ))
@@ -928,9 +929,9 @@ impl Render for ProjectDiffToolbar {
             )
             .child(Divider::vertical())
             .child(
-                Button::new("commit", "Commit")
+                Button::new("commit", translate_ui("Commit", cx))
                     .tooltip(Tooltip::for_action_title_in(
-                        "Commit",
+                        translate_ui("Commit", cx),
                         &Commit,
                         &focus_handle,
                     ))
@@ -940,7 +941,7 @@ impl Render for ProjectDiffToolbar {
             )
             .when(review_count > 0, |el| {
                 el.child(Divider::vertical()).child(
-                    render_send_review_to_agent_button(review_count, &focus_handle).on_click(
+                    render_send_review_to_agent_button(review_count, &focus_handle, cx).on_click(
                         cx.listener(|this, _, window, cx| {
                             this.dispatch_action(&SendReviewToAgent, window, cx)
                         }),
@@ -953,10 +954,15 @@ impl Render for ProjectDiffToolbar {
 pub(crate) fn render_send_review_to_agent_button(
     review_count: usize,
     focus_handle: &FocusHandle,
+    cx: &App,
 ) -> Button {
     Button::new(
         "send-review",
-        format!("Send Review to Agent ({})", review_count),
+        format!(
+            "{} ({})",
+            translate_ui("Send Review to Agent", cx),
+            review_count
+        ),
     )
     .start_icon(
         Icon::new(IconName::ZedAssistant)
@@ -964,7 +970,7 @@ pub(crate) fn render_send_review_to_agent_button(
             .color(Color::Muted),
     )
     .tooltip(Tooltip::for_action_title_in(
-        "Send all review comments to the Agent panel",
+        translate_ui("Send all review comments to the Agent panel", cx),
         &SendReviewToAgent,
         focus_handle,
     ))

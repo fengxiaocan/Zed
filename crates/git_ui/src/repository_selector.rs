@@ -3,6 +3,7 @@ use git::status::{FileStatus, StatusCode, TrackedStatus, UnmergedStatus, Unmerge
 use gpui::{App, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable, Task, WeakEntity};
 use picker::{Picker, PickerDelegate, PickerEditorPosition};
 use project::{Project, git_store::Repository};
+use settings::translate_ui;
 use std::sync::Arc;
 use ui::{ListItem, ListItemSpacing, prelude::*};
 use workspace::{ModalView, Workspace};
@@ -170,8 +171,8 @@ impl PickerDelegate for RepositorySelectorDelegate {
         cx.notify();
     }
 
-    fn placeholder_text(&self, _window: &mut Window, _cx: &mut App) -> Arc<str> {
-        "Select a repository...".into()
+    fn placeholder_text(&self, _window: &mut Window, cx: &mut App) -> Arc<str> {
+        translate_ui("Select a repository...", cx).into()
     }
 
     fn editor_position(&self) -> PickerEditorPosition {

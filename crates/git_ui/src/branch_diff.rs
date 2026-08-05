@@ -24,7 +24,7 @@ use project::{
         diff_buffer_list::{self, DiffBase},
     },
 };
-use settings::Settings;
+use settings::{Settings, translate_ui};
 use std::{
     any::{Any, TypeId},
     sync::Arc,
@@ -292,11 +292,12 @@ impl BranchDiff {
             branch_diff
         });
         let branch_diff_for_addon = branch_diff.clone();
+        let no_changes_label = translate_ui("No changes", cx);
         let diff = cx.new(|cx| {
             DiffMultibuffer::new(
                 branch_diff,
                 Capability::ReadWrite,
-                "No changes",
+                no_changes_label,
                 move |editor, cx| {
                     editor.set_diff_hunk_delegate(Some(Arc::new(RestoreOnlyDiffHunkDelegate)), cx);
                     editor.rhs_editor().update(cx, move |rhs_editor, _cx| {
@@ -451,8 +452,12 @@ impl Item for BranchDiff {
 
     fn tab_content_text(&self, _detail: usize, cx: &App) -> SharedString {
         match self.diff_base(cx) {
-            DiffBase::Merge { base_ref } => format!("Changes since {}", base_ref).into(),
-            DiffBase::Head | DiffBase::Index | DiffBase::Staged => "Changes".into(),
+            DiffBase::Merge { base_ref } => {
+                translate_ui("Changes since {}", cx).replace("{}", base_ref.as_ref()).into()
+            }
+            DiffBase::Head | DiffBase::Index | DiffBase::Staged => {
+                translate_ui("Changes", cx).into()
+            }
         }
     }
 
@@ -738,7 +743,7 @@ impl Render for BranchDiffToolbar {
             return div();
         };
         let selected_base_ref = base_ref.clone();
-        let base_ref_label = format!("Base: {base_ref}");
+        let base_ref_label = translate_ui("Base: {}", cx).replace("{}", base_ref.as_ref());
         let repository = branch_diff.read(cx).repo(cx);
         let workspace = branch_diff.read(cx).workspace.clone();
         let view_for_picker = branch_diff.downgrade();
@@ -801,13 +806,13 @@ impl Render for BranchDiffToolbar {
                                 .size(IconSize::XSmall)
                                 .color(Color::Muted),
                         ),
-                        Tooltip::text("Select Base Branch"),
+                        Tooltip::text(translate_ui("Select Base Branch", cx)),
                     ),
             )
             .when(show_review_button, |this| {
                 let focus_handle = focus_handle.clone();
                 this.child(Divider::vertical()).child(
-                    Button::new("review-diff", "Review Diff")
+                    Button::new("review-diff", translate_ui("Review Diff", cx))
                         .start_icon(
                             Icon::new(IconName::ZedAssistant)
                                 .size(IconSize::Small)
@@ -815,9 +820,9 @@ impl Render for BranchDiffToolbar {
                         )
                         .tooltip(move |_, cx| {
                             Tooltip::with_meta_in(
-                                "Review Diff",
+                                translate_ui("Review Diff", cx),
                                 Some(&ReviewDiff),
-                                "Send this diff for your last agent to review.",
+                                translate_ui("Send this diff for your last agent to review.", cx),
                                 &focus_handle,
                                 cx,
                             )
@@ -829,7 +834,7 @@ impl Render for BranchDiffToolbar {
             })
             .when(review_count > 0, |this| {
                 this.child(Divider::vertical()).child(
-                    render_send_review_to_agent_button(review_count, &focus_handle).on_click(
+                    render_send_review_to_agent_button(review_count, &focus_handle, cx).on_click(
                         cx.listener(|this, _, window, cx| {
                             this.dispatch_action(&SendReviewToAgent, window, cx)
                         }),
