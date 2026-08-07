@@ -1,14 +1,13 @@
-use editor::{Editor, EditorElement, EditorEvent, EditorStyle};
+use editor::{Editor, EditorEvent};
 use git::repository::TagInfo;
 use gpui::{
     App, ClipboardItem, Context, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, ParentElement, SharedString, Styled, Subscription, TextStyle,
-    Window, div, relative, rems, uniform_list,
+    InteractiveElement, IntoElement, ParentElement, SharedString, Styled, Subscription, Window,
+    rems, uniform_list,
 };
 use menu::{Cancel, Confirm};
 use project::git_store::Repository;
-use settings::{Settings, translate_ui};
-use theme_settings::ThemeSettings;
+use settings::translate_ui;
 use ui::{
     Color, ContextMenu, Headline, HeadlineSize, IconButton, IconName, IconSize, Label, LabelSize,
     PopoverMenu, prelude::*,
@@ -18,15 +17,11 @@ use workspace::{ModalView, Workspace};
 
 /// Build a single-line filter editor for the Tags section.
 pub(crate) fn new_tag_filter_editor(window: &mut Window, cx: &mut App) -> Entity<Editor> {
-    cx.new(|cx| {
-        let mut editor = Editor::single_line(window, cx);
-        editor.set_placeholder_text(translate_ui("Filter tags…", cx), window, cx);
-        editor
-    })
+    super::filter::new_filter_editor_with_placeholder(translate_ui("Filter tags…", cx), window, cx)
 }
 
 pub(crate) fn tag_filter_query(editor: &Entity<Editor>, cx: &App) -> String {
-    editor.read(cx).text(cx)
+    super::filter::filter_query(editor, cx)
 }
 
 /// Filter tags by name (case-insensitive substring).
@@ -45,37 +40,7 @@ pub(crate) fn render_tag_filter_editor(
     filter_editor: &Entity<Editor>,
     cx: &App,
 ) -> impl IntoElement {
-    let settings = ThemeSettings::get_global(cx);
-    let text_style = TextStyle {
-        color: cx.theme().colors().text,
-        font_family: settings.ui_font.family.clone(),
-        font_features: settings.ui_font.features.clone(),
-        font_fallbacks: settings.ui_font.fallbacks.clone(),
-        font_size: rems(0.875).into(),
-        font_weight: settings.ui_font.weight,
-        line_height: relative(1.3),
-        ..Default::default()
-    };
-
-    h_flex()
-        .w_full()
-        .h_8()
-        .px_1p5()
-        .gap_2()
-        .border_1()
-        .border_color(cx.theme().colors().border)
-        .rounded_md()
-        .bg(cx.theme().colors().editor_background)
-        .child(Icon::new(IconName::MagnifyingGlass).color(Color::Muted))
-        .child(div().flex_1().child(EditorElement::new(
-            filter_editor,
-            EditorStyle {
-                background: cx.theme().colors().editor_background,
-                local_player: cx.theme().players().local(),
-                text: text_style,
-                ..Default::default()
-            },
-        )))
+    super::filter::render_filter_editor(filter_editor, cx)
 }
 
 pub(crate) fn render_tag_list(
@@ -97,20 +62,16 @@ pub(crate) fn render_tag_list(
     }
 
     let tag_count = tags.len();
-    uniform_list(
-        "git-manager-tags",
-        tag_count,
-        move |range, _window, cx| {
-            tags[range.clone()]
-                .iter()
-                .enumerate()
-                .map(|(offset, tag)| {
-                    let index = range.start + offset;
-                    render_tag_row(index, tag.clone(), repo.clone(), workspace.clone(), cx)
-                })
-                .collect()
-        },
-    )
+    uniform_list("git-manager-tags", tag_count, move |range, _window, cx| {
+        tags[range.clone()]
+            .iter()
+            .enumerate()
+            .map(|(offset, tag)| {
+                let index = range.start + offset;
+                render_tag_row(index, tag.clone(), repo.clone(), workspace.clone(), cx)
+            })
+            .collect()
+    })
     .flex_1()
     .size_full()
     .into_any_element()
@@ -200,30 +161,34 @@ fn render_tag_row(
                                 }
                             })
                             .separator()
-                            .entry(translate_ui("Delete Tag", cx), None, {
-                                let name = delete_name;
-                                let repo = delete_repo;
-                                move |window, cx| {
-                                    let Some(repo) = repo.clone() else {
-                                        return;
-                                    };
-                                    let name = name.to_string();
-                                    window
-                                        .spawn(cx, async move |cx| {
-                                            repo.update(cx, |repo, _| {
-                                                repo.delete_tag(name.clone())
+                            .entry(
+                                translate_ui("Delete Tag", cx),
+                                None,
+                                {
+                                    let name = delete_name;
+                                    let repo = delete_repo;
+                                    move |window, cx| {
+                                        let Some(repo) = repo.clone() else {
+                                            return;
+                                        };
+                                        let name = name.to_string();
+                                        window
+                                            .spawn(cx, async move |cx| {
+                                                repo.update(cx, |repo, _| {
+                                                    repo.delete_tag(name.clone())
+                                                })
+                                                .await??;
+                                                anyhow::Ok(())
                                             })
-                                            .await??;
-                                            anyhow::Ok(())
-                                        })
-                                        .detach_and_prompt_err(
-                                            "Failed to delete tag",
-                                            window,
-                                            cx,
-                                            |e, _, _| Some(e.to_string()),
-                                        );
-                                }
-                            })
+                                            .detach_and_prompt_err(
+                                                translate_ui("Failed to delete tag", cx),
+                                                window,
+                                                cx,
+                                                |e, _, _| Some(e.to_string()),
+                                            );
+                                    }
+                                },
+                            )
                         }))
                     }
                 }),
@@ -241,7 +206,11 @@ pub(crate) struct NewTagModal {
 }
 
 impl NewTagModal {
-    pub(crate) fn new(repo: Entity<Repository>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(
+        repo: Entity<Repository>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let name_placeholder = translate_ui("Tag name…", cx);
         let message_placeholder = translate_ui("Message (optional, creates annotated tag)…", cx);
 
@@ -299,9 +268,12 @@ impl NewTagModal {
                 .await??;
             anyhow::Ok(())
         })
-        .detach_and_prompt_err("Failed to create tag", window, cx, |e, _, _| {
-            Some(e.to_string())
-        });
+        .detach_and_prompt_err(
+            translate_ui("Failed to create tag", cx),
+            window,
+            cx,
+            |e, _, _| Some(e.to_string()),
+        );
         cx.emit(DismissEvent);
     }
 }
@@ -330,9 +302,7 @@ impl Render for NewTagModal {
                     .w_full()
                     .gap_1p5()
                     .child(Icon::new(IconName::Hash).size(IconSize::XSmall))
-                    .child(
-                        Headline::new(translate_ui("New Tag", cx)).size(HeadlineSize::XSmall),
-                    ),
+                    .child(Headline::new(translate_ui("New Tag", cx)).size(HeadlineSize::XSmall)),
             )
             .child(
                 v_flex()

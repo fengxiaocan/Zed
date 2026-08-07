@@ -1,12 +1,11 @@
-use editor::{Editor, EditorElement, EditorStyle};
+use editor::Editor;
 use git::stash::StashEntry;
 use gpui::{
     App, Entity, InteractiveElement, IntoElement, ParentElement, PromptLevel, SharedString, Styled,
-    TextStyle, Window, div, relative, rems, uniform_list,
+    Window, uniform_list,
 };
 use project::git_store::Repository;
-use settings::{Settings, translate_ui};
-use theme_settings::ThemeSettings;
+use settings::translate_ui;
 use ui::{
     Color, ContextMenu, IconButton, IconName, IconSize, Label, LabelSize, PopoverMenu, prelude::*,
 };
@@ -15,15 +14,15 @@ use workspace::notifications::DetachAndPromptErr;
 
 /// Build a single-line filter editor for the Shelves section.
 pub(crate) fn new_shelf_filter_editor(window: &mut Window, cx: &mut App) -> Entity<Editor> {
-    cx.new(|cx| {
-        let mut editor = Editor::single_line(window, cx);
-        editor.set_placeholder_text(translate_ui("Filter shelves…", cx), window, cx);
-        editor
-    })
+    super::filter::new_filter_editor_with_placeholder(
+        translate_ui("Filter shelves…", cx),
+        window,
+        cx,
+    )
 }
 
 pub(crate) fn shelf_filter_query(editor: &Entity<Editor>, cx: &App) -> String {
-    editor.read(cx).text(cx)
+    super::filter::filter_query(editor, cx)
 }
 
 /// Filter stash entries by message or branch (case-insensitive substring).
@@ -48,37 +47,7 @@ pub(crate) fn render_shelf_filter_editor(
     filter_editor: &Entity<Editor>,
     cx: &App,
 ) -> impl IntoElement {
-    let settings = ThemeSettings::get_global(cx);
-    let text_style = TextStyle {
-        color: cx.theme().colors().text,
-        font_family: settings.ui_font.family.clone(),
-        font_features: settings.ui_font.features.clone(),
-        font_fallbacks: settings.ui_font.fallbacks.clone(),
-        font_size: rems(0.875).into(),
-        font_weight: settings.ui_font.weight,
-        line_height: relative(1.3),
-        ..Default::default()
-    };
-
-    h_flex()
-        .w_full()
-        .h_8()
-        .px_1p5()
-        .gap_2()
-        .border_1()
-        .border_color(cx.theme().colors().border)
-        .rounded_md()
-        .bg(cx.theme().colors().editor_background)
-        .child(Icon::new(IconName::MagnifyingGlass).color(Color::Muted))
-        .child(div().flex_1().child(EditorElement::new(
-            filter_editor,
-            EditorStyle {
-                background: cx.theme().colors().editor_background,
-                local_player: cx.theme().players().local(),
-                text: text_style,
-                ..Default::default()
-            },
-        )))
+    super::filter::render_filter_editor(filter_editor, cx)
 }
 
 pub(crate) fn render_shelf_list(
@@ -146,8 +115,7 @@ fn render_shelf_row(
                     h_flex()
                         .gap_1p5()
                         .child(
-                            Label::new(format!("stash@{{{}}}", entry.index))
-                                .size(LabelSize::Small),
+                            Label::new(format!("stash@{{{}}}", entry.index)).size(LabelSize::Small),
                         )
                         .child(
                             Label::new(short_sha)
@@ -233,45 +201,49 @@ fn render_shelf_row(
                                 }
                             })
                             .separator()
-                            .entry(translate_ui("Drop Shelf", cx), None, {
-                                let repo = drop_repo;
-                                move |window, cx| {
-                                    let Some(repo) = repo.clone() else {
-                                        return;
-                                    };
-                                    let prompt_message = format!(
-                                        "{} stash@{{{}}}?",
-                                        translate_ui("Drop shelf", cx),
-                                        drop_index
-                                    );
-                                    let buttons =
-                                        [translate_ui("Drop", cx), translate_ui("Cancel", cx)];
-                                    let answer = window.prompt(
-                                        PromptLevel::Warning,
-                                        &prompt_message,
-                                        None,
-                                        &buttons,
-                                        cx,
-                                    );
-                                    window
-                                        .spawn(cx, async move |cx| {
-                                            if answer.await != Ok(0) {
-                                                return anyhow::Ok(());
-                                            }
-                                            repo.update(cx, |repo, cx| {
-                                                repo.stash_drop(Some(drop_index), cx)
-                                            })
-                                            .await??;
-                                            anyhow::Ok(())
-                                        })
-                                        .detach_and_prompt_err(
-                                            translate_ui("Failed to drop shelf", cx),
-                                            window,
-                                            cx,
-                                            |e, _, _| Some(e.to_string()),
+                            .entry(
+                                translate_ui("Drop Shelf", cx),
+                                None,
+                                {
+                                    let repo = drop_repo;
+                                    move |window, cx| {
+                                        let Some(repo) = repo.clone() else {
+                                            return;
+                                        };
+                                        let prompt_message = format!(
+                                            "{} stash@{{{}}}?",
+                                            translate_ui("Drop shelf", cx),
+                                            drop_index
                                         );
-                                }
-                            })
+                                        let buttons =
+                                            [translate_ui("Drop", cx), translate_ui("Cancel", cx)];
+                                        let answer = window.prompt(
+                                            PromptLevel::Warning,
+                                            &prompt_message,
+                                            None,
+                                            &buttons,
+                                            cx,
+                                        );
+                                        window
+                                            .spawn(cx, async move |cx| {
+                                                if answer.await != Ok(0) {
+                                                    return anyhow::Ok(());
+                                                }
+                                                repo.update(cx, |repo, cx| {
+                                                    repo.stash_drop(Some(drop_index), cx)
+                                                })
+                                                .await??;
+                                                anyhow::Ok(())
+                                            })
+                                            .detach_and_prompt_err(
+                                                translate_ui("Failed to drop shelf", cx),
+                                                window,
+                                                cx,
+                                                |e, _, _| Some(e.to_string()),
+                                            );
+                                    }
+                                },
+                            )
                         }))
                     }
                 }),

@@ -1,13 +1,12 @@
-use editor::{Editor, EditorElement, EditorEvent, EditorStyle};
+use editor::{Editor, EditorEvent};
 use gpui::{
     App, ClipboardItem, Context, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, ParentElement, PromptLevel, SharedString, Styled, Subscription,
-    TextStyle, Window, div, relative, rems, uniform_list,
+    InteractiveElement, IntoElement, ParentElement, PromptLevel, SharedString, Styled,
+    Subscription, Window, rems, uniform_list,
 };
 use menu::{Cancel, Confirm};
 use project::git_store::Repository;
-use settings::{Settings, translate_ui};
-use theme_settings::ThemeSettings;
+use settings::translate_ui;
 use ui::{
     Color, ContextMenu, Headline, HeadlineSize, IconButton, IconName, IconSize, Label, LabelSize,
     PopoverMenu, prelude::*,
@@ -45,52 +44,22 @@ pub(crate) fn filter_remotes(remotes: &[RemoteEntry], query: &str) -> Vec<Remote
 
 /// Build a single-line filter editor for the Remotes section.
 pub(crate) fn new_remote_filter_editor(window: &mut Window, cx: &mut App) -> Entity<Editor> {
-    cx.new(|cx| {
-        let mut editor = Editor::single_line(window, cx);
-        editor.set_placeholder_text(translate_ui("Filter remotes…", cx), window, cx);
-        editor
-    })
+    super::filter::new_filter_editor_with_placeholder(
+        translate_ui("Filter remotes…", cx),
+        window,
+        cx,
+    )
 }
 
 pub(crate) fn remote_filter_query(editor: &Entity<Editor>, cx: &App) -> String {
-    editor.read(cx).text(cx)
+    super::filter::filter_query(editor, cx)
 }
 
 pub(crate) fn render_remote_filter_editor(
     filter_editor: &Entity<Editor>,
     cx: &App,
 ) -> impl IntoElement {
-    let settings = ThemeSettings::get_global(cx);
-    let text_style = TextStyle {
-        color: cx.theme().colors().text,
-        font_family: settings.ui_font.family.clone(),
-        font_features: settings.ui_font.features.clone(),
-        font_fallbacks: settings.ui_font.fallbacks.clone(),
-        font_size: rems(0.875).into(),
-        font_weight: settings.ui_font.weight,
-        line_height: relative(1.3),
-        ..Default::default()
-    };
-
-    h_flex()
-        .w_full()
-        .h_8()
-        .px_1p5()
-        .gap_2()
-        .border_1()
-        .border_color(cx.theme().colors().border)
-        .rounded_md()
-        .bg(cx.theme().colors().editor_background)
-        .child(Icon::new(IconName::MagnifyingGlass).color(Color::Muted))
-        .child(div().flex_1().child(EditorElement::new(
-            filter_editor,
-            EditorStyle {
-                background: cx.theme().colors().editor_background,
-                local_player: cx.theme().players().local(),
-                text: text_style,
-                ..Default::default()
-            },
-        )))
+    super::filter::render_filter_editor(filter_editor, cx)
 }
 
 pub(crate) fn render_remote_list(
@@ -225,53 +194,57 @@ fn render_remote_row(
                                     });
                                 }
                             })
-                            .entry(translate_ui("Remove", cx), None, {
-                                let name = remove_name;
-                                let repo = remove_repo;
-                                let workspace = remove_workspace;
-                                move |window, cx| {
-                                    let Some(repo) = repo.clone() else {
-                                        return;
-                                    };
-                                    if workspace.upgrade().is_none() {
-                                        return;
-                                    }
-                                    let name = name.to_string();
-                                    let prompt_message = format!(
-                                        "{} '{}'?",
-                                        translate_ui("Remove remote", cx),
-                                        name
-                                    );
-                                    let buttons = [
-                                        translate_ui("Remove", cx),
-                                        translate_ui("Cancel", cx),
-                                    ];
-                                    let answer = window.prompt(
-                                        PromptLevel::Warning,
-                                        &prompt_message,
-                                        None,
-                                        &buttons,
-                                        cx,
-                                    );
-                                    window
-                                        .spawn(cx, async move |cx| {
-                                            if answer.await != Ok(0) {
-                                                return anyhow::Ok(());
-                                            }
-                                            repo.update(cx, |repo, _| {
-                                                repo.remove_remote(name.clone())
-                                            })
-                                            .await??;
-                                            anyhow::Ok(())
-                                        })
-                                        .detach_and_prompt_err(
-                                            "Failed to remove remote",
-                                            window,
-                                            cx,
-                                            |e, _, _| Some(e.to_string()),
+                            .entry(
+                                translate_ui("Remove", cx),
+                                None,
+                                {
+                                    let name = remove_name;
+                                    let repo = remove_repo;
+                                    let workspace = remove_workspace;
+                                    move |window, cx| {
+                                        let Some(repo) = repo.clone() else {
+                                            return;
+                                        };
+                                        if workspace.upgrade().is_none() {
+                                            return;
+                                        }
+                                        let name = name.to_string();
+                                        let prompt_message = format!(
+                                            "{} '{}'?",
+                                            translate_ui("Remove remote", cx),
+                                            name
                                         );
-                                }
-                            })
+                                        let buttons = [
+                                            translate_ui("Remove", cx),
+                                            translate_ui("Cancel", cx),
+                                        ];
+                                        let answer = window.prompt(
+                                            PromptLevel::Warning,
+                                            &prompt_message,
+                                            None,
+                                            &buttons,
+                                            cx,
+                                        );
+                                        window
+                                            .spawn(cx, async move |cx| {
+                                                if answer.await != Ok(0) {
+                                                    return anyhow::Ok(());
+                                                }
+                                                repo.update(cx, |repo, _| {
+                                                    repo.remove_remote(name.clone())
+                                                })
+                                                .await??;
+                                                anyhow::Ok(())
+                                            })
+                                            .detach_and_prompt_err(
+                                                translate_ui("Failed to remove remote", cx),
+                                                window,
+                                                cx,
+                                                |e, _, _| Some(e.to_string()),
+                                            );
+                                    }
+                                },
+                            )
                         }))
                     }
                 }),
@@ -378,18 +351,24 @@ impl RemoteModal {
                     .await??;
                 anyhow::Ok(())
             })
-            .detach_and_prompt_err("Failed to update remote URL", window, cx, |e, _, _| {
-                Some(e.to_string())
-            });
+            .detach_and_prompt_err(
+                translate_ui("Failed to update remote URL", cx),
+                window,
+                cx,
+                |e, _, _| Some(e.to_string()),
+            );
         } else {
             cx.spawn(async move |_, cx| {
                 repo.update(cx, |repo, _| repo.create_remote(name, url))
                     .await??;
                 anyhow::Ok(())
             })
-            .detach_and_prompt_err("Failed to add remote", window, cx, |e, _, _| {
-                Some(e.to_string())
-            });
+            .detach_and_prompt_err(
+                translate_ui("Failed to add remote", cx),
+                window,
+                cx,
+                |e, _, _| Some(e.to_string()),
+            );
         }
         cx.emit(DismissEvent);
     }
@@ -406,11 +385,7 @@ impl Focusable for RemoteModal {
 impl Render for RemoteModal {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let title = match &self.editing_name {
-            Some(name) => format!(
-                "{} ({})",
-                translate_ui("Edit Remote", cx),
-                name
-            ),
+            Some(name) => format!("{} ({})", translate_ui("Edit Remote", cx), name),
             None => translate_ui("Add Remote", cx).to_string(),
         };
 

@@ -55,6 +55,8 @@ pub(crate) enum UpdateProjectPlan {
     NeedUpstream,
     /// Worktree is dirty and policy requires asking; wraps the plan to run after.
     PromptDirtyWorktree { next: Box<UpdateProjectPlan> },
+    /// Worktree is dirty and policy is shelve-first: stash, then run the plan.
+    ShelveThenIntegrate { next: Box<UpdateProjectPlan> },
 }
 
 pub(crate) fn plan_update_project(
@@ -79,12 +81,14 @@ pub(crate) fn plan_update_project(
     };
 
     match (dirty, dirty_policy) {
-        // OnlyFetch never touches the worktree, so no prompt is needed.
-        (true, DirtyPolicy::Ask) if integrate != UpdateProjectPlan::FetchOnly => {
-            UpdateProjectPlan::PromptDirtyWorktree {
-                next: Box::new(integrate),
-            }
-        }
+        // OnlyFetch never touches the worktree, so no dirty handling is needed.
+        _ if integrate == UpdateProjectPlan::FetchOnly => integrate,
+        (true, DirtyPolicy::Ask) => UpdateProjectPlan::PromptDirtyWorktree {
+            next: Box::new(integrate),
+        },
+        (true, DirtyPolicy::ShelveFirst) => UpdateProjectPlan::ShelveThenIntegrate {
+            next: Box::new(integrate),
+        },
         _ => integrate,
     }
 }
@@ -182,9 +186,12 @@ pub(crate) fn update_project(
             .spawn(cx, async move |_| -> anyhow::Result<()> {
                 anyhow::bail!("The current branch has no upstream to update from.")
             })
-            .detach_and_prompt_err("Update Project failed", window, cx, |e, _, _| {
-                Some(e.to_string())
-            });
+            .detach_and_prompt_err(
+                translate_ui("Update Project failed", cx),
+                window,
+                cx,
+                |e, _, _| Some(e.to_string()),
+            );
         return;
     };
 
@@ -230,6 +237,11 @@ pub(crate) fn update_project(
                         _ => return Ok(()),
                     }
                 }
+                UpdateProjectPlan::ShelveThenIntegrate { next } => {
+                    let task = repo.update(cx, |repo, cx| repo.stash_all(cx));
+                    task.await?;
+                    *next
+                }
                 plan => plan,
             };
 
@@ -259,16 +271,20 @@ pub(crate) fn update_project(
                 UpdateProjectPlan::NeedUpstream => {
                     anyhow::bail!("The current branch has no upstream to update from.")
                 }
-                UpdateProjectPlan::PromptDirtyWorktree { .. } => {
-                    unreachable!("dirty prompt resolved above")
+                UpdateProjectPlan::PromptDirtyWorktree { .. }
+                | UpdateProjectPlan::ShelveThenIntegrate { .. } => {
+                    unreachable!("dirty handling resolved above")
                 }
             }
 
             anyhow::Ok(())
         })
-        .detach_and_prompt_err("Update Project failed", window, cx, |e, _, _| {
-            Some(e.to_string())
-        });
+        .detach_and_prompt_err(
+            translate_ui("Update Project failed", cx),
+            window,
+            cx,
+            |e, _, _| Some(e.to_string()),
+        );
 }
 
 #[cfg(test)]
@@ -356,13 +372,24 @@ mod tests {
     }
 
     #[test]
-    fn dirty_shelve_first_and_always_continue_integrate() {
+    fn dirty_shelve_first_shelves_then_integrates() {
         assert_eq!(
             plan(UpdateMode::Merge, Some(UP), 1, true, DirtyPolicy::ShelveFirst),
-            UpdateProjectPlan::FetchAndMerge {
-                upstream: UP.into()
+            UpdateProjectPlan::ShelveThenIntegrate {
+                next: Box::new(UpdateProjectPlan::FetchAndMerge {
+                    upstream: UP.into()
+                })
             }
         );
+        // Shelve-first on a fetch-only update is a no-op (nothing to integrate).
+        assert_eq!(
+            plan(UpdateMode::OnlyFetch, Some(UP), 1, true, DirtyPolicy::ShelveFirst),
+            UpdateProjectPlan::FetchOnly
+        );
+    }
+
+    #[test]
+    fn dirty_always_continue_integrates_without_shelving() {
         assert_eq!(
             plan(
                 UpdateMode::Rebase,
