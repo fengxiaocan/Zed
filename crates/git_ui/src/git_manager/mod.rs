@@ -5,7 +5,8 @@ use crate::git_manager_settings::GitManagerSettings;
 use anyhow::Result;
 use editor::Editor;
 use fs::Fs;
-use git::repository::Branch;
+use git::repository::{Branch, TagInfo};
+use git::stash::StashEntry;
 use gpui::{
     Action, App, AsyncWindowContext, Context, Entity, EventEmitter, FocusHandle, Focusable,
     InteractiveElement, IntoElement, ParentElement, Pixels, Render, Styled, Subscription,
@@ -17,8 +18,9 @@ use project::{
 };
 use settings::{Settings, translate_ui, update_settings_file};
 use std::sync::Arc;
-use ui::{Button, Color, Label, prelude::*};
+use ui::{Button, Label, prelude::*};
 use util::ResultExt;
+use workspace::notifications::DetachAndPromptErr;
 use workspace::{
     Workspace,
     dock::{DockPosition, Panel, PanelEvent},
@@ -69,9 +71,17 @@ pub struct GitManager {
     remotes: Vec<sections::RemoteEntry>,
     filtered_remotes: Vec<sections::RemoteEntry>,
     remote_filter_editor: Entity<Editor>,
+    tags: Vec<TagInfo>,
+    filtered_tags: Vec<TagInfo>,
+    tag_filter_editor: Entity<Editor>,
+    shelves: Vec<StashEntry>,
+    filtered_shelves: Vec<StashEntry>,
+    shelf_filter_editor: Entity<Editor>,
     _git_store_subscription: Subscription,
     _filter_subscription: Subscription,
     _remote_filter_subscription: Subscription,
+    _tag_filter_subscription: Subscription,
+    _shelf_filter_subscription: Subscription,
 }
 
 impl GitManager {
@@ -90,12 +100,30 @@ impl GitManager {
         let active_repository = project.read(cx).active_repository(cx);
         let filter_editor = sections::new_filter_editor(window, cx);
         let remote_filter_editor = sections::new_remote_filter_editor(window, cx);
+        let tag_filter_editor = sections::new_tag_filter_editor(window, cx);
+        let shelf_filter_editor = sections::new_shelf_filter_editor(window, cx);
 
         let remote_filter_subscription = cx.subscribe(
             &remote_filter_editor,
             |this, _editor, event: &editor::EditorEvent, cx| {
                 if let editor::EditorEvent::Edited { .. } = event {
                     this.refresh_filtered_remotes(cx);
+                }
+            },
+        );
+        let tag_filter_subscription = cx.subscribe(
+            &tag_filter_editor,
+            |this, _editor, event: &editor::EditorEvent, cx| {
+                if let editor::EditorEvent::Edited { .. } = event {
+                    this.refresh_filtered_tags(cx);
+                }
+            },
+        );
+        let shelf_filter_subscription = cx.subscribe(
+            &shelf_filter_editor,
+            |this, _editor, event: &editor::EditorEvent, cx| {
+                if let editor::EditorEvent::Edited { .. } = event {
+                    this.refresh_filtered_shelves(cx);
                 }
             },
         );
@@ -113,6 +141,12 @@ impl GitManager {
             remotes: Vec::new(),
             filtered_remotes: Vec::new(),
             remote_filter_editor: remote_filter_editor.clone(),
+            tags: Vec::new(),
+            filtered_tags: Vec::new(),
+            tag_filter_editor: tag_filter_editor.clone(),
+            shelves: Vec::new(),
+            filtered_shelves: Vec::new(),
+            shelf_filter_editor: shelf_filter_editor.clone(),
             _git_store_subscription: cx.subscribe_in(
                 &git_store,
                 window,
@@ -131,17 +165,29 @@ impl GitManager {
                     ) => {
                         this.reload_branches(cx);
                         this.reload_remotes(cx);
+                        this.reload_tags(cx);
+                    }
+                    GitStoreEvent::RepositoryUpdated(
+                        _,
+                        RepositoryEvent::StashEntriesChanged,
+                        true,
+                    ) => {
+                        this.reload_shelves(cx);
                     }
                     _ => {}
                 },
             ),
             _filter_subscription: sections::subscribe_filter_edits(&filter_editor, cx),
             _remote_filter_subscription: remote_filter_subscription,
+            _tag_filter_subscription: tag_filter_subscription,
+            _shelf_filter_subscription: shelf_filter_subscription,
         };
 
         this.active_repository = active_repository;
         this.reload_branches(cx);
         this.reload_remotes(cx);
+        this.reload_tags(cx);
+        this.reload_shelves(cx);
         this
     }
 
@@ -160,6 +206,8 @@ impl GitManager {
         if changed {
             self.reload_branches(cx);
             self.reload_remotes(cx);
+            self.reload_tags(cx);
+            self.reload_shelves(cx);
         } else {
             cx.notify();
         }
@@ -217,25 +265,56 @@ impl GitManager {
         cx.notify();
     }
 
-    fn placeholder_for_tab(&self, cx: &App) -> &'static str {
-        match self.active_tab {
-            GitManagerTab::Branches => translate_ui("Branches coming soon", cx),
-            GitManagerTab::Remotes => translate_ui("Remotes coming soon", cx),
-            GitManagerTab::Tags => translate_ui("Tags coming soon", cx),
-            GitManagerTab::Shelves => translate_ui("Shelves coming soon", cx),
+    fn reload_tags(&mut self, cx: &mut Context<Self>) {
+        let Some(repo) = self.active_repository.clone() else {
+            self.tags.clear();
+            self.refresh_filtered_tags(cx);
+            return;
+        };
+
+        let receiver = repo.update(cx, |repo, _| repo.list_tags());
+        let handle = cx.entity().downgrade();
+        cx.spawn(async move |_, cx| {
+            let tags = receiver.await.log_err()?;
+            let tags = tags.log_err()?;
+            handle
+                .update(cx, |this, cx| {
+                    this.tags = tags;
+                    this.refresh_filtered_tags(cx);
+                })
+                .log_err();
+            Some(())
+        })
+        .detach();
+    }
+
+    fn reload_shelves(&mut self, cx: &mut Context<Self>) {
+        if let Some(repo) = self.active_repository.as_ref() {
+            self.shelves = repo.read(cx).stash_entries.entries.to_vec();
+        } else {
+            self.shelves.clear();
         }
+        self.refresh_filtered_shelves(cx);
+    }
+
+    pub(crate) fn refresh_filtered_tags(&mut self, cx: &mut Context<Self>) {
+        let query = sections::tag_filter_query(&self.tag_filter_editor, cx);
+        self.filtered_tags = sections::filter_tags(&self.tags, &query);
+        cx.notify();
+    }
+
+    pub(crate) fn refresh_filtered_shelves(&mut self, cx: &mut Context<Self>) {
+        let query = sections::shelf_filter_query(&self.shelf_filter_editor, cx);
+        self.filtered_shelves = sections::filter_shelves(&self.shelves, &query);
+        cx.notify();
     }
 
     fn render_body(&self, cx: &mut Context<Self>) -> AnyElement {
         match self.active_tab {
             GitManagerTab::Branches => self.render_branches_section(cx),
             GitManagerTab::Remotes => self.render_remotes_section(cx),
-            GitManagerTab::Tags | GitManagerTab::Shelves => div()
-                .id("git-manager-body")
-                .flex_1()
-                .p_2()
-                .child(Label::new(self.placeholder_for_tab(cx)).color(Color::Muted))
-                .into_any_element(),
+            GitManagerTab::Tags => self.render_tags_section(cx),
+            GitManagerTab::Shelves => self.render_shelves_section(cx),
         }
     }
 
@@ -295,6 +374,100 @@ impl GitManager {
             )
             .child(sections::render_remote_list(
                 self.filtered_remotes.clone(),
+                self.active_repository.is_some(),
+                self.active_repository.clone(),
+                self.workspace.clone(),
+                cx,
+            ))
+            .into_any_element()
+    }
+
+    fn render_tags_section(&self, cx: &mut Context<Self>) -> AnyElement {
+        let add_disabled = self.active_repository.is_none();
+        v_flex()
+            .id("git-manager-tags-body")
+            .flex_1()
+            .size_full()
+            .p_2()
+            .gap_2()
+            .child(
+                h_flex()
+                    .w_full()
+                    .gap_2()
+                    .child(div().flex_1().child(sections::render_tag_filter_editor(
+                        &self.tag_filter_editor,
+                        cx,
+                    )))
+                    .child(
+                        Button::new("gm-new-tag", translate_ui("New Tag", cx))
+                            .label_size(ui::LabelSize::Small)
+                            .size(ui::ButtonSize::Compact)
+                            .disabled(add_disabled)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                let Some(repo) = this.active_repository.clone() else {
+                                    return;
+                                };
+                                let workspace = this.workspace.clone();
+                                if let Some(workspace) = workspace.upgrade() {
+                                    workspace.update(cx, |workspace, cx| {
+                                        workspace.toggle_modal(window, cx, |window, cx| {
+                                            sections::NewTagModal::new(repo, window, cx)
+                                        });
+                                    });
+                                }
+                            })),
+                    ),
+            )
+            .child(sections::render_tag_list(
+                self.filtered_tags.clone(),
+                self.active_repository.is_some(),
+                self.active_repository.clone(),
+                self.workspace.clone(),
+                cx,
+            ))
+            .into_any_element()
+    }
+
+    fn render_shelves_section(&self, cx: &mut Context<Self>) -> AnyElement {
+        let has_repo = self.active_repository.is_some();
+        v_flex()
+            .id("git-manager-shelves-body")
+            .flex_1()
+            .size_full()
+            .p_2()
+            .gap_2()
+            .child(
+                h_flex()
+                    .w_full()
+                    .gap_2()
+                    .child(div().flex_1().child(sections::render_shelf_filter_editor(
+                        &self.shelf_filter_editor,
+                        cx,
+                    )))
+                    .child(
+                        Button::new("gm-shelve", translate_ui("Shelve Changes", cx))
+                            .label_size(ui::LabelSize::Small)
+                            .size(ui::ButtonSize::Compact)
+                            .disabled(!has_repo)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                let Some(repo) = this.active_repository.clone() else {
+                                    return;
+                                };
+                                cx.spawn(async move |_, cx| {
+                                    repo.update(cx, |repo, cx| repo.stash_all(cx)).await?;
+                                    anyhow::Ok(())
+                                })
+                                .detach_and_prompt_err(
+                                    translate_ui("Failed to shelve changes", cx),
+                                    window,
+                                    cx,
+                                    |e, _, _| Some(e.to_string()),
+                                );
+                            })),
+                    ),
+            )
+            .child(sections::render_shelf_list(
+                self.filtered_shelves.clone(),
                 self.active_repository.is_some(),
                 self.active_repository.clone(),
                 self.workspace.clone(),
