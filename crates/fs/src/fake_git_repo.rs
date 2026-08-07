@@ -14,7 +14,7 @@ use git::{
         AskPassDelegate, Branch, CommitData, CommitDataReader, CommitDetails, CommitOptions,
         CreateWorktreeTarget, FetchOptions, FileHistoryChangedFileSets, GRAPH_CHUNK_SIZE,
         GitRepository, GitRepositoryCheckpoint, InitialGraphCommitData, LogOrder, LogSource,
-        PushOptions, RefEdit, Remote, RepoPath, ResetMode, SearchCommitArgs, Worktree,
+        PushOptions, RefEdit, Remote, RepoPath, ResetMode, SearchCommitArgs, TagInfo, Worktree,
         commit_hash_search_query,
     },
     stash::GitStash,
@@ -70,6 +70,8 @@ pub struct FakeGitRepositoryState {
     pub branches: HashSet<String>,
     /// List of remotes, keys are names and values are URLs
     pub remotes: HashMap<String, String>,
+    /// List of tags, keys are names and values are (target SHA, optional message).
+    pub tags: HashMap<String, (String, Option<String>)>,
     pub simulated_index_write_error_message: Option<String>,
     pub simulated_create_worktree_error: Option<String>,
     pub simulated_graph_error: Option<String>,
@@ -101,6 +103,7 @@ impl FakeGitRepositoryState {
             merge_base_contents: Default::default(),
             oids: Default::default(),
             remotes: HashMap::default(),
+            tags: HashMap::default(),
             graph_commits: Vec::new(),
             commit_data: Default::default(),
             commit_history: Vec::new(),
@@ -1483,6 +1486,51 @@ impl GitRepository for FakeGitRepository {
                     .is_none_or(|(remote, _)| remote != name)
             });
             state.remotes.remove(&name);
+            Ok(())
+        })
+    }
+
+    fn list_tags(&self) -> BoxFuture<'_, Result<Vec<TagInfo>>> {
+        self.with_state_async(false, move |state| {
+            let mut tags: Vec<TagInfo> = state
+                .tags
+                .iter()
+                .map(|(name, (target, message))| TagInfo {
+                    name: SharedString::from(name.clone()),
+                    target: SharedString::from(target.clone()),
+                    message: message.clone().map(SharedString::from),
+                    is_annotated: message.is_some(),
+                })
+                .collect();
+            tags.sort_by(|a, b| a.name.cmp(&b.name));
+            Ok(tags)
+        })
+    }
+
+    fn create_tag(
+        &self,
+        name: String,
+        target: Option<String>,
+        message: Option<String>,
+    ) -> BoxFuture<'_, Result<()>> {
+        self.with_state_async(true, move |state| {
+            let target = target.unwrap_or_else(|| {
+                state
+                    .refs
+                    .get("HEAD")
+                    .cloned()
+                    .unwrap_or_else(|| "abc".to_string())
+            });
+            state.tags.insert(name, (target, message));
+            Ok(())
+        })
+    }
+
+    fn delete_tag(&self, name: String) -> BoxFuture<'_, Result<()>> {
+        self.with_state_async(true, move |state| {
+            if state.tags.remove(&name).is_none() {
+                bail!("tag '{name}' not found");
+            }
             Ok(())
         })
     }

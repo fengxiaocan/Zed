@@ -250,6 +250,16 @@ impl From<Vec<Branch>> for BranchesScanResult {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TagInfo {
+    pub name: SharedString,
+    /// Full target object SHA the tag points at.
+    pub target: SharedString,
+    /// Tag message when annotated; `None` for lightweight tags.
+    pub message: Option<SharedString>,
+    pub is_annotated: bool,
+}
+
 impl Branch {
     pub fn name(&self) -> &str {
         self.ref_name
@@ -997,6 +1007,21 @@ pub trait GitRepository: Send + Sync {
     fn remove_remote(&self, name: String) -> BoxFuture<'_, Result<()>>;
 
     fn create_remote(&self, name: String, url: String) -> BoxFuture<'_, Result<()>>;
+
+    /// Lists all tags (lightweight and annotated), sorted by name.
+    fn list_tags(&self) -> BoxFuture<'_, Result<Vec<TagInfo>>>;
+
+    /// Creates a tag. When `target` is `None`, tags `HEAD`. When `message` is
+    /// `None` the tag is lightweight; otherwise annotated with that message.
+    fn create_tag(
+        &self,
+        name: String,
+        target: Option<String>,
+        message: Option<String>,
+    ) -> BoxFuture<'_, Result<()>>;
+
+    /// Deletes a tag by name.
+    fn delete_tag(&self, name: String) -> BoxFuture<'_, Result<()>>;
 
     /// returns a list of remote branches that contain HEAD
     fn check_for_pushed_commit(&self) -> BoxFuture<'_, Result<Vec<SharedString>>>;
@@ -2703,6 +2728,87 @@ impl GitRepository for RealGitRepository {
         self.executor
             .spawn(async move {
                 git_binary.run(&["remote", "add", &name, &url]).await?;
+                Ok(())
+            })
+            .boxed()
+    }
+
+    fn list_tags(&self) -> BoxFuture<'_, Result<Vec<TagInfo>>> {
+        let git_binary = self.git_binary();
+        self.executor
+            .spawn(async move {
+                // NUL-separated fields so messages with newlines don't break parsing.
+                // %(objecttype) is "tag" for annotated, otherwise the target object type.
+                let output = git_binary
+                    .run_raw(&[
+                        "for-each-ref",
+                        "--format=%(refname:short)%00%(objectname)%00%(objecttype)%00%(contents)",
+                        "refs/tags/",
+                    ])
+                    .await?;
+
+                let mut tags = Vec::new();
+                for line in output.lines() {
+                    let mut fields = line.split('\0');
+                    let Some(name) = fields.next() else { continue };
+                    if name.is_empty() {
+                        continue;
+                    }
+                    let target = fields.next().unwrap_or("").to_string();
+                    let object_type = fields.next().unwrap_or("").to_string();
+                    let is_annotated = object_type == "tag";
+                    let message = if is_annotated {
+                        let msg = fields.collect::<Vec<_>>().join("\0");
+                        Some(SharedString::from(msg.trim_end().to_string()))
+                    } else {
+                        None
+                    };
+                    tags.push(TagInfo {
+                        name: SharedString::from(name.to_string()),
+                        target: SharedString::from(target),
+                        message,
+                        is_annotated,
+                    });
+                }
+                tags.sort_by(|a, b| a.name.cmp(&b.name));
+                Ok(tags)
+            })
+            .boxed()
+    }
+
+    fn create_tag(
+        &self,
+        name: String,
+        target: Option<String>,
+        message: Option<String>,
+    ) -> BoxFuture<'_, Result<()>> {
+        let git_binary = self.git_binary();
+        self.executor
+            .spawn(async move {
+                let mut args: Vec<String> = Vec::new();
+                args.push("tag".to_string());
+                if let Some(message) = message {
+                    args.push("-a".to_string());
+                    args.push(name);
+                    args.push("-m".to_string());
+                    args.push(message);
+                } else {
+                    args.push(name);
+                }
+                if let Some(target) = target {
+                    args.push(target);
+                }
+                git_binary.run(&args).await?;
+                Ok(())
+            })
+            .boxed()
+    }
+
+    fn delete_tag(&self, name: String) -> BoxFuture<'_, Result<()>> {
+        let git_binary = self.git_binary();
+        self.executor
+            .spawn(async move {
+                git_binary.run(&["tag", "-d", &name]).await?;
                 Ok(())
             })
             .boxed()
@@ -5965,6 +6071,61 @@ mod tests {
             repo.default_branch(true).await.unwrap(),
             Some("origin/main".into())
         );
+    }
+
+    #[gpui::test]
+    async fn test_create_list_delete_tag(cx: &mut TestAppContext) {
+        disable_git_global_config();
+        cx.executor().allow_parking();
+
+        let repo_dir = tempfile::tempdir().unwrap();
+        git_init_repo(repo_dir.path());
+        git_command(
+            repo_dir.path(),
+            ["config", "user.email", "test@example.com"],
+        );
+        git_command(repo_dir.path(), ["config", "user.name", "Test User"]);
+        git_command(
+            repo_dir.path(),
+            ["commit", "--allow-empty", "-m", "Initial commit"],
+        );
+
+        let repo = RealGitRepository::new(
+            &repo_dir.path().join(".git"),
+            None,
+            Some("git".into()),
+            cx.executor(),
+        )
+        .unwrap();
+
+        // Initially no tags.
+        assert!(repo.list_tags().await.unwrap().is_empty());
+
+        // Lightweight tag on HEAD.
+        repo.create_tag("v0.1".into(), None, None).await.unwrap();
+
+        // Annotated tag with a message.
+        repo.create_tag("v1.0".into(), None, Some("release v1.0".into()))
+            .await
+            .unwrap();
+
+        let tags = repo.list_tags().await.unwrap();
+        assert_eq!(tags.len(), 2);
+
+        let v01 = tags.iter().find(|t| t.name.as_ref() == "v0.1").unwrap();
+        assert!(!v01.is_annotated);
+        assert!(v01.message.is_none());
+        assert_eq!(v01.target.len(), 40, "lightweight tag target is commit SHA");
+
+        let v10 = tags.iter().find(|t| t.name.as_ref() == "v1.0").unwrap();
+        assert!(v10.is_annotated);
+        assert_eq!(v10.message.as_deref(), Some("release v1.0"));
+
+        // Delete one.
+        repo.delete_tag("v0.1".into()).await.unwrap();
+        let tags = repo.list_tags().await.unwrap();
+        assert_eq!(tags.len(), 1);
+        assert_eq!(tags[0].name.as_ref(), "v1.0");
     }
 
     impl RealGitRepository {
