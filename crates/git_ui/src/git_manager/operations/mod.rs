@@ -4,6 +4,7 @@ pub(crate) use update_project::update_project;
 
 use gpui::{App, AsyncApp, Window};
 use project::git_store::Repository;
+use settings::translate_ui;
 use util::ResultExt;
 use workspace::notifications::DetachAndPromptErr;
 
@@ -20,7 +21,9 @@ pub(crate) fn merge_branch(
             repo.update(cx, |repo, _| repo.merge(rev)).await??;
             anyhow::Ok(())
         })
-        .detach_and_prompt_err("Merge failed", window, cx, |e, _, _| Some(e.to_string()));
+        .detach_and_prompt_err(translate_ui("Merge failed", cx), window, cx, |e, _, _| {
+            Some(e.to_string())
+        });
 }
 
 /// Rebases the current branch onto `onto`.
@@ -36,7 +39,9 @@ pub(crate) fn rebase_branch(
             repo.update(cx, |repo, _| repo.rebase(onto)).await??;
             anyhow::Ok(())
         })
-        .detach_and_prompt_err("Rebase failed", window, cx, |e, _, _| Some(e.to_string()));
+        .detach_and_prompt_err(translate_ui("Rebase failed", cx), window, cx, |e, _, _| {
+            Some(e.to_string())
+        });
 }
 
 /// Aborts an in-progress merge.
@@ -47,7 +52,7 @@ pub(crate) fn merge_abort(repo: &gpui::Entity<Repository>, window: &mut Window, 
             repo.update(cx, |repo, _| repo.merge_abort()).await??;
             anyhow::Ok(())
         })
-        .detach_and_prompt_err("Abort merge failed", window, cx, |e, _, _| {
+        .detach_and_prompt_err(translate_ui("Abort merge failed", cx), window, cx, |e, _, _| {
             Some(e.to_string())
         });
 }
@@ -61,9 +66,12 @@ pub(crate) fn rebase_continue(repo: &gpui::Entity<Repository>, window: &mut Wind
                 .await??;
             anyhow::Ok(())
         })
-        .detach_and_prompt_err("Rebase continue failed", window, cx, |e, _, _| {
-            Some(e.to_string())
-        });
+        .detach_and_prompt_err(
+            translate_ui("Rebase continue failed", cx),
+            window,
+            cx,
+            |e, _, _| Some(e.to_string()),
+        );
 }
 
 /// Aborts an in-progress rebase.
@@ -74,7 +82,7 @@ pub(crate) fn rebase_abort(repo: &gpui::Entity<Repository>, window: &mut Window,
             repo.update(cx, |repo, _| repo.rebase_abort()).await??;
             anyhow::Ok(())
         })
-        .detach_and_prompt_err("Abort rebase failed", window, cx, |e, _, _| {
+        .detach_and_prompt_err(translate_ui("Abort rebase failed", cx), window, cx, |e, _, _| {
             Some(e.to_string())
         });
 }

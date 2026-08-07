@@ -2840,7 +2840,8 @@ impl GitRepository for RealGitRepository {
         self.executor
             .spawn(async move {
                 let output = git
-                    .build_command(&["merge", &rev])
+                    .build_command(&["merge", "--no-edit", &rev])
+                    .env("GIT_EDITOR", "true")
                     .envs(env.iter())
                     .output()
                     .await?;
@@ -2949,7 +2950,11 @@ impl GitRepository for RealGitRepository {
 
     fn is_rebase_in_progress(&self) -> BoxFuture<'_, Result<bool>> {
         let git = self.git_binary();
-        let git_directory = self.path().to_path_buf();
+        // `git rev-parse --git-dir` runs with cwd = the working directory, so a
+        // relative result (e.g. `.git`) must be resolved against the working
+        // directory, NOT against `self.path()` (which is already the git dir).
+        let working_directory = self.command_directory();
+        let fallback = self.path();
         self.executor
             .spawn(async move {
                 let output = git
@@ -2962,10 +2967,10 @@ impl GitRepository for RealGitRepository {
                     if dir.is_absolute() {
                         dir
                     } else {
-                        git_directory.join(dir)
+                        working_directory.join(dir)
                     }
                 } else {
-                    git_directory
+                    fallback
                 };
                 Ok(git_dir.join("rebase-merge").exists()
                     || git_dir.join("rebase-apply").exists())
