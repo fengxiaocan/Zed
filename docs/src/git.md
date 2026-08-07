@@ -19,6 +19,24 @@ In the panel you can see the state of your project at a glance: which repository
 
 Zed monitors your repository so that changes you make on the command line are instantly reflected.
 
+## Git Manager
+
+Zed has two complementary Git panels:
+
+- The **Git Panel** (above) is for day-to-day change work: reviewing and staging files, writing commit messages, and committing.
+- The **Git Manager** is a management console for the repository itself: branches, remotes, tags, and shelves, plus higher-level operations like Update Project, merge, and rebase.
+
+Open the Git Manager with {#action git_manager::ToggleFocus}, or by clicking its icon in the status bar. It docks on the same side as the Git Panel.
+
+The Git Manager is organized into tabs:
+
+- **Branches**: filter, check out, and create branches; merge a branch into the current one or rebase the current branch onto another. The current branch is marked, and remote-tracking branches show their ahead/behind counts.
+- **Remotes**: add, edit, and remove remotes, and copy their names or URLs.
+- **Tags**: create (optionally annotated) and delete tags, and see each tag's commit.
+- **Shelves**: shelve (stash) your working-tree changes, then apply, pop, or drop them later.
+
+The toolbar provides Checkout, Branch, Pull, Push, and Fetch, plus **Update Project** — which fetches from the current branch's upstream and integrates the changes by rebasing or merging (configurable via the `git_manager.update_project_mode` and `git_manager.update_project_dirty_worktree` settings). When a merge or rebase is in progress, a banner offers to continue or abort it.
+
 ### Configuration
 
 Open the Settings Editor (`Cmd+,` on macOS, `Ctrl+,` on Linux/Windows) to customize Git behavior. Settings are spread across two pages:
