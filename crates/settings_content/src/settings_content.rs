@@ -299,6 +299,8 @@ impl UiLanguage {
                 "Debugger Panel" => "调试器面板",
                 "Agent Panel" => "智能代理面板",
                 "Git Panel" => "Git 面板",
+                "Git Manager" => "Git 管理",
+                "Branches coming soon" => "分支列表即将推出",
                 "Diagnostics" => "诊断",
                 "Toggle GPUI Inspector" => "切换 GPUI 检查器",
                 " (no branch)" => "（无分支）",
@@ -584,6 +586,8 @@ pub struct SettingsContent {
     pub file_finder: Option<FileFinderSettingsContent>,
 
     pub git_panel: Option<GitPanelSettingsContent>,
+
+    pub git_manager: Option<GitManagerSettingsContent>,
 
     pub tabs: Option<ItemSettingsContent>,
     pub tab_bar: Option<TabBarSettingsContent>,
@@ -1176,6 +1180,76 @@ pub struct GitPanelSettingsContent {
     ///
     /// Default: project_diff
     pub entry_primary_click_action: Option<GitPanelClickBehavior>,
+}
+
+#[with_fallible_options]
+#[derive(Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, MergeFrom, Debug)]
+pub struct GitManagerSettingsContent {
+    /// Whether to show the Git Manager button in the status bar.
+    ///
+    /// Default: true
+    pub button: Option<bool>,
+    /// Default width of the panel in pixels.
+    ///
+    /// Default: 360
+    #[serde(serialize_with = "crate::serialize_optional_f32_with_two_decimal_places")]
+    pub default_width: Option<f32>,
+    /// Whether the panel starts open.
+    ///
+    /// Default: false
+    pub starts_open: Option<bool>,
+    /// How Update Project integrates after fetch.
+    ///
+    /// Default: rebase
+    pub update_project_mode: Option<UpdateProjectMode>,
+    /// What to do when the worktree is dirty before Update Project.
+    ///
+    /// Default: ask
+    pub update_project_dirty_worktree: Option<UpdateProjectDirtyWorktree>,
+}
+
+#[derive(
+    Clone,
+    Copy,
+    Default,
+    Debug,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    MergeFrom,
+    PartialEq,
+    Eq,
+    strum::VariantArray,
+    strum::VariantNames,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateProjectMode {
+    #[default]
+    Rebase,
+    Merge,
+    OnlyFetch,
+}
+
+#[derive(
+    Clone,
+    Copy,
+    Default,
+    Debug,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    MergeFrom,
+    PartialEq,
+    Eq,
+    strum::VariantArray,
+    strum::VariantNames,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateProjectDirtyWorktree {
+    #[default]
+    Ask,
+    ShelveFirst,
+    AlwaysContinue,
 }
 
 #[derive(
