@@ -109,6 +109,10 @@ impl RenderOnce for GitManagerToolbar {
                                     translate_ui("Open Git Panel", cx),
                                     zed_actions::git_panel::ToggleFocus.boxed_clone(),
                                 )
+                                .action(
+                                    translate_ui("Open Git Graph", cx),
+                                    crate::git_graph::Open.boxed_clone(),
+                                )
                                 .separator()
                                 .entry(
                                     translate_ui("New Tag", cx),

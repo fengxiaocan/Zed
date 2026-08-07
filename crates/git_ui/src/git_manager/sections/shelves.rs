@@ -89,7 +89,7 @@ pub(crate) fn render_shelf_list(
     cx: &App,
 ) -> AnyElement {
     if !has_repo {
-        return Label::new(translate_ui("No repository found", cx))
+        return Label::new(translate_ui("Open a folder with a git repository", cx))
             .color(Color::Muted)
             .into_any_element();
     }
