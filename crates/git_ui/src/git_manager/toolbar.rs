@@ -13,17 +13,27 @@ use ui::{
 #[derive(IntoElement)]
 pub(crate) struct GitManagerToolbar {
     focus_handle: FocusHandle,
+    manager: gpui::WeakEntity<crate::git_manager::GitManager>,
 }
 
 impl GitManagerToolbar {
-    pub(crate) fn new(focus_handle: FocusHandle) -> Self {
-        Self { focus_handle }
+    pub(crate) fn new(
+        focus_handle: FocusHandle,
+        manager: gpui::WeakEntity<crate::git_manager::GitManager>,
+    ) -> Self {
+        Self {
+            focus_handle,
+            manager,
+        }
     }
 }
 
 impl RenderOnce for GitManagerToolbar {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let focus_handle = self.focus_handle.clone();
+        let manager = self.manager.clone();
+        let manager_tag = manager.clone();
+        let manager_shelf = manager.clone();
 
         h_flex()
             .w_full()
@@ -78,6 +88,8 @@ impl RenderOnce for GitManagerToolbar {
                         Tooltip::text(translate_ui("More", cx)),
                     )
                     .menu(move |window, cx| {
+                        let manager_tag = manager_tag.clone();
+                        let manager_shelf = manager_shelf.clone();
                         Some(ContextMenu::build(window, cx, move |menu, _, cx| {
                             menu.action(translate_ui("Fetch", cx), git::Fetch.boxed_clone())
                                 .action(
@@ -86,49 +98,38 @@ impl RenderOnce for GitManagerToolbar {
                                 )
                                 .separator()
                                 .entry(
-                                    format!(
-                                        "{} ({})",
-                                        translate_ui("Update Project", cx),
-                                        translate_ui("Coming soon", cx)
-                                    ),
+                                    translate_ui("New Tag", cx),
                                     None,
-                                    |_, _| {},
+                                    {
+                                        let manager = manager_tag;
+                                        move |_, cx| {
+                                            if let Some(manager) = manager.upgrade() {
+                                                manager.update(cx, |manager, cx| {
+                                                    manager.set_active_tab(
+                                                        crate::git_manager::GitManagerTab::Tags,
+                                                        cx,
+                                                    );
+                                                });
+                                            }
+                                        }
+                                    },
                                 )
                                 .entry(
-                                    format!(
-                                        "{} ({})",
-                                        translate_ui("Merge", cx),
-                                        translate_ui("Coming soon", cx)
-                                    ),
+                                    translate_ui("Shelf", cx),
                                     None,
-                                    |_, _| {},
-                                )
-                                .entry(
-                                    format!(
-                                        "{} ({})",
-                                        translate_ui("Rebase", cx),
-                                        translate_ui("Coming soon", cx)
-                                    ),
-                                    None,
-                                    |_, _| {},
-                                )
-                                .entry(
-                                    format!(
-                                        "{} ({})",
-                                        translate_ui("New Tag", cx),
-                                        translate_ui("Coming soon", cx)
-                                    ),
-                                    None,
-                                    |_, _| {},
-                                )
-                                .entry(
-                                    format!(
-                                        "{} ({})",
-                                        translate_ui("Shelf", cx),
-                                        translate_ui("Coming soon", cx)
-                                    ),
-                                    None,
-                                    |_, _| {},
+                                    {
+                                        let manager = manager_shelf;
+                                        move |_, cx| {
+                                            if let Some(manager) = manager.upgrade() {
+                                                manager.update(cx, |manager, cx| {
+                                                    manager.set_active_tab(
+                                                        crate::git_manager::GitManagerTab::Shelves,
+                                                        cx,
+                                                    );
+                                                });
+                                            }
+                                        }
+                                    },
                                 )
                         }))
                     }),

@@ -8099,6 +8099,100 @@ impl Repository {
         )
     }
 
+    /// Merges `rev` into the current branch. Local repositories only.
+    pub fn merge(&mut self, rev: String) -> oneshot::Receiver<Result<()>> {
+        self.send_job("merge", Some(format!("git merge {rev}").into()), move |repo, _cx| async move {
+            match repo {
+                RepositoryState::Local(LocalRepositoryState {
+                    backend, environment, ..
+                }) => backend.merge(rev, environment).await,
+                RepositoryState::Remote(..) => {
+                    Err(anyhow::anyhow!("merge not supported on remote repositories"))
+                }
+            }
+        })
+    }
+
+    /// Aborts an in-progress merge. Local repositories only.
+    pub fn merge_abort(&mut self) -> oneshot::Receiver<Result<()>> {
+        self.send_job("merge_abort", None, move |repo, _cx| async move {
+            match repo {
+                RepositoryState::Local(LocalRepositoryState {
+                    backend, environment, ..
+                }) => backend.merge_abort(environment).await,
+                RepositoryState::Remote(..) => {
+                    Err(anyhow::anyhow!("merge not supported on remote repositories"))
+                }
+            }
+        })
+    }
+
+    /// Rebases the current branch onto `onto`. Local repositories only.
+    pub fn rebase(&mut self, onto: String) -> oneshot::Receiver<Result<()>> {
+        self.send_job("rebase", Some(format!("git rebase {onto}").into()), move |repo, _cx| async move {
+            match repo {
+                RepositoryState::Local(LocalRepositoryState {
+                    backend, environment, ..
+                }) => backend.rebase(onto, environment).await,
+                RepositoryState::Remote(..) => {
+                    Err(anyhow::anyhow!("rebase not supported on remote repositories"))
+                }
+            }
+        })
+    }
+
+    /// Continues an in-progress rebase. Local repositories only.
+    pub fn rebase_continue(&mut self) -> oneshot::Receiver<Result<()>> {
+        self.send_job("rebase_continue", None, move |repo, _cx| async move {
+            match repo {
+                RepositoryState::Local(LocalRepositoryState {
+                    backend, environment, ..
+                }) => backend.rebase_continue(environment).await,
+                RepositoryState::Remote(..) => {
+                    Err(anyhow::anyhow!("rebase not supported on remote repositories"))
+                }
+            }
+        })
+    }
+
+    /// Aborts an in-progress rebase. Local repositories only.
+    pub fn rebase_abort(&mut self) -> oneshot::Receiver<Result<()>> {
+        self.send_job("rebase_abort", None, move |repo, _cx| async move {
+            match repo {
+                RepositoryState::Local(LocalRepositoryState {
+                    backend, environment, ..
+                }) => backend.rebase_abort(environment).await,
+                RepositoryState::Remote(..) => {
+                    Err(anyhow::anyhow!("rebase not supported on remote repositories"))
+                }
+            }
+        })
+    }
+
+    /// Whether a merge is in progress. Returns false for remote repositories.
+    pub fn is_merge_in_progress(&mut self) -> oneshot::Receiver<Result<bool>> {
+        self.send_job("is_merge_in_progress", None, move |repo, _cx| async move {
+            match repo {
+                RepositoryState::Local(LocalRepositoryState { backend, .. }) => {
+                    backend.is_merge_in_progress().await
+                }
+                RepositoryState::Remote(..) => Ok(false),
+            }
+        })
+    }
+
+    /// Whether a rebase is in progress. Returns false for remote repositories.
+    pub fn is_rebase_in_progress(&mut self) -> oneshot::Receiver<Result<bool>> {
+        self.send_job("is_rebase_in_progress", None, move |repo, _cx| async move {
+            match repo {
+                RepositoryState::Local(LocalRepositoryState { backend, .. }) => {
+                    backend.is_rebase_in_progress().await
+                }
+                RepositoryState::Remote(..) => Ok(false),
+            }
+        })
+    }
+
     pub fn branches(&mut self) -> oneshot::Receiver<Result<BranchesScanResult>> {
         let id = self.id;
         self.send_job("branches", None, move |repo, _| async move {

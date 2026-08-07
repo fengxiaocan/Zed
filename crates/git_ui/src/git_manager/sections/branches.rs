@@ -246,6 +246,38 @@ fn render_branch_row(
                                     }
                                 }
                             })
+                            .separator()
+                            .entry(translate_ui("Merge into Current", cx), None, {
+                                let branch = branch.clone();
+                                let repo = repo.clone();
+                                move |window, cx| {
+                                    let Some(repo) = repo.clone() else {
+                                        return;
+                                    };
+                                    crate::git_manager::operations::merge_branch(
+                                        &repo,
+                                        branch.name().to_string(),
+                                        window,
+                                        cx,
+                                    );
+                                }
+                            })
+                            .entry(translate_ui("Rebase Current onto This", cx), None, {
+                                let branch = branch.clone();
+                                let repo = repo.clone();
+                                move |window, cx| {
+                                    let Some(repo) = repo.clone() else {
+                                        return;
+                                    };
+                                    crate::git_manager::operations::rebase_branch(
+                                        &repo,
+                                        branch.name().to_string(),
+                                        window,
+                                        cx,
+                                    );
+                                }
+                            })
+                            .separator()
                             .entry(translate_ui("Copy Branch Name", cx), None, {
                                 let name = name_for_copy;
                                 move |_, cx| {
