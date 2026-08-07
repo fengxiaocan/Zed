@@ -28,6 +28,15 @@ actions!(
 
 const GIT_MANAGER_KEY: &str = "GitManager";
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum GitManagerTab {
+    #[default]
+    Branches,
+    Remotes,
+    Tags,
+    Shelves,
+}
+
 pub fn register(workspace: &mut Workspace) {
     workspace.register_action(|workspace, _: &ToggleFocus, window, cx| {
         workspace.toggle_panel_focus::<GitManager>(window, cx);
@@ -41,10 +50,11 @@ pub fn register(workspace: &mut Workspace) {
 
 pub struct GitManager {
     focus_handle: FocusHandle,
-    // Kept for later tasks (toolbar / operations).
+    // Kept for later tasks (operations / repo selection).
     #[allow(dead_code)]
     workspace: WeakEntity<Workspace>,
     fs: Arc<dyn Fs>,
+    active_tab: GitManagerTab,
 }
 
 impl GitManager {
@@ -62,6 +72,23 @@ impl GitManager {
             focus_handle: cx.focus_handle(),
             workspace: workspace.weak_handle(),
             fs: workspace.app_state().fs.clone(),
+            active_tab: GitManagerTab::Branches,
+        }
+    }
+
+    pub(crate) fn set_active_tab(&mut self, tab: GitManagerTab, cx: &mut Context<Self>) {
+        if self.active_tab != tab {
+            self.active_tab = tab;
+            cx.notify();
+        }
+    }
+
+    fn placeholder_for_tab(&self, cx: &App) -> &'static str {
+        match self.active_tab {
+            GitManagerTab::Branches => translate_ui("Branches coming soon", cx),
+            GitManagerTab::Remotes => translate_ui("Remotes coming soon", cx),
+            GitManagerTab::Tags => translate_ui("Tags coming soon", cx),
+            GitManagerTab::Shelves => translate_ui("Shelves coming soon", cx),
         }
     }
 }
@@ -107,7 +134,8 @@ impl Panel for GitManager {
     }
 
     fn icon(&self, _: &Window, cx: &App) -> Option<ui::IconName> {
-        Some(ui::IconName::GitBranch).filter(|_| GitManagerSettings::get_global(cx).button)
+        // Distinct from Git Panel's GitBranch icon.
+        Some(ui::IconName::GitCommit).filter(|_| GitManagerSettings::get_global(cx).button)
     }
 
     fn icon_tooltip(&self, _window: &Window, cx: &App) -> Option<&'static str> {
@@ -125,6 +153,12 @@ impl Panel for GitManager {
     fn activation_priority(&self) -> u32 {
         4 // after GitPanel (3)
     }
+
+    fn hide_button_setting(&self, _: &App) -> Option<workspace::HideStatusItem> {
+        Some(workspace::HideStatusItem::new(|settings| {
+            settings.git_manager.get_or_insert_default().button = Some(false);
+        }))
+    }
 }
 
 impl Render for GitManager {
@@ -135,13 +169,20 @@ impl Render for GitManager {
             .track_focus(&self.focus_handle)
             .child(
                 h_flex()
-                    .p_2()
-                    .child(Label::new(translate_ui("Git Manager", cx))),
+                    .w_full()
+                    .px_2()
+                    .pt_2()
+                    .pb_1()
+                    .child(Label::new(translate_ui("Git Manager", cx)).weight(gpui::FontWeight::SEMIBOLD)),
             )
+            .child(toolbar::GitManagerToolbar::new(self.focus_handle.clone()))
+            .child(toolbar::render_tab_bar(self.active_tab, cx))
             .child(
                 div()
+                    .id("git-manager-body")
+                    .flex_1()
                     .p_2()
-                    .child(Label::new(translate_ui("Branches coming soon", cx)).color(Color::Muted)),
+                    .child(Label::new(self.placeholder_for_tab(cx)).color(Color::Muted)),
             )
     }
 }
