@@ -1023,6 +1023,27 @@ pub trait GitRepository: Send + Sync {
     /// Deletes a tag by name.
     fn delete_tag(&self, name: String) -> BoxFuture<'_, Result<()>>;
 
+    /// Merges `rev` into the current branch. Returns `Err` on conflict or other failure.
+    fn merge(&self, rev: String, env: Arc<HashMap<String, String>>) -> BoxFuture<'_, Result<()>>;
+
+    /// Aborts an in-progress merge.
+    fn merge_abort(&self, env: Arc<HashMap<String, String>>) -> BoxFuture<'_, Result<()>>;
+
+    /// Rebases the current branch onto `onto`. Returns `Err` on conflict or other failure.
+    fn rebase(&self, onto: String, env: Arc<HashMap<String, String>>) -> BoxFuture<'_, Result<()>>;
+
+    /// Continues an in-progress rebase after conflicts are resolved.
+    fn rebase_continue(&self, env: Arc<HashMap<String, String>>) -> BoxFuture<'_, Result<()>>;
+
+    /// Aborts an in-progress rebase.
+    fn rebase_abort(&self, env: Arc<HashMap<String, String>>) -> BoxFuture<'_, Result<()>>;
+
+    /// Whether a merge is currently in progress.
+    fn is_merge_in_progress(&self) -> BoxFuture<'_, Result<bool>>;
+
+    /// Whether a rebase is currently in progress.
+    fn is_rebase_in_progress(&self) -> BoxFuture<'_, Result<bool>>;
+
     /// returns a list of remote branches that contain HEAD
     fn check_for_pushed_commit(&self) -> BoxFuture<'_, Result<Vec<SharedString>>>;
 
@@ -2810,6 +2831,144 @@ impl GitRepository for RealGitRepository {
             .spawn(async move {
                 git_binary.run(&["tag", "-d", &name]).await?;
                 Ok(())
+            })
+            .boxed()
+    }
+
+    fn merge(&self, rev: String, env: Arc<HashMap<String, String>>) -> BoxFuture<'_, Result<()>> {
+        let git = self.git_binary();
+        self.executor
+            .spawn(async move {
+                let output = git
+                    .build_command(&["merge", &rev])
+                    .envs(env.iter())
+                    .output()
+                    .await?;
+                anyhow::ensure!(
+                    output.status.success(),
+                    "git merge failed:\n{}\n{}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr),
+                );
+                Ok(())
+            })
+            .boxed()
+    }
+
+    fn merge_abort(&self, env: Arc<HashMap<String, String>>) -> BoxFuture<'_, Result<()>> {
+        let git = self.git_binary();
+        self.executor
+            .spawn(async move {
+                let output = git
+                    .build_command(&["merge", "--abort"])
+                    .envs(env.iter())
+                    .output()
+                    .await?;
+                anyhow::ensure!(
+                    output.status.success(),
+                    "git merge --abort failed:\n{}",
+                    String::from_utf8_lossy(&output.stderr),
+                );
+                Ok(())
+            })
+            .boxed()
+    }
+
+    fn rebase(&self, onto: String, env: Arc<HashMap<String, String>>) -> BoxFuture<'_, Result<()>> {
+        let git = self.git_binary();
+        self.executor
+            .spawn(async move {
+                let output = git
+                    .build_command(&["rebase", &onto])
+                    .envs(env.iter())
+                    .output()
+                    .await?;
+                anyhow::ensure!(
+                    output.status.success(),
+                    "git rebase failed:\n{}\n{}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr),
+                );
+                Ok(())
+            })
+            .boxed()
+    }
+
+    fn rebase_continue(&self, env: Arc<HashMap<String, String>>) -> BoxFuture<'_, Result<()>> {
+        let git = self.git_binary();
+        self.executor
+            .spawn(async move {
+                let output = git
+                    .build_command(&["rebase", "--continue"])
+                    .env("GIT_EDITOR", "true")
+                    .envs(env.iter())
+                    .output()
+                    .await?;
+                anyhow::ensure!(
+                    output.status.success(),
+                    "git rebase --continue failed:\n{}\n{}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr),
+                );
+                Ok(())
+            })
+            .boxed()
+    }
+
+    fn rebase_abort(&self, env: Arc<HashMap<String, String>>) -> BoxFuture<'_, Result<()>> {
+        let git = self.git_binary();
+        self.executor
+            .spawn(async move {
+                let output = git
+                    .build_command(&["rebase", "--abort"])
+                    .envs(env.iter())
+                    .output()
+                    .await?;
+                anyhow::ensure!(
+                    output.status.success(),
+                    "git rebase --abort failed:\n{}",
+                    String::from_utf8_lossy(&output.stderr),
+                );
+                Ok(())
+            })
+            .boxed()
+    }
+
+    fn is_merge_in_progress(&self) -> BoxFuture<'_, Result<bool>> {
+        let git = self.git_binary();
+        self.executor
+            .spawn(async move {
+                let output = git
+                    .build_command(&["rev-parse", "--verify", "MERGE_HEAD"])
+                    .output()
+                    .await?;
+                Ok(output.status.success())
+            })
+            .boxed()
+    }
+
+    fn is_rebase_in_progress(&self) -> BoxFuture<'_, Result<bool>> {
+        let git = self.git_binary();
+        let git_directory = self.path().to_path_buf();
+        self.executor
+            .spawn(async move {
+                let output = git
+                    .build_command(&["rev-parse", "--git-dir"])
+                    .output()
+                    .await?;
+                let git_dir = if output.status.success() {
+                    let dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    let dir = std::path::PathBuf::from(dir);
+                    if dir.is_absolute() {
+                        dir
+                    } else {
+                        git_directory.join(dir)
+                    }
+                } else {
+                    git_directory
+                };
+                Ok(git_dir.join("rebase-merge").exists()
+                    || git_dir.join("rebase-apply").exists())
             })
             .boxed()
     }
@@ -6126,6 +6285,157 @@ mod tests {
         let tags = repo.list_tags().await.unwrap();
         assert_eq!(tags.len(), 1);
         assert_eq!(tags[0].name.as_ref(), "v1.0");
+    }
+
+    #[gpui::test]
+    async fn test_merge_and_abort(cx: &mut TestAppContext) {
+        use std::sync::Arc as StdArc;
+
+        disable_git_global_config();
+        cx.executor().allow_parking();
+
+        let repo_dir = tempfile::tempdir().unwrap();
+        git_init_repo(repo_dir.path());
+        git_command(
+            repo_dir.path(),
+            ["config", "user.email", "test@example.com"],
+        );
+        git_command(repo_dir.path(), ["config", "user.name", "Test User"]);
+        git_command(
+            repo_dir.path(),
+            ["commit", "--allow-empty", "-m", "base"],
+        );
+
+        let repo = RealGitRepository::new(
+            &repo_dir.path().join(".git"),
+            None,
+            Some("git".into()),
+            cx.executor(),
+        )
+        .unwrap();
+
+        // Create a feature branch with a commit.
+        git_command(repo_dir.path(), ["switch", "-c", "feature"]);
+        git_command(
+            repo_dir.path(),
+            ["commit", "--allow-empty", "-m", "feature work"],
+        );
+        git_command(repo_dir.path(), ["switch", "main"]);
+        git_command(
+            repo_dir.path(),
+            ["commit", "--allow-empty", "-m", "main work"],
+        );
+
+        let env: StdArc<HashMap<String, String>> = Default::default();
+        assert!(!repo.is_merge_in_progress().await.unwrap());
+        repo.merge("feature".into(), env.clone()).await.unwrap();
+        assert!(!repo.is_merge_in_progress().await.unwrap());
+
+        // Verify merge commit exists (2 parents).
+        let parents = git_command_output(repo_dir.path(), ["rev-list", "--parents", "-n", "1", "HEAD"]);
+        let sha_count = parents.split_whitespace().count();
+        assert_eq!(sha_count, 3, "merge commit should have 2 parents + own sha");
+    }
+
+    #[gpui::test]
+    async fn test_merge_conflict_and_abort(cx: &mut TestAppContext) {
+        use std::sync::Arc as StdArc;
+        use std::fs as stdfs;
+
+        disable_git_global_config();
+        cx.executor().allow_parking();
+
+        let repo_dir = tempfile::tempdir().unwrap();
+        git_init_repo(repo_dir.path());
+        git_command(
+            repo_dir.path(),
+            ["config", "user.email", "test@example.com"],
+        );
+        git_command(repo_dir.path(), ["config", "user.name", "Test User"]);
+
+        stdfs::write(repo_dir.path().join("f.txt"), "base\n").unwrap();
+        git_command(repo_dir.path(), ["add", "f.txt"]);
+        git_command(repo_dir.path(), ["commit", "-m", "base"]);
+
+        let repo = RealGitRepository::new(
+            &repo_dir.path().join(".git"),
+            None,
+            Some("git".into()),
+            cx.executor(),
+        )
+        .unwrap();
+
+        // Divergent change on feature.
+        git_command(repo_dir.path(), ["switch", "-c", "feature"]);
+        stdfs::write(repo_dir.path().join("f.txt"), "feature\n").unwrap();
+        git_command(repo_dir.path(), ["commit", "-am", "feature change"]);
+
+        // Conflicting change on main.
+        git_command(repo_dir.path(), ["switch", "main"]);
+        stdfs::write(repo_dir.path().join("f.txt"), "main\n").unwrap();
+        git_command(repo_dir.path(), ["commit", "-am", "main change"]);
+
+        let env: StdArc<HashMap<String, String>> = Default::default();
+        let result = repo.merge("feature".into(), env.clone()).await;
+        assert!(result.is_err(), "merge should fail on conflict");
+        assert!(repo.is_merge_in_progress().await.unwrap());
+
+        repo.merge_abort(env).await.unwrap();
+        assert!(!repo.is_merge_in_progress().await.unwrap());
+        // Working tree restored to main content.
+        let content = stdfs::read_to_string(repo_dir.path().join("f.txt")).unwrap();
+        assert_eq!(content, "main\n");
+    }
+
+    #[gpui::test]
+    async fn test_rebase_and_abort(cx: &mut TestAppContext) {
+        use std::sync::Arc as StdArc;
+
+        disable_git_global_config();
+        cx.executor().allow_parking();
+
+        let repo_dir = tempfile::tempdir().unwrap();
+        git_init_repo(repo_dir.path());
+        git_command(
+            repo_dir.path(),
+            ["config", "user.email", "test@example.com"],
+        );
+        git_command(repo_dir.path(), ["config", "user.name", "Test User"]);
+        git_command(
+            repo_dir.path(),
+            ["commit", "--allow-empty", "-m", "base"],
+        );
+
+        let repo = RealGitRepository::new(
+            &repo_dir.path().join(".git"),
+            None,
+            Some("git".into()),
+            cx.executor(),
+        )
+        .unwrap();
+
+        // main advances; feature branches from base.
+        git_command(repo_dir.path(), ["switch", "-c", "feature"]);
+        git_command(
+            repo_dir.path(),
+            ["commit", "--allow-empty", "-m", "feature work"],
+        );
+        git_command(repo_dir.path(), ["switch", "main"]);
+        git_command(
+            repo_dir.path(),
+            ["commit", "--allow-empty", "-m", "main advances"],
+        );
+        git_command(repo_dir.path(), ["switch", "feature"]);
+
+        let env: StdArc<HashMap<String, String>> = Default::default();
+        assert!(!repo.is_rebase_in_progress().await.unwrap());
+        repo.rebase("main".into(), env.clone()).await.unwrap();
+        assert!(!repo.is_rebase_in_progress().await.unwrap());
+
+        // After rebase, feature tip's parent is main's tip.
+        let main_tip = git_command_output(repo_dir.path(), ["rev-parse", "main"]);
+        let parent = git_command_output(repo_dir.path(), ["rev-parse", "HEAD^"]);
+        assert_eq!(main_tip.trim(), parent.trim());
     }
 
     impl RealGitRepository {
