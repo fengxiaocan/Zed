@@ -17,7 +17,8 @@ use project::{
 };
 use settings::{Settings, translate_ui, update_settings_file};
 use std::sync::Arc;
-use ui::{Color, Label, prelude::*};
+use ui::{Button, Color, Label, prelude::*};
+use util::ResultExt;
 use workspace::{
     Workspace,
     dock::{DockPosition, Panel, PanelEvent},
@@ -65,8 +66,12 @@ pub struct GitManager {
     branches: Vec<Branch>,
     filtered_branches: Vec<Branch>,
     filter_editor: Entity<Editor>,
+    remotes: Vec<sections::RemoteEntry>,
+    filtered_remotes: Vec<sections::RemoteEntry>,
+    remote_filter_editor: Entity<Editor>,
     _git_store_subscription: Subscription,
     _filter_subscription: Subscription,
+    _remote_filter_subscription: Subscription,
 }
 
 impl GitManager {
@@ -84,6 +89,16 @@ impl GitManager {
         let git_store = project.read(cx).git_store().clone();
         let active_repository = project.read(cx).active_repository(cx);
         let filter_editor = sections::new_filter_editor(window, cx);
+        let remote_filter_editor = sections::new_remote_filter_editor(window, cx);
+
+        let remote_filter_subscription = cx.subscribe(
+            &remote_filter_editor,
+            |this, _editor, event: &editor::EditorEvent, cx| {
+                if let editor::EditorEvent::Edited { .. } = event {
+                    this.refresh_filtered_remotes(cx);
+                }
+            },
+        );
 
         let mut this = Self {
             focus_handle: cx.focus_handle(),
@@ -95,6 +110,9 @@ impl GitManager {
             branches: Vec::new(),
             filtered_branches: Vec::new(),
             filter_editor: filter_editor.clone(),
+            remotes: Vec::new(),
+            filtered_remotes: Vec::new(),
+            remote_filter_editor: remote_filter_editor.clone(),
             _git_store_subscription: cx.subscribe_in(
                 &git_store,
                 window,
@@ -112,15 +130,18 @@ impl GitManager {
                         true,
                     ) => {
                         this.reload_branches(cx);
+                        this.reload_remotes(cx);
                     }
                     _ => {}
                 },
             ),
             _filter_subscription: sections::subscribe_filter_edits(&filter_editor, cx),
+            _remote_filter_subscription: remote_filter_subscription,
         };
 
         this.active_repository = active_repository;
         this.reload_branches(cx);
+        this.reload_remotes(cx);
         this
     }
 
@@ -138,6 +159,7 @@ impl GitManager {
         self.active_repository = new_repo;
         if changed {
             self.reload_branches(cx);
+            self.reload_remotes(cx);
         } else {
             cx.notify();
         }
@@ -152,9 +174,46 @@ impl GitManager {
         self.refresh_filtered_branches(cx);
     }
 
+    fn reload_remotes(&mut self, cx: &mut Context<Self>) {
+        let Some(repo) = self.active_repository.clone() else {
+            self.remotes.clear();
+            self.refresh_filtered_remotes(cx);
+            return;
+        };
+
+        let receiver = repo.update(cx, |repo, _| repo.remote_urls());
+        let handle = cx.entity().downgrade();
+        cx.spawn(async move |_, cx| {
+            let urls = receiver.await.log_err()?;
+            let urls = urls.log_err()?;
+            let mut remotes: Vec<sections::RemoteEntry> = urls
+                .into_iter()
+                .map(|(name, url)| sections::RemoteEntry {
+                    name: name.into(),
+                    url: url.into(),
+                })
+                .collect();
+            sections::sort_remotes(&mut remotes);
+            handle
+                .update(cx, |this, cx| {
+                    this.remotes = remotes;
+                    this.refresh_filtered_remotes(cx);
+                })
+                .log_err();
+            Some(())
+        })
+        .detach();
+    }
+
     pub(crate) fn refresh_filtered_branches(&mut self, cx: &mut Context<Self>) {
         let query = sections::filter_query(&self.filter_editor, cx);
         self.filtered_branches = sections::filter_branches(&self.branches, &query);
+        cx.notify();
+    }
+
+    pub(crate) fn refresh_filtered_remotes(&mut self, cx: &mut Context<Self>) {
+        let query = sections::remote_filter_query(&self.remote_filter_editor, cx);
+        self.filtered_remotes = sections::filter_remotes(&self.remotes, &query);
         cx.notify();
     }
 
@@ -170,7 +229,8 @@ impl GitManager {
     fn render_body(&self, cx: &mut Context<Self>) -> AnyElement {
         match self.active_tab {
             GitManagerTab::Branches => self.render_branches_section(cx),
-            GitManagerTab::Remotes | GitManagerTab::Tags | GitManagerTab::Shelves => div()
+            GitManagerTab::Remotes => self.render_remotes_section(cx),
+            GitManagerTab::Tags | GitManagerTab::Shelves => div()
                 .id("git-manager-body")
                 .flex_1()
                 .p_2()
@@ -189,6 +249,52 @@ impl GitManager {
             .child(sections::render_filter_editor(&self.filter_editor, cx))
             .child(sections::render_branch_list(
                 self.filtered_branches.clone(),
+                self.active_repository.is_some(),
+                self.active_repository.clone(),
+                self.workspace.clone(),
+                cx,
+            ))
+            .into_any_element()
+    }
+
+    fn render_remotes_section(&self, cx: &mut Context<Self>) -> AnyElement {
+        let add_disabled = self.active_repository.is_none();
+        v_flex()
+            .id("git-manager-remotes-body")
+            .flex_1()
+            .size_full()
+            .p_2()
+            .gap_2()
+            .child(
+                h_flex()
+                    .w_full()
+                    .gap_2()
+                    .child(div().flex_1().child(sections::render_remote_filter_editor(
+                        &self.remote_filter_editor,
+                        cx,
+                    )))
+                    .child(
+                        Button::new("gm-add-remote", translate_ui("Add Remote", cx))
+                            .label_size(ui::LabelSize::Small)
+                            .size(ui::ButtonSize::Compact)
+                            .disabled(add_disabled)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                let Some(repo) = this.active_repository.clone() else {
+                                    return;
+                                };
+                                let workspace = this.workspace.clone();
+                                if let Some(workspace) = workspace.upgrade() {
+                                    workspace.update(cx, |workspace, cx| {
+                                        workspace.toggle_modal(window, cx, |window, cx| {
+                                            sections::RemoteModal::new_add(repo, window, cx)
+                                        });
+                                    });
+                                }
+                            })),
+                    ),
+            )
+            .child(sections::render_remote_list(
+                self.filtered_remotes.clone(),
                 self.active_repository.is_some(),
                 self.active_repository.clone(),
                 self.workspace.clone(),
