@@ -1,12 +1,19 @@
+mod sections;
 mod toolbar;
 
 use crate::git_manager_settings::GitManagerSettings;
 use anyhow::Result;
+use editor::Editor;
 use fs::Fs;
+use git::repository::Branch;
 use gpui::{
     Action, App, AsyncWindowContext, Context, Entity, EventEmitter, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, ParentElement, Pixels, Render, Styled, WeakEntity, Window,
-    actions, div,
+    InteractiveElement, IntoElement, ParentElement, Pixels, Render, Styled, Subscription,
+    WeakEntity, Window, actions, div,
+};
+use project::{
+    Project,
+    git_store::{GitStoreEvent, Repository, RepositoryEvent},
 };
 use settings::{Settings, translate_ui, update_settings_file};
 use std::sync::Arc;
@@ -50,11 +57,16 @@ pub fn register(workspace: &mut Workspace) {
 
 pub struct GitManager {
     focus_handle: FocusHandle,
-    // Kept for later tasks (operations / repo selection).
-    #[allow(dead_code)]
     workspace: WeakEntity<Workspace>,
+    project: Entity<Project>,
     fs: Arc<dyn Fs>,
     active_tab: GitManagerTab,
+    active_repository: Option<Entity<Repository>>,
+    branches: Vec<Branch>,
+    filtered_branches: Vec<Branch>,
+    filter_editor: Entity<Editor>,
+    _git_store_subscription: Subscription,
+    _filter_subscription: Subscription,
 }
 
 impl GitManager {
@@ -67,13 +79,49 @@ impl GitManager {
         })?
     }
 
-    pub fn new(workspace: &mut Workspace, _window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self {
+    pub fn new(workspace: &mut Workspace, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let project = workspace.project().clone();
+        let git_store = project.read(cx).git_store().clone();
+        let active_repository = project.read(cx).active_repository(cx);
+        let filter_editor = sections::new_filter_editor(window, cx);
+
+        let mut this = Self {
             focus_handle: cx.focus_handle(),
             workspace: workspace.weak_handle(),
+            project: project.clone(),
             fs: workspace.app_state().fs.clone(),
             active_tab: GitManagerTab::Branches,
-        }
+            active_repository: None,
+            branches: Vec::new(),
+            filtered_branches: Vec::new(),
+            filter_editor: filter_editor.clone(),
+            _git_store_subscription: cx.subscribe_in(
+                &git_store,
+                window,
+                |this, _git_store, event, _window, cx| match event {
+                    GitStoreEvent::ActiveRepositoryChanged(_)
+                    | GitStoreEvent::RepositoryAdded
+                    | GitStoreEvent::RepositoryRemoved(_) => {
+                        this.reload_active_repository(cx);
+                    }
+                    GitStoreEvent::RepositoryUpdated(
+                        _,
+                        RepositoryEvent::BranchListChanged
+                        | RepositoryEvent::HeadChanged
+                        | RepositoryEvent::StatusesChanged,
+                        true,
+                    ) => {
+                        this.reload_branches(cx);
+                    }
+                    _ => {}
+                },
+            ),
+            _filter_subscription: sections::subscribe_filter_edits(&filter_editor, cx),
+        };
+
+        this.active_repository = active_repository;
+        this.reload_branches(cx);
+        this
     }
 
     pub(crate) fn set_active_tab(&mut self, tab: GitManagerTab, cx: &mut Context<Self>) {
@@ -83,6 +131,33 @@ impl GitManager {
         }
     }
 
+    fn reload_active_repository(&mut self, cx: &mut Context<Self>) {
+        let new_repo = self.project.read(cx).active_repository(cx);
+        let changed = self.active_repository.as_ref().map(Entity::entity_id)
+            != new_repo.as_ref().map(Entity::entity_id);
+        self.active_repository = new_repo;
+        if changed {
+            self.reload_branches(cx);
+        } else {
+            cx.notify();
+        }
+    }
+
+    fn reload_branches(&mut self, cx: &mut Context<Self>) {
+        if let Some(repo) = self.active_repository.as_ref() {
+            self.branches = sections::load_branches_from_repo(repo, cx);
+        } else {
+            self.branches.clear();
+        }
+        self.refresh_filtered_branches(cx);
+    }
+
+    pub(crate) fn refresh_filtered_branches(&mut self, cx: &mut Context<Self>) {
+        let query = sections::filter_query(&self.filter_editor, cx);
+        self.filtered_branches = sections::filter_branches(&self.branches, &query);
+        cx.notify();
+    }
+
     fn placeholder_for_tab(&self, cx: &App) -> &'static str {
         match self.active_tab {
             GitManagerTab::Branches => translate_ui("Branches coming soon", cx),
@@ -90,6 +165,36 @@ impl GitManager {
             GitManagerTab::Tags => translate_ui("Tags coming soon", cx),
             GitManagerTab::Shelves => translate_ui("Shelves coming soon", cx),
         }
+    }
+
+    fn render_body(&self, cx: &mut Context<Self>) -> AnyElement {
+        match self.active_tab {
+            GitManagerTab::Branches => self.render_branches_section(cx),
+            GitManagerTab::Remotes | GitManagerTab::Tags | GitManagerTab::Shelves => div()
+                .id("git-manager-body")
+                .flex_1()
+                .p_2()
+                .child(Label::new(self.placeholder_for_tab(cx)).color(Color::Muted))
+                .into_any_element(),
+        }
+    }
+
+    fn render_branches_section(&self, cx: &mut Context<Self>) -> AnyElement {
+        v_flex()
+            .id("git-manager-branches-body")
+            .flex_1()
+            .size_full()
+            .p_2()
+            .gap_2()
+            .child(sections::render_filter_editor(&self.filter_editor, cx))
+            .child(sections::render_branch_list(
+                self.filtered_branches.clone(),
+                self.active_repository.is_some(),
+                self.active_repository.clone(),
+                self.workspace.clone(),
+                cx,
+            ))
+            .into_any_element()
     }
 }
 
@@ -173,16 +278,13 @@ impl Render for GitManager {
                     .px_2()
                     .pt_2()
                     .pb_1()
-                    .child(Label::new(translate_ui("Git Manager", cx)).weight(gpui::FontWeight::SEMIBOLD)),
+                    .child(
+                        Label::new(translate_ui("Git Manager", cx))
+                            .weight(gpui::FontWeight::SEMIBOLD),
+                    ),
             )
             .child(toolbar::GitManagerToolbar::new(self.focus_handle.clone()))
             .child(toolbar::render_tab_bar(self.active_tab, cx))
-            .child(
-                div()
-                    .id("git-manager-body")
-                    .flex_1()
-                    .p_2()
-                    .child(Label::new(self.placeholder_for_tab(cx)).color(Color::Muted)),
-            )
+            .child(self.render_body(cx))
     }
 }
