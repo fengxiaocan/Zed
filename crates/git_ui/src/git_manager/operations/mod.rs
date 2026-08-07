@@ -1,3 +1,7 @@
+mod update_project;
+
+pub(crate) use update_project::update_project;
+
 use gpui::{App, AsyncApp, Window};
 use project::git_store::Repository;
 use util::ResultExt;

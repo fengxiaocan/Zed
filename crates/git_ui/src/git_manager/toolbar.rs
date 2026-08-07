@@ -34,6 +34,7 @@ impl RenderOnce for GitManagerToolbar {
         let manager = self.manager.clone();
         let manager_tag = manager.clone();
         let manager_shelf = manager.clone();
+        let manager_update = manager.clone();
 
         h_flex()
             .w_full()
@@ -76,8 +77,20 @@ impl RenderOnce for GitManagerToolbar {
                 Button::new("gm-update-project", translate_ui("Update Project", cx))
                     .label_size(LabelSize::Small)
                     .size(ButtonSize::Compact)
-                    .disabled(true)
-                    .tooltip(Tooltip::text(translate_ui("Coming soon", cx))),
+                    .tooltip(Tooltip::text(translate_ui(
+                        "Fetch and integrate changes from upstream",
+                        cx,
+                    )))
+                    .on_click({
+                        let manager_update = manager_update.clone();
+                        move |_, window, cx| {
+                            if let Some(manager) = manager_update.upgrade() {
+                                manager.update(cx, |manager, cx| {
+                                    manager.update_project(window, cx);
+                                });
+                            }
+                        }
+                    }),
             )
             .child(div().flex_1())
             .child(

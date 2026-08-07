@@ -205,6 +205,14 @@ impl GitManager {
         }
     }
 
+    /// Runs Update Project (fetch + rebase/merge) for the active repository.
+    pub(crate) fn update_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(repo) = self.active_repository.clone() else {
+            return;
+        };
+        operations::update_project(&repo, &self.workspace, window, cx);
+    }
+
     fn reload_active_repository(&mut self, cx: &mut Context<Self>) {
         let new_repo = self.project.read(cx).active_repository(cx);
         let changed = self.active_repository.as_ref().map(Entity::entity_id)
