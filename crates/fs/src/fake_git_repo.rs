@@ -72,6 +72,10 @@ pub struct FakeGitRepositoryState {
     pub remotes: HashMap<String, String>,
     /// List of tags, keys are names and values are (target SHA, optional message).
     pub tags: HashMap<String, (String, Option<String>)>,
+    /// Whether a merge is in progress.
+    pub merge_in_progress: bool,
+    /// Whether a rebase is in progress.
+    pub rebase_in_progress: bool,
     pub simulated_index_write_error_message: Option<String>,
     pub simulated_create_worktree_error: Option<String>,
     pub simulated_graph_error: Option<String>,
@@ -104,6 +108,8 @@ impl FakeGitRepositoryState {
             oids: Default::default(),
             remotes: HashMap::default(),
             tags: HashMap::default(),
+            merge_in_progress: false,
+            rebase_in_progress: false,
             graph_commits: Vec::new(),
             commit_data: Default::default(),
             commit_history: Vec::new(),
@@ -1533,6 +1539,57 @@ impl GitRepository for FakeGitRepository {
             }
             Ok(())
         })
+    }
+
+    fn merge(
+        &self,
+        _rev: String,
+        _env: Arc<HashMap<String, String>>,
+    ) -> BoxFuture<'_, Result<()>> {
+        self.with_state_async(true, move |state| {
+            state.merge_in_progress = false;
+            Ok(())
+        })
+    }
+
+    fn merge_abort(&self, _env: Arc<HashMap<String, String>>) -> BoxFuture<'_, Result<()>> {
+        self.with_state_async(true, move |state| {
+            state.merge_in_progress = false;
+            Ok(())
+        })
+    }
+
+    fn rebase(
+        &self,
+        _onto: String,
+        _env: Arc<HashMap<String, String>>,
+    ) -> BoxFuture<'_, Result<()>> {
+        self.with_state_async(true, move |state| {
+            state.rebase_in_progress = false;
+            Ok(())
+        })
+    }
+
+    fn rebase_continue(&self, _env: Arc<HashMap<String, String>>) -> BoxFuture<'_, Result<()>> {
+        self.with_state_async(true, move |state| {
+            state.rebase_in_progress = false;
+            Ok(())
+        })
+    }
+
+    fn rebase_abort(&self, _env: Arc<HashMap<String, String>>) -> BoxFuture<'_, Result<()>> {
+        self.with_state_async(true, move |state| {
+            state.rebase_in_progress = false;
+            Ok(())
+        })
+    }
+
+    fn is_merge_in_progress(&self) -> BoxFuture<'_, Result<bool>> {
+        self.with_state_async(false, move |state| Ok(state.merge_in_progress))
+    }
+
+    fn is_rebase_in_progress(&self) -> BoxFuture<'_, Result<bool>> {
+        self.with_state_async(false, move |state| Ok(state.rebase_in_progress))
     }
 
     fn initial_graph_data(
