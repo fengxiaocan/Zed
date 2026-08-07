@@ -1,3 +1,4 @@
+mod operations;
 mod sections;
 mod toolbar;
 
@@ -77,6 +78,8 @@ pub struct GitManager {
     shelves: Vec<StashEntry>,
     filtered_shelves: Vec<StashEntry>,
     shelf_filter_editor: Entity<Editor>,
+    merge_in_progress: bool,
+    rebase_in_progress: bool,
     _git_store_subscription: Subscription,
     _filter_subscription: Subscription,
     _remote_filter_subscription: Subscription,
@@ -147,6 +150,8 @@ impl GitManager {
             shelves: Vec::new(),
             filtered_shelves: Vec::new(),
             shelf_filter_editor: shelf_filter_editor.clone(),
+            merge_in_progress: false,
+            rebase_in_progress: false,
             _git_store_subscription: cx.subscribe_in(
                 &git_store,
                 window,
@@ -166,6 +171,7 @@ impl GitManager {
                         this.reload_branches(cx);
                         this.reload_remotes(cx);
                         this.reload_tags(cx);
+                        this.refresh_in_progress_state(cx);
                     }
                     GitStoreEvent::RepositoryUpdated(
                         _,
@@ -188,6 +194,7 @@ impl GitManager {
         this.reload_remotes(cx);
         this.reload_tags(cx);
         this.reload_shelves(cx);
+        this.refresh_in_progress_state(cx);
         this
     }
 
@@ -208,9 +215,35 @@ impl GitManager {
             self.reload_remotes(cx);
             self.reload_tags(cx);
             self.reload_shelves(cx);
+            self.refresh_in_progress_state(cx);
         } else {
             cx.notify();
         }
+    }
+
+    fn refresh_in_progress_state(&mut self, cx: &mut Context<Self>) {
+        let Some(repo) = self.active_repository.clone() else {
+            self.merge_in_progress = false;
+            self.rebase_in_progress = false;
+            return;
+        };
+        let handle = cx.entity().downgrade();
+        cx.spawn(async move |_, cx| {
+            let (merge_in_progress, rebase_in_progress) =
+                operations::query_in_progress(&repo, cx).await;
+            handle
+                .update(cx, |this, cx| {
+                    if this.merge_in_progress != merge_in_progress
+                        || this.rebase_in_progress != rebase_in_progress
+                    {
+                        this.merge_in_progress = merge_in_progress;
+                        this.rebase_in_progress = rebase_in_progress;
+                        cx.notify();
+                    }
+                })
+                .log_err();
+        })
+        .detach();
     }
 
     fn reload_branches(&mut self, cx: &mut Context<Self>) {
@@ -562,8 +595,86 @@ impl Render for GitManager {
                             .weight(gpui::FontWeight::SEMIBOLD),
                     ),
             )
-            .child(toolbar::GitManagerToolbar::new(self.focus_handle.clone()))
+            .child(toolbar::GitManagerToolbar::new(
+                self.focus_handle.clone(),
+                cx.entity().downgrade(),
+            ))
             .child(toolbar::render_tab_bar(self.active_tab, cx))
+            .children(self.render_in_progress_banner(cx))
             .child(self.render_body(cx))
+    }
+}
+
+impl GitManager {
+    fn render_in_progress_banner(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let Some(repo) = self.active_repository.clone() else {
+            return None;
+        };
+
+        if self.merge_in_progress {
+            let repo_abort = repo.clone();
+            return Some(
+                h_flex()
+                    .w_full()
+                    .px_2()
+                    .py_1()
+                    .gap_2()
+                    .bg(cx.theme().colors().element_selected)
+                    .child(
+                        Label::new(translate_ui("Merge in progress", cx))
+                            .color(ui::Color::Warning),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("gm-abort-merge", translate_ui("Abort Merge", cx))
+                            .label_size(ui::LabelSize::Small)
+                            .size(ui::ButtonSize::Compact)
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                operations::merge_abort(&repo_abort, window, cx);
+                                this.refresh_in_progress_state(cx);
+                            })),
+                    )
+                    .into_any_element(),
+            );
+        }
+
+        if self.rebase_in_progress {
+            let repo_continue = repo.clone();
+            let repo_abort = repo.clone();
+            return Some(
+                h_flex()
+                    .w_full()
+                    .px_2()
+                    .py_1()
+                    .gap_2()
+                    .bg(cx.theme().colors().element_selected)
+                    .child(
+                        Label::new(translate_ui("Rebase in progress", cx))
+                            .color(ui::Color::Warning),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("gm-continue-rebase", translate_ui("Continue Rebase", cx))
+                            .label_size(ui::LabelSize::Small)
+                            .size(ui::ButtonSize::Compact)
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                operations::rebase_continue(&repo_continue, window, cx);
+                                this.refresh_in_progress_state(cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("gm-abort-rebase", translate_ui("Abort Rebase", cx))
+                            .label_size(ui::LabelSize::Small)
+                            .size(ui::ButtonSize::Compact)
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                operations::rebase_abort(&repo_abort, window, cx);
+                                this.refresh_in_progress_state(cx);
+                            })),
+                    )
+                    .into_any_element(),
+            );
+        }
+
+        None
     }
 }
