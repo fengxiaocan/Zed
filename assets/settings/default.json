@@ -1057,6 +1057,24 @@
     // Default: project_diff
     "entry_primary_click_action": "project_diff",
   },
+  "git_manager": {
+    // Whether to show the Git Manager button in the status bar.
+    "button": true,
+    // Default width of the Git Manager panel.
+    "default_width": 360,
+    // Whether the Git Manager panel should open on startup.
+    "starts_open": false,
+    // How Update Project integrates after fetch.
+    //
+    // Choices: rebase, merge, only_fetch
+    // Default: rebase
+    "update_project_mode": "rebase",
+    // What to do when the worktree is dirty before Update Project.
+    //
+    // Choices: ask, shelve_first, always_continue
+    // Default: ask
+    "update_project_dirty_worktree": "ask"
+  },
   "agent": {
     // Whether the inline assistant should use streaming tools, when available
     "inline_assistant_use_streaming_tools": true,
