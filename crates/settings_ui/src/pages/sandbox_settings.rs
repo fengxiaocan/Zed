@@ -61,9 +61,9 @@ pub(crate) fn render_sandbox_settings_page(
         .child(
             SwitchField::new(
                 "sandbox-enabled",
-                Some("Enable Sandbox"),
+                Some(crate::localized("Enable Sandbox", cx)),
                 Some(
-                    "Wrap agent-run terminal commands in an OS-level sandbox. When off, commands run with Zed's own permissions."
+                    crate::localized("Wrap agent-run terminal commands in an OS-level sandbox. When off, commands run with Zed's own permissions.", cx)
                         .into(),
                 ),
                 sandbox_enabled,
@@ -76,11 +76,11 @@ pub(crate) fn render_sandbox_settings_page(
         .child({
             let docs_url =
                 client::zed_urls::sandboxing_docs(Some("persistent-sandbox-permissions"), cx);
-            let tooltip = format!("Opens {docs_url}");
+            let tooltip = crate::localized("Opens {}", cx).replace("{}", &docs_url);
             // Wrap in a row so the button shrinks to its content width instead
             // of stretching across the settings page.
             h_flex().child(
-                Button::new("sandbox-docs-link", "Learn more about sandboxing")
+                Button::new("sandbox-docs-link", crate::localized("Learn more about sandboxing", cx))
                     .label_size(LabelSize::Small)
                     .color(Color::Muted)
                     .end_icon(
@@ -99,7 +99,7 @@ pub(crate) fn render_sandbox_settings_page(
                     .severity(Severity::Warning)
                     .child(Label::new(error).size(LabelSize::Small))
                     .action_slot(
-                        Button::new("dismiss-sandbox-host-error", "Dismiss")
+                        Button::new("dismiss-sandbox-host-error", crate::localized("Dismiss", cx))
                             .style(ButtonStyle::Tinted(ui::TintColor::Warning))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.sandbox_host_validation_error = None;
@@ -111,13 +111,13 @@ pub(crate) fn render_sandbox_settings_page(
         .child(
             v_flex()
                 .gap_4()
-                .child(SettingsSectionHeader::new("Network").no_padding(true))
+                .child(SettingsSectionHeader::new(crate::localized("Network", cx)).no_padding(true))
                 .child(
                     SwitchField::new(
                         "sandbox-allow-all-hosts",
-                        Some("Allow All Domains"),
+                        Some(crate::localized("Allow All Domains", cx)),
                         Some(
-                            "Let sandboxed commands reach any domain over the network without prompting."
+                            crate::localized("Let sandboxed commands reach any domain over the network without prompting.", cx)
                                 .into(),
                         ),
                         permissions.allow_all_hosts,
@@ -133,6 +133,7 @@ pub(crate) fn render_sandbox_settings_page(
                     host_rows,
                     add_host_input,
                     empty_border,
+                    cx,
                 )),
         )
 
@@ -140,13 +141,13 @@ pub(crate) fn render_sandbox_settings_page(
         .child(
             v_flex()
                 .gap_4()
-                .child(SettingsSectionHeader::new("File System").no_padding(true))
+                .child(SettingsSectionHeader::new(crate::localized("File System", cx)).no_padding(true))
                 .child(
                     SwitchField::new(
                         "sandbox-allow-fs-write-all",
-                        Some("Allow All File System Writes"),
+                        Some(crate::localized("Allow All File System Writes", cx)),
                         Some(
-                            "Let sandboxed commands write anywhere except protected Git metadata without prompting."
+                            crate::localized("Let sandboxed commands write anywhere except protected Git metadata without prompting.", cx)
                                 .into(),
                         ),
                         permissions.allow_fs_write_all,
@@ -162,19 +163,20 @@ pub(crate) fn render_sandbox_settings_page(
                     path_rows,
                     add_path_input,
                     empty_border,
+                    cx,
                 )),
         )
         .child(Divider::horizontal())
         .child(
             v_flex()
                 .gap_4()
-                .child(SettingsSectionHeader::new("Escalation Prompts").no_padding(true))
+                .child(SettingsSectionHeader::new(crate::localized("Escalation Prompts", cx)).no_padding(true))
                 .child(
                     SwitchField::new(
                         "sandbox-warn-confusable-unicode",
-                        Some("Warn About Confusable Unicode"),
+                        Some(crate::localized("Warn About Confusable Unicode", cx)),
                         Some(
-                            "Warn when an approval prompt requests a domain or write path that contains potentially confusable Unicode characters, such as homoglyphs (i.e. two symbols that look similar, such as a Cyrillic `а`)"
+                            crate::localized("Warn when an approval prompt requests a domain or write path that contains potentially confusable Unicode characters, such as homoglyphs (i.e. two symbols that look similar, such as a Cyrillic `а`)", cx)
                                 .into(),
                         ),
                         permissions.warn_confusable_unicode,
@@ -187,9 +189,9 @@ pub(crate) fn render_sandbox_settings_page(
                 .child(
                     SwitchField::new(
                         "sandbox-warn-ntfs-grants",
-                        Some("Warn About Windows-Drive Grants"),
+                        Some(crate::localized("Warn About Windows-Drive Grants", cx)),
                         Some(
-                            "Windows only: warn when a sandbox grant targets a file on a Windows drive (accessed inside WSL via DrvFs). Such grants are enforced through a translated path and their sandbox-integrity guarantees are weaker than files on the Linux distro's own filesystem."
+                            crate::localized("Windows only: warn when a sandbox grant targets a file on a Windows drive (accessed inside WSL via DrvFs). Such grants are enforced through a translated path and their sandbox-integrity guarantees are weaker than files on the Linux distro's own filesystem.", cx)
                                 .into(),
                         ),
                         permissions.warn_ntfs_grants,
@@ -210,14 +212,15 @@ fn render_list_section(
     rows: Vec<AnyElement>,
     add_input: AnyElement,
     empty_border: gpui::Hsla,
+    cx: &App,
 ) -> impl IntoElement {
     let is_empty = rows.is_empty();
 
     v_flex()
         .gap_0p5()
-        .child(Label::new(title))
+        .child(Label::new(crate::localized(title, cx)))
         .child(
-            Label::new(description)
+            Label::new(crate::localized(description, cx))
                 .size(LabelSize::Small)
                 .color(Color::Muted),
         )
@@ -227,7 +230,7 @@ fn render_list_section(
                 .w_full()
                 .gap_1p5()
                 .when(is_empty, |this| {
-                    this.child(render_empty_state(empty_border))
+                    this.child(render_empty_state(empty_border, cx))
                 })
                 .when(!is_empty, |this| {
                     this.child(v_flex().gap_1p5().children(rows))
@@ -236,7 +239,7 @@ fn render_list_section(
         )
 }
 
-fn render_empty_state(border_color: gpui::Hsla) -> AnyElement {
+fn render_empty_state(border_color: gpui::Hsla, cx: &App) -> AnyElement {
     h_flex()
         .p_2()
         .rounded_md()
@@ -244,7 +247,7 @@ fn render_empty_state(border_color: gpui::Hsla) -> AnyElement {
         .border_dashed()
         .border_color(border_color)
         .child(
-            Label::new("Nothing configured")
+            Label::new(crate::localized("Nothing configured", cx))
                 .size(LabelSize::Small)
                 .color(Color::Disabled),
         )
@@ -265,7 +268,7 @@ fn render_host_row(index: usize, host: String, cx: &mut Context<SettingsWindow>)
             IconButton::new(format!("sandbox-host-delete-{}", index), IconName::Trash)
                 .icon_size(IconSize::Small)
                 .icon_color(Color::Muted)
-                .tooltip(Tooltip::text("Remove Domain"))
+                .tooltip(Tooltip::text(crate::localized("Remove Domain", cx)))
                 .on_click(cx.listener(move |_, _, _, cx| {
                     remove_network_host(host_for_delete.clone(), cx);
                 })),
@@ -278,7 +281,7 @@ fn render_host_row(index: usize, host: String, cx: &mut Context<SettingsWindow>)
             if new_host.is_empty() || new_host == host_for_update {
                 return;
             }
-            let result = canonicalize_host(&new_host);
+            let result = canonicalize_host(&new_host, cx);
             settings_window
                 .update(cx, |this, cx| {
                     match result {
@@ -301,7 +304,10 @@ fn render_add_host_input(cx: &mut Context<SettingsWindow>) -> AnyElement {
     let settings_window = cx.entity().downgrade();
 
     SettingsInputField::new("sandbox-host-new")
-        .with_placeholder("Add domain (e.g. github.com or *.npmjs.org)…")
+        .with_placeholder(crate::localized(
+            "Add domain (e.g. github.com or *.npmjs.org)…",
+            cx,
+        ))
         .tab_index(0)
         .with_buffer_font()
         .display_clear_button()
@@ -315,7 +321,7 @@ fn render_add_host_input(cx: &mut Context<SettingsWindow>) -> AnyElement {
             if host.is_empty() {
                 return;
             }
-            let result = canonicalize_host(&host);
+            let result = canonicalize_host(&host, cx);
             settings_window
                 .update(cx, |this, cx| {
                     match result {
@@ -348,7 +354,7 @@ fn render_path_row(index: usize, path: PathBuf, cx: &mut Context<SettingsWindow>
             IconButton::new(format!("sandbox-path-delete-{}", index), IconName::Trash)
                 .icon_size(IconSize::Small)
                 .icon_color(Color::Muted)
-                .tooltip(Tooltip::text("Remove Path"))
+                .tooltip(Tooltip::text(crate::localized("Remove Path", cx)))
                 .on_click(cx.listener(move |_, _, _, cx| {
                     remove_write_path(path_for_delete.clone(), cx);
                 })),
@@ -375,7 +381,10 @@ fn render_add_path_input(cx: &mut Context<SettingsWindow>) -> AnyElement {
     let settings_window = cx.entity().downgrade();
 
     SettingsInputField::new("sandbox-path-new")
-        .with_placeholder("Add an absolute path (e.g. /path/to/directory)…")
+        .with_placeholder(crate::localized(
+            "Add an absolute path (e.g. /path/to/directory)…",
+            cx,
+        ))
         .tab_index(0)
         .with_buffer_font()
         .display_clear_button()
@@ -427,23 +436,28 @@ fn raw_sandbox_lists(cx: &App) -> (Vec<String>, Vec<PathBuf>) {
 
 /// Validate and canonicalize a user-provided domain, returning either the
 /// canonical form to persist or a domain-friendly error to surface.
-fn canonicalize_host(host: &str) -> Result<String, String> {
+fn canonicalize_host(host: &str, cx: &App) -> Result<String, String> {
     use http_proxy::HostPatternError;
 
     HostPattern::parse(host)
         .map(|pattern| pattern.to_string())
         .map_err(|error| match error {
-            HostPatternError::Empty => "Domain cannot be empty.".to_string(),
-            HostPatternError::IpLiteral(_) => {
-                "IP addresses and local domains aren't allowed; enter a domain like github.com."
-                    .to_string()
-            }
-            HostPatternError::InvalidWildcard(_) => {
-                "Wildcards are only allowed as a leading label, e.g. *.github.com.".to_string()
-            }
-            HostPatternError::Invalid { .. } => {
-                "Not a valid domain. Use a domain like github.com or *.npmjs.org.".to_string()
-            }
+            HostPatternError::Empty => crate::localized("Domain cannot be empty.", cx).to_string(),
+            HostPatternError::IpLiteral(_) => crate::localized(
+                "IP addresses and local domains aren't allowed; enter a domain like github.com.",
+                cx,
+            )
+            .to_string(),
+            HostPatternError::InvalidWildcard(_) => crate::localized(
+                "Wildcards are only allowed as a leading label, e.g. *.github.com.",
+                cx,
+            )
+            .to_string(),
+            HostPatternError::Invalid { .. } => crate::localized(
+                "Not a valid domain. Use a domain like github.com or *.npmjs.org.",
+                cx,
+            )
+            .to_string(),
         })
 }
 

@@ -48,11 +48,14 @@ pub(crate) fn render_external_agents_page(
         .pb_16()
         .track_scroll(scroll_handle)
         .overflow_y_scroll()
-        .child(Label::new("External Agents"))
+        .child(Label::new(crate::localized("External Agents", cx)))
         .child(
-            Label::new("Agents connected through the Agent Client Protocol.")
-                .size(LabelSize::Small)
-                .color(Color::Muted),
+            Label::new(crate::localized(
+                "Agents connected through the Agent Client Protocol.",
+                cx,
+            ))
+            .size(LabelSize::Small)
+            .color(Color::Muted),
         )
         .child(agent_list)
         .into_any_element()
@@ -117,9 +120,12 @@ fn render_empty_state(cx: &App) -> AnyElement {
         .border_color(cx.theme().colors().border.opacity(0.6))
         .rounded_sm()
         .child(
-            Label::new("No external agents added yet. Click \"Add Agent\" to get started.")
-                .color(Color::Muted)
-                .size(LabelSize::Small),
+            Label::new(crate::localized(
+                "No external agents added yet. Click \"Add Agent\" to get started.",
+                cx,
+            ))
+            .color(Color::Muted)
+            .size(LabelSize::Small),
         )
         .into_any_element()
 }
@@ -133,9 +139,12 @@ fn render_no_project_state(cx: &App) -> AnyElement {
         .border_color(cx.theme().colors().border.opacity(0.6))
         .rounded_sm()
         .child(
-            Label::new("No active project found. Open a workspace to manage external agents.")
-                .color(Color::Muted)
-                .size(LabelSize::Small),
+            Label::new(crate::localized(
+                "No active project found. Open a workspace to manage external agents.",
+                cx,
+            ))
+            .color(Color::Muted)
+            .size(LabelSize::Small),
         )
         .into_any_element()
 }
@@ -182,7 +191,7 @@ fn render_agent(
             .icon_size(IconSize::Small)
             .size(ButtonSize::Medium)
             .tab_index(0isize)
-            .tooltip(Tooltip::text("Configure Agent"))
+            .tooltip(Tooltip::text(crate::localized("Configure Agent", cx)))
             .on_click(cx.listener({
                 let id = id.clone();
                 move |this, _event, window, cx| {
@@ -194,8 +203,8 @@ fn render_agent(
     });
 
     let remove_tooltip = match source {
-        ExternalAgentSource::Registry => "Remove Registry Agent",
-        ExternalAgentSource::Custom => "Remove Custom Agent",
+        ExternalAgentSource::Registry => crate::localized("Remove Registry Agent", cx),
+        ExternalAgentSource::Custom => crate::localized("Remove Custom Agent", cx),
     };
 
     let remove_button = IconButton::new(format!("uninstall-{}", id_string), IconName::Trash)
@@ -267,7 +276,7 @@ pub(crate) fn render_add_agent_popover(
 
     let popover = PopoverMenu::new("add-agent-server-popover")
         .trigger(
-            Button::new("add-agent", "Add Agent")
+            Button::new("add-agent", crate::localized("Add Agent", cx))
                 .style(ButtonStyle::Outlined)
                 .track_focus(&focus_handle)
                 .start_icon(
@@ -280,35 +289,50 @@ pub(crate) fn render_add_agent_popover(
         .anchor(gpui::Anchor::TopRight)
         .menu(move |window, cx| {
             let settings_window = settings_window.clone();
-            Some(ContextMenu::build(window, cx, move |menu, _window, _cx| {
-                menu.entry("Install from Registry", None, move |_window, cx| {
-                    if let Some(original_window) = original_window {
-                        cx.activate(true);
-                        original_window
-                            .update(cx, |_, window, cx| {
-                                window.activate_window();
-                                window.dispatch_action(Box::new(zed_actions::AcpRegistry), cx);
-                            })
-                            .log_err();
-                    }
-                })
-                .entry("Add Custom Agent", None, move |window, cx| {
-                    settings_window
-                        .update(cx, |this, cx| {
-                            open_custom_agent_form(this, None, window, cx);
-                        })
-                        .log_err();
-                })
-                .separator()
-                .header("Learn More")
-                .item(
-                    ContextMenuEntry::new("ACP Docs")
-                        .icon(IconName::ArrowUpRight)
-                        .icon_color(Color::Muted)
-                        .icon_position(IconPosition::End)
-                        .handler(|_window, cx| cx.open_url("https://agentclientprotocol.com/")),
-                )
-            }))
+            Some(ContextMenu::build(
+                window,
+                cx,
+                move |menu, _window, menu_cx| {
+                    menu.entry(
+                        crate::localized("Install from Registry", menu_cx),
+                        None,
+                        move |_window, cx| {
+                            if let Some(original_window) = original_window {
+                                cx.activate(true);
+                                original_window
+                                    .update(cx, |_, window, cx| {
+                                        window.activate_window();
+                                        window.dispatch_action(
+                                            Box::new(zed_actions::AcpRegistry),
+                                            cx,
+                                        );
+                                    })
+                                    .log_err();
+                            }
+                        },
+                    )
+                    .entry(
+                        crate::localized("Add Custom Agent", menu_cx),
+                        None,
+                        move |window, cx| {
+                            settings_window
+                                .update(cx, |this, cx| {
+                                    open_custom_agent_form(this, None, window, cx);
+                                })
+                                .log_err();
+                        },
+                    )
+                    .separator()
+                    .header(crate::localized("Learn More", menu_cx))
+                    .item(
+                        ContextMenuEntry::new(crate::localized("ACP Docs", menu_cx))
+                            .icon(IconName::ArrowUpRight)
+                            .icon_color(Color::Muted)
+                            .icon_position(IconPosition::End)
+                            .handler(|_window, cx| cx.open_url("https://agentclientprotocol.com/")),
+                    )
+                },
+            ))
         });
 
     div()
@@ -451,8 +475,8 @@ fn new_kv_row(
     cx: &mut Context<SettingsWindow>,
 ) -> KeyValueRow {
     KeyValueRow {
-        key: new_input("Key", key, window, cx),
-        value: new_input("Value", value, window, cx),
+        key: new_input(crate::localized("Key", cx), key, window, cx),
+        value: new_input(crate::localized("Value", cx), value, window, cx),
     }
 }
 
@@ -467,14 +491,14 @@ pub(crate) fn open_custom_agent_form(
     settings_window.custom_agent_form = Some(CustomAgentForm::new(existing, window, cx));
 
     let title = if is_edit {
-        "Configure External Agent"
+        crate::localized("Configure External Agent", cx)
     } else {
-        "Add Custom Agent"
+        crate::localized("Add Custom Agent", cx)
     };
 
     settings_window.push_dynamic_sub_page(
         title,
-        "Agent Configuration",
+        crate::localized("Agent Configuration", cx),
         Some("agent_servers"),
         false,
         render_custom_agent_form_page,
@@ -597,7 +621,7 @@ fn render_env_section(
                             .icon_size(IconSize::Small)
                             .icon_color(Color::Muted)
                             .tab_index(0isize)
-                            .tooltip(Tooltip::text("Remove"))
+                            .tooltip(Tooltip::text(crate::localized("Remove", cx)))
                             .on_click(cx.listener(move |this, _, _window, cx| {
                                 if let Some(form) = this.custom_agent_form.as_mut()
                                     && ix < form.env.len()
@@ -610,7 +634,7 @@ fn render_env_section(
             )
         }))
         .child(
-            Button::new("custom-agent-env-add", "Add")
+            Button::new("custom-agent-env-add", crate::localized("Add", cx))
                 .style(ButtonStyle::Outlined)
                 .label_size(LabelSize::Small)
                 .tab_index(0isize)
@@ -681,7 +705,7 @@ fn render_form_actions(
                 .border_1()
                 .border_color(cancel_border)
                 .child(
-                    Button::new("custom-agent-form-cancel", "Cancel")
+                    Button::new("custom-agent-form-cancel", crate::localized("Cancel", cx))
                         .style(ButtonStyle::Subtle)
                         .track_focus(&cancel_handle)
                         .on_click(cx.listener(|this, _, window, cx| {
@@ -696,7 +720,7 @@ fn render_form_actions(
                 .border_1()
                 .border_color(save_border)
                 .child(
-                    Button::new("custom-agent-form-save", "Save")
+                    Button::new("custom-agent-form-save", crate::localized("Save", cx))
                         .style(ButtonStyle::Filled)
                         .track_focus(&save_handle)
                         .on_click(cx.listener(|this, _, window, cx| {
@@ -752,7 +776,11 @@ fn save_custom_agent_form(
         });
     if collides_with_other_agent {
         if let Some(form) = settings_window.custom_agent_form.as_mut() {
-            form.error = Some(format!("An agent named \"{}\" already exists.", id.0).into());
+            form.error = Some(
+                crate::localized("An agent named \"{}\" already exists.", cx)
+                    .replace("{}", &id.0)
+                    .into(),
+            );
         }
         cx.notify();
         return;

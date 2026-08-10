@@ -183,7 +183,7 @@ impl SkillCreatorPage {
 
         let name_editor = cx.new(|cx| {
             InputField::new(window, cx, "my-new-skill")
-                .label("Name")
+                .label(crate::localized("Name", cx))
                 .tab_index(NAME_FIELD_TAB_INDEX)
                 .tab_stop(true)
         });
@@ -191,14 +191,12 @@ impl SkillCreatorPage {
         window.focus(&name_editor.focus_handle(cx), cx);
 
         let description_editor = cx.new(|cx| {
-            InputField::new(
-                window,
-                cx,
-                "e.g., Fill the PR description following this template.",
-            )
-            .label("Description")
-            .tab_index(DESCRIPTION_FIELD_TAB_INDEX)
-            .tab_stop(true)
+            let placeholder =
+                crate::localized("e.g., Fill the PR description following this template.", cx);
+            InputField::new(window, cx, placeholder)
+                .label(crate::localized("Description", cx))
+                .tab_index(DESCRIPTION_FIELD_TAB_INDEX)
+                .tab_stop(true)
         });
 
         let body_editor = cx.new(|cx| {
@@ -208,7 +206,7 @@ impl SkillCreatorPage {
                 buffer
             });
             let mut editor = Editor::for_buffer(buffer, None, window, cx);
-            editor.set_placeholder_text("Add skill content…", window, cx);
+            editor.set_placeholder_text(crate::localized("Add skill content…", cx), window, cx);
             editor.set_soft_wrap_mode(SoftWrap::EditorWidth, cx);
             editor.set_show_gutter(false, cx);
             editor.set_show_wrap_guides(false, cx);
@@ -412,7 +410,7 @@ impl SkillCreatorPage {
     fn recompute_body_error(&mut self, cx: &App) {
         let body = self.current_body(cx);
         self.body_error = if body.trim().is_empty() {
-            Some("Body is required.")
+            Some(crate::localized("Body is required.", cx))
         } else {
             None
         };
@@ -457,9 +455,10 @@ impl SkillCreatorPage {
         match parse_imported_skill(&content, "") {
             Ok(imported) => self.apply_imported_skill(imported, window, cx),
             Err(err) => {
-                self.save_error = Some(SharedString::from(format!(
-                    "Couldn't read shared skill: {err}"
-                )));
+                self.save_error = Some(SharedString::from(
+                    crate::localized("Couldn't read shared skill: {err}", cx)
+                        .replace("{err}", &err.to_string()),
+                ));
                 cx.notify();
             }
         }
@@ -696,27 +695,29 @@ impl SkillCreatorPage {
         cx.notify();
     }
 
-    fn render_url_import(&self) -> impl IntoElement {
+    fn render_url_import(&self, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .flex_shrink_0()
             .gap_2()
             .child(
                 h_flex()
                     .gap_1()
-                    .child(Label::new("Import from URL"))
-                    .child(Label::new("(optional)").color(Color::Muted)),
+                    .child(Label::new(crate::localized("Import from URL", cx)))
+                    .child(Label::new(crate::localized("(optional)", cx)).color(Color::Muted)),
             )
             .child(self.url_editor.clone())
             .child(match &self.url_import_status {
-                UrlImportStatus::Idle => Label::new(
+                UrlImportStatus::Idle => Label::new(crate::localized(
                     "Paste a GitHub .md URL to fetch it and fill out the form. \
                      For private files, Zed retries using GITHUB_TOKEN, if set.",
-                )
+                    cx,
+                ))
                 .size(LabelSize::Small)
                 .color(Color::Muted)
                 .into_any_element(),
                 UrlImportStatus::Fetching => {
-                    LoadingLabel::new("Fetching and parsing…").into_any_element()
+                    LoadingLabel::new(crate::localized("Fetching and parsing…", cx))
+                        .into_any_element()
                 }
                 UrlImportStatus::Error(error) => h_flex()
                     .gap_1()
@@ -743,7 +744,7 @@ impl SkillCreatorPage {
             .child(
                 v_flex()
                     .gap_2()
-                    .child(Label::new("Front-matter"))
+                    .child(Label::new(crate::localized("Front-matter", cx)))
                     .child(self.name_editor.clone())
                     .child(self.description_editor.clone()),
             )
@@ -754,7 +755,7 @@ impl SkillCreatorPage {
                     .flex_grow_1()
                     .flex_shrink_0()
                     .gap_2()
-                    .child(Label::new("Skill Content"))
+                    .child(Label::new(crate::localized("Skill Content", cx)))
                     .child(self.render_body_field(window, cx))
                     .when_some(self.body_error, |this, error| {
                         this.child(Label::new(error).size(LabelSize::Small).color(Color::Error))
@@ -767,10 +768,13 @@ impl SkillCreatorPage {
 
         SwitchField::new(
             "disable-model-invocation",
-            Some("Disable model invocation"),
+            Some(crate::localized("Disable model invocation", cx)),
             Some(
-                "Hide this skill from the model's catalog. It can still be invoked via slash command."
-                    .into(),
+                crate::localized(
+                    "Hide this skill from the model's catalog. It can still be invoked via slash command.",
+                    cx,
+                )
+                .into(),
             ),
             toggle_state,
             cx.listener(|this, _state: &ToggleState, _window, cx| {
@@ -835,7 +839,11 @@ impl SkillCreatorPage {
 
     fn render_footer(&self, _window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let saving = self.saving;
-        let main_action = if saving { "Saving…" } else { "Save Skill" };
+        let main_action = if saving {
+            crate::localized("Saving…", cx)
+        } else {
+            crate::localized("Save Skill", cx)
+        };
 
         v_flex()
             .w_full()
@@ -946,7 +954,7 @@ impl Render for SkillCreatorPage {
                             .gap_4()
                             .px_8()
                             .py_4()
-                            .child(self.render_url_import())
+                            .child(self.render_url_import(cx))
                             .child(Divider::horizontal().flex_shrink_0().flex_grow_1())
                             .child(self.render_form_fields(window, cx)),
                     ),

@@ -133,9 +133,9 @@ impl Render for AudioTestWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let is_testing = self._stop_playback.is_some();
         let button_text = if is_testing {
-            "Stop Testing"
+            crate::localized("Stop Testing", cx)
         } else {
-            "Start Testing"
+            crate::localized("Start Testing", cx)
         };
 
         let button_style = if is_testing {
@@ -219,13 +219,13 @@ impl Render for AudioTestWindow {
             .child(
                 v_flex()
                     .gap_1()
-                    .child(Label::new("Output Device"))
+                    .child(Label::new(crate::localized("Output Device", cx)))
                     .child(output_dropdown),
             )
             .child(
                 v_flex()
                     .gap_1()
-                    .child(Label::new("Input Device"))
+                    .child(Label::new(crate::localized("Input Device", cx)))
                     .child(input_dropdown),
             )
             .child(
@@ -286,7 +286,7 @@ pub fn open_audio_test_window(_window: &mut Window, cx: &mut App) {
     cx.open_window(
         WindowOptions {
             titlebar: Some(gpui::TitlebarOptions {
-                title: Some("Audio Test".into()),
+                title: Some(crate::localized("Audio Test", cx).into()),
                 appears_transparent: true,
                 traffic_light_position: Some(gpui::point(px(12.0), px(12.0))),
             }),

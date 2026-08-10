@@ -195,7 +195,7 @@ pub(crate) fn render_tool_permissions_setup_page(
         .track_scroll(scroll_handle)
         .child(
             Banner::new().child(
-                Label::new(SETTINGS_DISCLAIMER)
+                Label::new(crate::localized(SETTINGS_DISCLAIMER, cx))
                     .size(LabelSize::Small)
                     .color(Color::Muted)
                     .mt_0p5(),
@@ -203,7 +203,7 @@ pub(crate) fn render_tool_permissions_setup_page(
         )
         .child(
             v_flex()
-                .child(render_global_default_mode_section(global_default))
+                .child(render_global_default_mode_section(global_default, cx))
                 .child(Divider::horizontal())
                 .children(tool_items.into_iter().enumerate().flat_map(|(i, item)| {
                     let mut elements: Vec<AnyElement> = vec![item];
@@ -232,13 +232,14 @@ fn render_tool_list_item(
         let mut parts = Vec::new();
         if rule_count > 0 {
             if rule_count == 1 {
-                parts.push("1 rule".to_string());
+                parts.push(crate::localized("1 rule", cx).to_string());
             } else {
-                parts.push(format!("{} rules", rule_count));
+                parts.push(crate::localized("{} rules", cx).replace("{}", &rule_count.to_string()));
             }
         }
         if invalid_count > 0 {
-            parts.push(format!("{} invalid", invalid_count));
+            parts
+                .push(crate::localized("{} invalid", cx).replace("{}", &invalid_count.to_string()));
         }
         Some(parts.join(", "))
     } else {
@@ -256,44 +257,49 @@ fn render_tool_list_item(
             v_flex()
                 .w_full()
                 .min_w_0()
-                .child(h_flex().gap_1().child(Label::new(tool.name)).when_some(
-                    rule_summary,
-                    |this, summary| {
-                        this.child(
-                            Label::new(summary)
-                                .size(LabelSize::Small)
-                                .color(Color::Muted),
-                        )
-                    },
-                ))
                 .child(
-                    Label::new(tool.description)
+                    h_flex()
+                        .gap_1()
+                        .child(Label::new(crate::localized(tool.name, cx)))
+                        .when_some(rule_summary, |this, summary| {
+                            this.child(
+                                Label::new(summary)
+                                    .size(LabelSize::Small)
+                                    .color(Color::Muted),
+                            )
+                        }),
+                )
+                .child(
+                    Label::new(crate::localized(tool.description, cx))
                         .size(LabelSize::Small)
                         .color(Color::Muted),
                 ),
         )
         .child({
             let tool_name = tool.name;
-            Button::new(format!("configure-{}", tool.id), "Configure")
-                .tab_index(tool_index as isize)
-                .style(ButtonStyle::OutlinedGhost)
-                .size(ButtonSize::Medium)
-                .end_icon(
-                    Icon::new(IconName::ChevronRight)
-                        .size(IconSize::Small)
-                        .color(Color::Muted),
-                )
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.push_dynamic_sub_page(
-                        tool_name,
-                        "Tool Permissions",
-                        None,
-                        true,
-                        render_fn,
-                        window,
-                        cx,
-                    );
-                }))
+            Button::new(
+                format!("configure-{}", tool.id),
+                crate::localized("Configure", cx),
+            )
+            .tab_index(tool_index as isize)
+            .style(ButtonStyle::OutlinedGhost)
+            .size(ButtonSize::Medium)
+            .end_icon(
+                Icon::new(IconName::ChevronRight)
+                    .size(IconSize::Small)
+                    .color(Color::Muted),
+            )
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.push_dynamic_sub_page(
+                    crate::localized(tool_name, cx),
+                    crate::localized("Tool Permissions", cx),
+                    None,
+                    true,
+                    render_fn,
+                    window,
+                    cx,
+                );
+            }))
         })
         .into_any_element()
 }
@@ -325,7 +331,11 @@ pub(crate) fn render_tool_config_page(
     cx: &mut Context<SettingsWindow>,
 ) -> AnyElement {
     let rules = get_tool_rules(tool.id, cx);
-    let page_title = format!("{} Tool", tool.name);
+    let page_title = format!(
+        "{}{}",
+        crate::localized(tool.name, cx),
+        crate::localized(" Tool", cx)
+    );
     let scroll_step = px(80.);
 
     v_flex()
@@ -358,7 +368,7 @@ pub(crate) fn render_tool_config_page(
                 .min_w_0()
                 .child(Label::new(page_title).size(LabelSize::Large))
                 .child(
-                    Label::new(tool.regex_explanation)
+                    Label::new(crate::localized(tool.regex_explanation, cx))
                         .size(LabelSize::Small)
                         .color(Color::Muted),
                 ),
@@ -375,7 +385,7 @@ pub(crate) fn render_tool_config_page(
                         .severity(Severity::Warning)
                         .child(Label::new(error).size(LabelSize::Small))
                         .action_slot(
-                            Button::new("dismiss-regex-error", "Dismiss")
+                            Button::new("dismiss-regex-error", crate::localized("Dismiss", cx))
                                 .style(ButtonStyle::Tinted(ui::TintColor::Warning))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.regex_validation_error = None;
@@ -395,8 +405,8 @@ pub(crate) fn render_tool_config_page(
                 .child(Divider::horizontal().color(ui::DividerColor::BorderFaded))
                 .child(render_rule_section(
                     tool.id,
-                    "Always Deny",
-                    "If any of these regexes match, the tool action will be denied.",
+                    crate::localized("Always Deny", cx),
+                    crate::localized("If any of these regexes match, the tool action will be denied.", cx),
                     ToolPermissionMode::Deny,
                     &rules.always_deny,
                     cx,
@@ -404,8 +414,8 @@ pub(crate) fn render_tool_config_page(
                 .child(Divider::horizontal().color(ui::DividerColor::BorderFaded))
                 .child(render_rule_section(
                     tool.id,
-                    "Always Allow",
-                    "If any of these regexes match, the action will be approved—unless an Always Confirm or Always Deny matches.",
+                    crate::localized("Always Allow", cx),
+                    crate::localized("If any of these regexes match, the action will be approved—unless an Always Confirm or Always Deny matches.", cx),
                     ToolPermissionMode::Allow,
                     &rules.always_allow,
                     cx,
@@ -413,8 +423,8 @@ pub(crate) fn render_tool_config_page(
                 .child(Divider::horizontal().color(ui::DividerColor::BorderFaded))
                 .child(render_rule_section(
                     tool.id,
-                    "Always Confirm",
-                    "If any of these regexes match, a confirmation will be shown unless an Always Deny regex matches.",
+                    crate::localized("Always Confirm", cx),
+                    crate::localized("If any of these regexes match, a confirmation will be shown unless an Always Deny regex matches.", cx),
                     ToolPermissionMode::Confirm,
                     &rules.always_confirm,
                     cx,
@@ -441,7 +451,10 @@ fn render_hardcoded_rules(smaller_font_size: bool, cx: &App) -> AnyElement {
             }
         })
         .text_color(cx.theme().colors().text_muted)
-        .child(render_inline_code_markdown(HARDCODED_RULES_DESCRIPTION, cx))
+        .child(render_inline_code_markdown(
+            crate::localized(HARDCODED_RULES_DESCRIPTION, cx),
+            cx,
+        ))
         .into_any_element()
 }
 
@@ -461,7 +474,11 @@ fn render_verification_section(
 
     let editor = window.use_keyed_state(input_id, cx, |window, cx| {
         let mut editor = editor::Editor::single_line(window, cx);
-        editor.set_placeholder_text("Enter a tool input to test your rules…", window, cx);
+        editor.set_placeholder_text(
+            crate::localized("Enter a tool input to test your rules…", cx),
+            window,
+            cx,
+        );
 
         let global_settings = ThemeSettings::get_global(cx);
         editor.set_text_style_refinement(TextStyleRefinement {
@@ -536,7 +553,7 @@ fn render_verification_section(
                 .border_color(color.border_variant)
                 .rounded_sm()
                 .child(
-                    Label::new("Test Your Rules")
+                    Label::new(crate::localized("Test Your Rules", cx))
                         .color(Color::Muted)
                         .size(LabelSize::Small),
                 )
@@ -556,7 +573,7 @@ fn render_verification_section(
                     this.when(patterns_agree, |this| {
                         if matched_patterns.is_empty() {
                             this.child(
-                                Label::new("No regex matches, using the default action.")
+                                Label::new(crate::localized("No regex matches, using the default action.", cx))
                                     .size(LabelSize::Small)
                                     .color(Color::Muted),
                             )
@@ -569,15 +586,16 @@ fn render_verification_section(
                             this.child(render_hardcoded_rules(true, cx))
                         } else if let Some(reason) = &denial_reason {
                             this.child(
-                                Label::new(format!("Denied: {}", reason))
+                                Label::new(crate::localized("Denied: {}", cx).replace("{}", reason))
                                     .size(LabelSize::XSmall)
                                     .color(Color::Warning),
                             )
                         } else {
                             this.child(
-                                Label::new(
+                                Label::new(crate::localized(
                                     "Pattern preview differs from engine — showing authoritative result.",
-                                )
+                                    cx,
+                                ))
                                 .size(LabelSize::XSmall)
                                 .color(Color::Warning),
                             )
@@ -586,12 +604,12 @@ fn render_verification_section(
                     .when(is_hardcoded_denial && patterns_agree, |this| {
                         this.child(render_hardcoded_rules(true, cx))
                     })
-                    .child(render_verdict_label(mode))
+                    .child(render_verdict_label(mode, cx))
                     .when_some(
                         denial_reason.filter(|_| patterns_agree && !is_hardcoded_denial),
                         |this, reason| {
                             this.child(
-                                Label::new(format!("Reason: {}", reason))
+                                Label::new(crate::localized("Reason: {}", cx).replace("{}", &reason))
                                     .size(LabelSize::XSmall)
                                     .color(Color::Error),
                             )
@@ -685,9 +703,11 @@ fn render_matched_patterns(patterns: &[MatchedPattern], cx: &App) -> AnyElement 
         .gap_1()
         .children(patterns.iter().map(|pattern| {
             let (type_label, color) = match pattern.rule_type {
-                ToolPermissionMode::Deny => ("Always Deny", Color::Error),
-                ToolPermissionMode::Confirm => ("Always Confirm", Color::Warning),
-                ToolPermissionMode::Allow => ("Always Allow", Color::Success),
+                ToolPermissionMode::Deny => (crate::localized("Always Deny", cx), Color::Error),
+                ToolPermissionMode::Confirm => {
+                    (crate::localized("Always Confirm", cx), Color::Warning)
+                }
+                ToolPermissionMode::Allow => (crate::localized("Always Allow", cx), Color::Success),
             };
 
             let type_color = if pattern.is_overridden {
@@ -784,16 +804,16 @@ fn verdict_color(mode: ToolPermissionMode) -> Color {
     }
 }
 
-fn render_verdict_label(mode: ToolPermissionMode) -> AnyElement {
+fn render_verdict_label(mode: ToolPermissionMode, cx: &App) -> AnyElement {
     h_flex()
         .gap_1()
         .child(
-            Label::new("Result:")
+            Label::new(crate::localized("Result:", cx))
                 .size(LabelSize::Small)
                 .color(Color::Muted),
         )
         .child(
-            Label::new(mode_display_label(mode))
+            Label::new(crate::localized(mode_display_label(mode), cx))
                 .size(LabelSize::Small)
                 .color(verdict_color(mode)),
         )
@@ -818,13 +838,14 @@ fn render_invalid_patterns_section(
                         .size(IconSize::Small)
                         .color(Color::Error),
                 )
-                .child(Label::new("Invalid Patterns").color(Color::Error)),
+                .child(Label::new(crate::localized("Invalid Patterns", cx)).color(Color::Error)),
         )
         .child(
-            Label::new(
+            Label::new(crate::localized(
                 "These patterns failed to compile as regular expressions. \
                  The tool will be blocked until they are fixed or removed.",
-            )
+                cx,
+            ))
             .size(LabelSize::Small)
             .color(Color::Muted),
         )
@@ -835,9 +856,9 @@ fn render_invalid_patterns_section(
                 .gap_1p5()
                 .children(invalid_patterns.iter().map(|invalid| {
                     let rule_type_label = match invalid.rule_type.as_str() {
-                        "always_allow" => "Always Allow",
-                        "always_deny" => "Always Deny",
-                        "always_confirm" => "Always Confirm",
+                        "always_allow" => crate::localized("Always Allow", cx),
+                        "always_deny" => crate::localized("Always Deny", cx),
+                        "always_confirm" => crate::localized("Always Confirm", cx),
                         other => other,
                     };
 
@@ -881,7 +902,10 @@ fn render_invalid_patterns_section(
                                     IconButton::new(delete_id, IconName::Trash)
                                         .icon_size(IconSize::Small)
                                         .icon_color(Color::Muted)
-                                        .tooltip(Tooltip::text("Delete Invalid Pattern"))
+                                        .tooltip(Tooltip::text(crate::localized(
+                                            "Delete Invalid Pattern",
+                                            cx,
+                                        )))
                                         .on_click(cx.listener(move |_, _, _, cx| {
                                             delete_pattern(
                                                 &tool_id_for_delete,
@@ -893,9 +917,11 @@ fn render_invalid_patterns_section(
                                 ),
                         )
                         .child(
-                            Label::new(format!("Error: {}", invalid.error))
-                                .size(LabelSize::XSmall)
-                                .color(Color::Muted),
+                            Label::new(
+                                crate::localized("Error: {}", cx).replace("{}", &invalid.error),
+                            )
+                            .size(LabelSize::XSmall)
+                            .color(Color::Muted),
                         )
                 })),
         )
@@ -956,7 +982,7 @@ fn render_pattern_empty_state(cx: &mut Context<SettingsWindow>) -> AnyElement {
         .border_dashed()
         .border_color(cx.theme().colors().border_variant)
         .child(
-            Label::new("No patterns configured")
+            Label::new(crate::localized("No patterns configured", cx))
                 .size(LabelSize::Small)
                 .color(Color::Disabled),
         )
@@ -987,7 +1013,7 @@ fn render_user_pattern_row(
             IconButton::new(delete_id, IconName::Trash)
                 .icon_size(IconSize::Small)
                 .icon_color(Color::Muted)
-                .tooltip(Tooltip::text("Delete Pattern"))
+                .tooltip(Tooltip::text(crate::localized("Delete Pattern", cx)))
                 .on_click(cx.listener(move |_, _, _, cx| {
                     delete_pattern(&tool_id_for_delete, rule_type, &pattern_for_delete, cx);
                 })),
@@ -1006,14 +1032,21 @@ fn render_user_pattern_row(
 
                     let validation_error = if !updated {
                         Some(
-                            "A pattern with that name already exists in this rule list."
-                                .to_string(),
+                            crate::localized(
+                                "A pattern with that name already exists in this rule list.",
+                                cx,
+                            )
+                            .to_string(),
                         )
                     } else {
                         match regex::Regex::new(&new_pattern) {
-                            Err(err) => Some(format!(
-                                "Invalid regex: {err}. Pattern saved but will block this tool until fixed or removed."
-                            )),
+                            Err(err) => Some(
+                                crate::localized(
+                                    "Invalid regex: {err}. Pattern saved but will block this tool until fixed or removed.",
+                                    cx,
+                                )
+                                .replace("{err}", &err.to_string()),
+                            ),
                             Ok(_) => None,
                         }
                     };
@@ -1039,7 +1072,7 @@ fn render_add_pattern_input(
     let settings_window = cx.entity().downgrade();
 
     SettingsInputField::new(input_id)
-        .with_placeholder("Add regex pattern…")
+        .with_placeholder(crate::localized("Add regex pattern…", cx))
         .tab_index(0)
         .with_buffer_font()
         .display_clear_button()
@@ -1052,9 +1085,13 @@ fn render_add_pattern_input(
                     save_pattern(&tool_id_owned, rule_type, trimmed.clone(), cx);
 
                     let validation_error = match regex::Regex::new(&trimmed) {
-                        Err(err) => Some(format!(
-                            "Invalid regex: {err}. Pattern saved but will block this tool until fixed or removed."
-                        )),
+                        Err(err) => Some(
+                            crate::localized(
+                                "Invalid regex: {err}. Pattern saved but will block this tool until fixed or removed.",
+                                cx,
+                            )
+                            .replace("{err}", &err.to_string()),
+                        ),
                         Ok(_) => None,
                     };
                     settings_window
@@ -1069,8 +1106,8 @@ fn render_add_pattern_input(
         .into_any_element()
 }
 
-fn render_global_default_mode_section(current_mode: ToolPermissionMode) -> AnyElement {
-    let mode_label = current_mode.to_string();
+fn render_global_default_mode_section(current_mode: ToolPermissionMode, cx: &App) -> AnyElement {
+    let mode_label = crate::localized(mode_display_label(current_mode), cx);
 
     h_flex()
         .my_4()
@@ -1080,11 +1117,12 @@ fn render_global_default_mode_section(current_mode: ToolPermissionMode) -> AnyEl
             v_flex()
                 .w_full()
                 .min_w_0()
-                .child(Label::new("Default Permission"))
+                .child(Label::new(crate::localized("Default Permission", cx)))
                 .child(
-                    Label::new(
+                    Label::new(crate::localized(
                         "Controls the default behavior for all tool actions. Per-tool rules and patterns can override this.",
-                    )
+                        cx,
+                    ))
                     .size(LabelSize::Small)
                     .color(Color::Muted),
                 ),
@@ -1099,14 +1137,14 @@ fn render_global_default_mode_section(current_mode: ToolPermissionMode) -> AnyEl
                         .end_icon(Icon::new(IconName::ChevronDown).size(IconSize::Small)),
                 )
                 .menu(move |window, cx| {
-                    Some(ContextMenu::build(window, cx, move |menu, _, _| {
-                        menu.entry("Confirm", None, move |_, cx| {
+                    Some(ContextMenu::build(window, cx, move |menu, _, build_cx| {
+                        menu.entry(crate::localized("Confirm", build_cx), None, move |_, cx| {
                             set_global_default_permission(ToolPermissionMode::Confirm, cx);
                         })
-                        .entry("Allow", None, move |_, cx| {
+                        .entry(crate::localized("Allow", build_cx), None, move |_, cx| {
                             set_global_default_permission(ToolPermissionMode::Allow, cx);
                         })
-                        .entry("Deny", None, move |_, cx| {
+                        .entry(crate::localized("Deny", build_cx), None, move |_, cx| {
                             set_global_default_permission(ToolPermissionMode::Deny, cx);
                         })
                     }))
@@ -1119,12 +1157,12 @@ fn render_global_default_mode_section(current_mode: ToolPermissionMode) -> AnyEl
 fn render_default_mode_section(
     tool_id: &'static str,
     current_mode: ToolPermissionMode,
-    _cx: &mut Context<SettingsWindow>,
+    cx: &mut Context<SettingsWindow>,
 ) -> AnyElement {
     let mode_label = match current_mode {
-        ToolPermissionMode::Allow => "Allow",
-        ToolPermissionMode::Deny => "Deny",
-        ToolPermissionMode::Confirm => "Confirm",
+        ToolPermissionMode::Allow => crate::localized("Allow", cx),
+        ToolPermissionMode::Deny => crate::localized("Deny", cx),
+        ToolPermissionMode::Confirm => crate::localized("Confirm", cx),
     };
 
     let tool_id_owned = tool_id.to_string();
@@ -1136,11 +1174,14 @@ fn render_default_mode_section(
             v_flex()
                 .w_full()
                 .min_w_0()
-                .child(Label::new("Default Action"))
+                .child(Label::new(crate::localized("Default Action", cx)))
                 .child(
-                    Label::new("Action to take when no patterns match.")
-                        .size(LabelSize::Small)
-                        .color(Color::Muted),
+                    Label::new(crate::localized(
+                        "Action to take when no patterns match.",
+                        cx,
+                    ))
+                    .size(LabelSize::Small)
+                    .color(Color::Muted),
                 ),
         )
         .child(
@@ -1154,20 +1195,24 @@ fn render_default_mode_section(
                 )
                 .menu(move |window, cx| {
                     let tool_id = tool_id_owned.clone();
-                    Some(ContextMenu::build(window, cx, move |menu, _, _| {
+                    Some(ContextMenu::build(window, cx, move |menu, _, build_cx| {
                         let tool_id_confirm = tool_id.clone();
                         let tool_id_allow = tool_id.clone();
                         let tool_id_deny = tool_id;
 
-                        menu.entry("Confirm", None, move |_, cx| {
+                        menu.entry(crate::localized("Confirm", build_cx), None, move |_, cx| {
                             set_default_mode(&tool_id_confirm, ToolPermissionMode::Confirm, cx);
                         })
-                        .entry("Allow", None, move |_, cx| {
+                        .entry(crate::localized("Allow", build_cx), None, move |_, cx| {
                             set_default_mode(&tool_id_allow, ToolPermissionMode::Allow, cx);
                         })
-                        .entry("Deny", None, move |_, cx| {
-                            set_default_mode(&tool_id_deny, ToolPermissionMode::Deny, cx);
-                        })
+                        .entry(
+                            crate::localized("Deny", build_cx),
+                            None,
+                            move |_, cx| {
+                                set_default_mode(&tool_id_deny, ToolPermissionMode::Deny, cx);
+                            },
+                        )
                     }))
                 })
                 .anchor(gpui::Anchor::TopRight),

@@ -1,0 +1,79 @@
+<h2>Git Manager — 面板信息架构</h2>
+<p class="subtitle">第一版线框：工具栏 + 分区 Tab + 列表。点击下方方案可选中偏好。</p>
+
+<div class="mockup" style="margin-bottom: 1.5rem;">
+  <div class="mockup-header">Preview: Git 管理面板（默认落在 Branches）</div>
+  <div class="mockup-body" style="font-family: ui-sans-serif, system-ui; font-size: 13px; color: #e8e8e8; background:#1e1e1e; border-radius:8px; overflow:hidden;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:#2a2a2a;border-bottom:1px solid #3a3a3a;">
+      <div style="font-weight:600;">Git 管理</div>
+      <div style="opacity:.7;font-size:12px;">repo: zed ▾</div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 10px;border-bottom:1px solid #3a3a3a;background:#252525;">
+      <span style="padding:4px 8px;border:1px solid #555;border-radius:4px;">Checkout</span>
+      <span style="padding:4px 8px;border:1px solid #555;border-radius:4px;">New Branch</span>
+      <span style="padding:4px 8px;border:1px solid #555;border-radius:4px;background:#3d4f3d;">Update Project</span>
+      <span style="padding:4px 8px;border:1px solid #555;border-radius:4px;">Pull</span>
+      <span style="padding:4px 8px;border:1px solid #555;border-radius:4px;">Push</span>
+      <span style="padding:4px 8px;border:1px solid #555;border-radius:4px;">Fetch</span>
+      <span style="padding:4px 8px;border:1px solid #555;border-radius:4px;">Merge</span>
+      <span style="padding:4px 8px;border:1px solid #555;border-radius:4px;">Rebase</span>
+      <span style="padding:4px 8px;border:1px solid #555;border-radius:4px;">New Tag</span>
+      <span style="padding:4px 8px;border:1px solid #555;border-radius:4px;">Shelf</span>
+      <span style="padding:4px 8px;border:1px solid #555;border-radius:4px;">Remotes</span>
+      <span style="padding:4px 8px;border:1px solid #555;border-radius:4px;">⋯</span>
+    </div>
+    <div style="display:flex;gap:0;border-bottom:1px solid #3a3a3a;background:#222;">
+      <div style="padding:8px 12px;border-bottom:2px solid #6aa9ff;">Branches</div>
+      <div style="padding:8px 12px;opacity:.6;">Remotes</div>
+      <div style="padding:8px 12px;opacity:.6;">Tags</div>
+      <div style="padding:8px 12px;opacity:.6;">Shelves</div>
+    </div>
+    <div style="padding:8px 10px;">
+      <input class="mock-input" placeholder="筛选分支…" style="width:100%;margin-bottom:8px;box-sizing:border-box;">
+      <div style="padding:6px 8px;background:#2b3340;border-radius:4px;margin-bottom:4px;">★ main <span style="opacity:.55;">← origin/main · ahead 0 · behind 2</span></div>
+      <div style="padding:6px 8px;border-radius:4px;margin-bottom:4px;">feature/git-manager <span style="opacity:.55;">↑ 3</span></div>
+      <div style="padding:6px 8px;border-radius:4px;margin-bottom:4px;opacity:.75;">origin/develop <span style="opacity:.55;">remote</span></div>
+      <div style="padding:6px 8px;border-radius:4px;opacity:.75;">origin/release/1.15 <span style="opacity:.55;">remote</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>分区默认与次要入口</h3>
+  <div class="options">
+    <div class="option" data-choice="tabs-default-branches" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content">
+        <h3>Tab 分区（上图）</h3>
+        <p>Branches / Remotes / Tags / Shelves 四个 Tab。工具栏「Remotes / Shelf / New Tag」会跳到对应 Tab 或打开创建流。</p>
+      </div>
+    </div>
+    <div class="option" data-choice="sidebar-sections" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content">
+        <h3>左侧 section 列表</h3>
+        <p>更像设置页导航：左边 section，右边内容。占宽更多，适合大面板。</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>工具栏拥挤时</h3>
+  <div class="options">
+    <div class="option" data-choice="overflow-menu" onclick="toggleSelect(this)">
+      <div class="letter">1</div>
+      <div class="content">
+        <h3>主按钮 + ⋯ 溢出</h3>
+        <p>常用：Checkout / New Branch / Update Project / Pull / Push；其余进 ⋯（Fetch、Merge、Rebase、Tag、Shelf、Remotes、打开变更面板…）</p>
+      </div>
+    </div>
+    <div class="option" data-choice="two-rows" onclick="toggleSelect(this)">
+      <div class="letter">2</div>
+      <div class="content">
+        <h3>双行工具栏</h3>
+        <p>第一行同步类，第二行分支/合并/标签。信息全可见，垂直空间更贵。</p>
+      </div>
+    </div>
+  </div>
+</div>

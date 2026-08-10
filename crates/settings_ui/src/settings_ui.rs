@@ -211,6 +211,7 @@ fn localized(text: &'static str, cx: &App) -> &'static str {
             "UI Font" => "界面字体",
             "Which-key Menu" => "Which-key 菜单",
             "Whitespace" => "空白字符",
+            "Window" => "窗口",
             "Workspace Restoration" => "工作区恢复",
             "Wrapping" => "换行",
             "Display Language" => "显示语言",
@@ -1566,6 +1567,355 @@ fn localized(text: &'static str, cx: &App) -> &'static str {
             "Which side of the window the threads sidebar appears on." => {
                 "线程侧边栏显示在窗口的哪一侧。"
             }
+            "(optional)" => "（可选）",
+            "1 rule" => "1 条规则",
+            "1 tool" => "1 个工具",
+            "`rm -rf` commands are always blocked when run on `$HOME`, `~`, `.`, `..`, or `/`" => {
+                "在 `$HOME`、`~`、`.`、`..` 或 `/` 上运行时，`rm -rf` 命令将始终被阻止"
+            }
+            "A client secret is required to connect this server" => "连接此服务器需要客户端密钥",
+            "A pattern with that name already exists in this rule list." => {
+                "该规则列表中已存在同名模式。"
+            }
+            "A server named \"{}\" already exists." => "已存在名为 \"{}\" 的服务器。",
+            "A unique name used to identify this provider." => "用于标识此提供商的唯一名称。",
+            "ACP Docs" => "ACP 文档",
+            "Action to take when no patterns match." => "没有模式匹配时要执行的操作。",
+            "Active Provider" => "当前提供商",
+            "Add" => "添加",
+            "Add Agent" => "添加智能代理",
+            "Add an absolute path (e.g. /path/to/directory)…" => {
+                "添加绝对路径(例如 /path/to/directory)…"
+            }
+            "Add Custom Agent" => "添加自定义智能代理",
+            "Add domain (e.g. github.com or *.npmjs.org)…" => {
+                "添加域名(例如 github.com 或 *.npmjs.org)…"
+            }
+            "Add Local MCP Server" => "添加本地 MCP 服务器",
+            "Add Local Server" => "添加本地服务器",
+            "Add Model" => "添加模型",
+            "Add Provider" => "添加提供商",
+            "Add regex pattern…" => "添加正则表达式模式…",
+            "Add Remote MCP Server" => "添加远程 MCP 服务器",
+            "Add Remote Server" => "添加远程服务器",
+            "Add Server" => "添加服务器",
+            "Add skill content…" => "添加技能内容…",
+            "Add {}-Compatible Provider" => "添加 {} 兼容提供商",
+            "Agents connected through the Agent Client Protocol." => {
+                "通过 Agent Client Protocol 连接的智能代理。"
+            }
+            "Allow" => "允许",
+            "Allow All Domains" => "允许所有域名",
+            "Allow All File System Writes" => "允许所有文件系统写入",
+            "Allowed Domains" => "允许的域名",
+            "Always Allow" => "始终允许",
+            "Always Confirm" => "始终确认",
+            "Always Deny" => "始终拒绝",
+            "An agent named \"{}\" already exists." => "已存在名为 \"{}\" 的智能代理。",
+            "API Key" => "API 密钥",
+            "API Key cannot be empty" => "API 密钥不能为空",
+            "API Key Configured" => "已配置 API 密钥",
+            "API Key Set in Environment Variable" => "已在环境变量中设置 API 密钥",
+            "API URL" => "API URL",
+            "API URL cannot be empty" => "API URL 不能为空",
+            "Audio Test" => "音频测试",
+            "Authenticate" => "身份验证",
+            "Authenticate to connect this server" => "通过身份验证以连接此服务器",
+            "Authenticating…" => "正在验证…",
+            "Body is required." => "正文为必填项。",
+            "Cancel" => "取消",
+            "Command" => "命令",
+            "Commands executed in the terminal" => "在终端中执行的命令",
+            "Compatible APIs" => "兼容 API",
+            "Configure Agent" => "配置智能代理",
+            "Configure External Agent" => "配置外部智能代理",
+            "Configure MCP Server" => "配置 MCP 服务器",
+            "Configure Provider" => "配置提供商",
+            "Configured Servers" => "已配置的服务器",
+            "Confirm" => "确认",
+            "Controls the default behavior for all tool actions. Per-tool rules and patterns can override this." => {
+                "控制所有工具操作的默认行为。各个工具的规则和模式可以覆盖此设置。"
+            }
+            "Copy Path" => "复制路径",
+            "Copy Share Link" => "复制分享链接",
+            "Couldn't read shared skill: {err}" => "无法读取共享的技能：{err}",
+            "Create a Skill" => "创建技能",
+            "Create Directory" => "创建目录",
+            "Default Action" => "默认操作",
+            "Default Permission" => "默认权限",
+            "Default reasoning effort" => "默认推理强度",
+            "Default timeout in seconds for MCP server tool calls." => {
+                "MCP 服务器工具调用的默认超时时间（秒）。"
+            }
+            "Delete" => "删除",
+            "Delete Invalid Pattern" => "删除无效模式",
+            "Delete Path" => "删除路径",
+            "Delete Pattern" => "删除模式",
+            "Delete Skill" => "删除技能",
+            "Delete the {scope} skill \"{name}\"?" => "删除{scope}技能 \"{name}\"？",
+            "Denied: {}" => "已拒绝：{}",
+            "Deny" => "拒绝",
+            "Description" => "描述",
+            "Directory creation" => "目录创建",
+            "Disable model invocation" => "禁用模型调用",
+            "Dismiss" => "忽略",
+            "Domain cannot be empty." => "域名不能为空。",
+            "e.g., Fill the PR description following this template." => {
+                "例如：按照此模板填写 PR 描述。"
+            }
+            "Each entry is an exact domain (github.com) or a leading-*. subdomain wildcard (*.npmjs.org). IP addresses and local domains are not allowed." => {
+                "每项可以是精确域名(github.com)或以 *. 开头的子域名通配符(*.npmjs.org)。不允许 IP 地址和本地域名。"
+            }
+            "Each entry must be an absolute path and grants write access to the whole subtree, except protected Git metadata." => {
+                "每项必须是绝对路径,并授予对整个子树的写权限,但受保护的 Git 元数据除外。"
+            }
+            "Edit File" => "编辑文件",
+            "Enable Sandbox" => "启用沙箱",
+            "enabled for all" => "已为所有人启用",
+            "Enter a tool input to test your rules…" => "输入一个工具输入以测试您的规则…",
+            "Environment variables provided to the server process." => {
+                "提供给服务器进程的环境变量。"
+            }
+            "Error: {}" => "错误：{}",
+            "Escalation Prompts" => "提权提示",
+            "Fetch" => "网络请求",
+            "Fetching and parsing…" => "正在获取并解析…",
+            "File and directory copying" => "文件和目录复制",
+            "File and directory deletion" => "文件和目录删除",
+            "File and directory moves/renames" => "文件和目录移动/重命名",
+            "File creation and overwrite operations" => "文件创建和覆盖操作",
+            "File editing operations" => "文件编辑操作",
+            "File System" => "文件系统",
+            "Front-matter" => "Front-matter",
+            "Headers" => "请求头",
+            "Hide this skill from the model's catalog. It can still be invoked via slash command." => {
+                "在模型目录中隐藏此技能。仍可通过斜杠命令调用。"
+            }
+            "How long to wait for the server to respond before timing out." => {
+                "等待服务器响应的超时时长。"
+            }
+            "HTTP headers sent with each request to the server." => {
+                "随每个请求发送到服务器的 HTTP 请求头。"
+            }
+            "HTTP requests to URLs" => "对 URL 的 HTTP 请求",
+            "If any of these regexes match, a confirmation will be shown unless an Always Deny regex matches." => {
+                "如果其中任何一个正则表达式匹配，将显示确认提示，除非有“始终拒绝”正则表达式匹配。"
+            }
+            "If any of these regexes match, the action will be approved—unless an Always Confirm or Always Deny matches." => {
+                "如果其中任何一个正则表达式匹配，该操作将被批准——除非有“始终确认”或“始终拒绝”匹配。"
+            }
+            "If any of these regexes match, the tool action will be denied." => {
+                "如果其中任何一个正则表达式匹配，该工具操作将被拒绝。"
+            }
+            "Import from URL" => "从 URL 导入",
+            "Input Device" => "输入设备",
+            "Install from Extensions" => "从扩展安装",
+            "Install from Registry" => "从注册表安装",
+            "Invalid Patterns" => "无效模式",
+            "Invalid regex: {err}. Pattern saved but will block this tool until fixed or removed." => {
+                "无效的正则表达式：{err}。模式已保存，但在修复或移除之前将阻止此工具。"
+            }
+            "IP addresses and local domains aren't allowed; enter a domain like github.com." => {
+                "不允许 IP 地址和本地域名;请输入如 github.com 的域名。"
+            }
+            "Key" => "键",
+            "Learn More" => "了解更多",
+            "Learn more about sandboxing" => "了解有关沙箱的更多信息",
+            "Let sandboxed commands reach any domain over the network without prompting." => {
+                "允许沙箱中的命令访问网络上的任何域名而不提示。"
+            }
+            "Let sandboxed commands write anywhere except protected Git metadata without prompting." => {
+                "允许沙箱中的命令写入除受保护的 Git 元数据以外的任何位置而不提示。"
+            }
+            "Loading agent skill instructions" => "加载智能体技能说明",
+            "Log Out" => "退出登录",
+            "Manage servers connected directly or via extensions." => {
+                "管理直接连接或通过扩展连接的服务器。"
+            }
+            "Max Completion Tokens" => "最大补全 Token 数",
+            "Max Output Tokens" => "最大输出 Token 数",
+            "Max Tokens" => "最大 Token 数",
+            "Maximum completion tokens for OpenAI-compatible requests." => {
+                "OpenAI 兼容请求的最大补全 Token 数。"
+            }
+            "MCP Server Timeout" => "MCP 服务器超时",
+            "Model Name" => "模型名称",
+            "Model Name cannot be empty" => "模型名称不能为空",
+            "Model Names must be unique" => "模型名称必须唯一",
+            "Models" => "模型",
+            "Move Path" => "移动路径",
+            "Name" => "名称",
+            "No active project found. Open a workspace to manage external agents." => {
+                "未找到活动项目。请打开一个工作区以管理外部智能代理。"
+            }
+            "No active project found. Open a workspace to manage MCP servers." => {
+                "未找到活动项目。打开工作区以管理 MCP 服务器。"
+            }
+            "No external agents added yet. Click \"Add Agent\" to get started." => {
+                "尚未添加外部智能代理。点击\"添加智能代理\"开始使用。"
+            }
+            "No global skills installed." => "未安装全局技能。",
+            "No MCP servers added yet. Click \"Add Server\" to get started." => {
+                "尚未添加 MCP 服务器。点击\"添加服务器\"开始。"
+            }
+            "No patterns configured" => "未配置任何模式",
+            "No project skills found." => "未找到项目技能。",
+            "No provider set" => "未设置提供商",
+            "No regex matches, using the default action." => "没有正则表达式匹配，使用默认操作。",
+            "No skills available for this context." => "此上下文中没有可用的技能。",
+            "Not a valid domain. Use a domain like github.com or *.npmjs.org." => {
+                "不是有效的域名。请使用如 github.com 或 *.npmjs.org 的域名。"
+            }
+            "Note: custom tool permissions only apply to the Zed native agent and don’t extend to external agents connected through the Agent Client Protocol (ACP)." => {
+                "注意：自定义工具权限仅适用于 Zed 原生智能体，不扩展到通过 Agent Client Protocol (ACP) 连接的外部智能体。"
+            }
+            "Nothing configured" => "未配置任何内容",
+            "OAuth Client ID" => "OAuth 客户端 ID",
+            "Open" => "打开",
+            "Opens {}" => "打开 {}",
+            "Optional OAuth client ID" => "可选的 OAuth 客户端 ID",
+            "Optional OAuth client ID used to authenticate with the server." => {
+                "用于向服务器进行身份验证的可选 OAuth 客户端 ID。"
+            }
+            "Or set the {env_var_name} env var and restart Zed for it to take effect." => {
+                "或者设置 {env_var_name} 环境变量并重启 Zed 以使其生效。"
+            }
+            "Or set the {} env var and restart Zed." => "或者设置 {} 环境变量并重启 Zed。",
+            "Output Device" => "输出设备",
+            "Paste a GitHub .md URL to fetch it and fill out the form. For private files, Zed retries using GITHUB_TOKEN, if set." => {
+                "粘贴 GitHub .md URL 以获取并自动填写表单。对于私有文件，若已设置 GITHUB_TOKEN，Zed 将使用它重试。"
+            }
+            "Pattern preview differs from engine — showing authoritative result." => {
+                "模式预览与引擎结果不一致——显示权威结果。"
+            }
+            "Patterns are matched against each command in the input. Commands chained with &&, ||, ;, or pipes are split and checked individually." => {
+                "模式与输入中的每条命令进行匹配。使用 &&、||、; 或管道链接的命令会被拆分并单独检查。"
+            }
+            "Patterns are matched against the absolute path to the skill's SKILL.md file." => {
+                "模式与该技能的 SKILL.md 文件的绝对路径进行匹配。"
+            }
+            "Patterns are matched against the directory path being created." => {
+                "模式与正在创建的目录路径进行匹配。"
+            }
+            "Patterns are matched against the file path being edited." => {
+                "模式与正在编辑的文件路径进行匹配。"
+            }
+            "Patterns are matched against the file path being written." => {
+                "模式与正在写入的文件路径进行匹配。"
+            }
+            "Patterns are matched against the path being deleted." => {
+                "模式与正在删除的路径进行匹配。"
+            }
+            "Patterns are matched against the search query." => "模式与搜索查询进行匹配。",
+            "Patterns are matched against the URL being fetched." => {
+                "模式与正在请求的 URL 进行匹配。"
+            }
+            "Patterns are matched independently against the source path and the destination path. Enter either path below to test." => {
+                "模式分别独立地与源路径和目标路径进行匹配。在下方输入任意路径即可测试。"
+            }
+            "Preserves thinking in chat history" => "在聊天历史中保留思考过程",
+            "Provider" => "提供商",
+            "Provider Name" => "提供商名称",
+            "Provider Name cannot be empty" => "提供商名称不能为空",
+            "Provider Name is already taken by another provider" => {
+                "该提供商名称已被其他提供商占用"
+            }
+            "Reason: {}" => "原因：{}",
+            "Remove" => "移除",
+            "Remove Custom Agent" => "移除自定义智能代理",
+            "Remove Domain" => "移除域名",
+            "Remove Model" => "移除模型",
+            "Remove Path" => "移除路径",
+            "Remove Registry Agent" => "移除注册表智能代理",
+            "Required. A unique name used to identify this MCP server." => {
+                "必填。用于标识此 MCP 服务器的唯一名称。"
+            }
+            "Required. Path to the executable that launches the server." => {
+                "必填。启动服务器的可执行文件路径。"
+            }
+            "Required. The base URL of the remote MCP server." => {
+                "必填。远程 MCP 服务器的基础 URL。"
+            }
+            "Reset" => "重置",
+            "Reset Key" => "重置密钥",
+            "Result:" => "结果：",
+            "Save" => "保存",
+            "Save Provider" => "保存提供商",
+            "Save Skill" => "保存技能",
+            "Saving…" => "正在保存…",
+            "Select which provider to use for edit predictions." => "选择用于编辑预测的提供商。",
+            "Server Name" => "服务器名称",
+            "Skill" => "技能",
+            "Skill Content" => "技能内容",
+            "Space-separated arguments passed to the command." => "传递给命令的空格分隔参数。",
+            "Start Testing" => "开始测试",
+            "Stop Testing" => "停止测试",
+            "Stored in the system keychain, not in settings.json." => {
+                "存储在系统钥匙串中，而非 settings.json。"
+            }
+            "Supports /chat/completions" => "支持 /chat/completions",
+            "Supports images" => "支持图像",
+            "Supports parallel_tool_calls" => "支持 parallel_tool_calls",
+            "Supports prompt_cache_key" => "支持 prompt_cache_key",
+            "Supports thinking" => "支持思考",
+            "Supports tools" => "支持工具",
+            "System Default" => "系统默认",
+            "Test Your Rules" => "测试您的规则",
+            "The base URL for the compatible API." => "兼容 API 的基础 URL。",
+            "The maximum number of tokens the model can output." => "模型可输出的最大 Token 数。",
+            "The model context window size." => "模型的上下文窗口大小。",
+            "The model's name in the provider's API." => "模型在提供商 API 中的名称。",
+            "These patterns failed to compile as regular expressions. The tool will be blocked until they are fixed or removed." => {
+                "这些模式无法编译为正则表达式。在修复或移除之前，该工具将被阻止。"
+            }
+            "This provider will use an Anthropic Messages-compatible API." => {
+                "此提供商将使用 Anthropic Messages 兼容 API。"
+            }
+            "This provider will use an OpenAI-compatible API." => {
+                "此提供商将使用 OpenAI 兼容 API。"
+            }
+            "This will move {path} to the trash. This skill is shared with other agent tools {scope}, so it will no longer be available to them either." => {
+                "这会将 {path} 移至回收站。此技能与{scope}的其他代理工具共享，因此这些工具也将无法再使用它。"
+            }
+            "Timeout (seconds)" => "超时（秒）",
+            "To find an API key, visit the" => "要查找 API 密钥，请访问",
+            "to generate an API key." => "以生成 API 密钥。",
+            "To reset your API key, unset the {env_var_name} environment variable." => {
+                "要重置 API 密钥，请取消设置 {env_var_name} 环境变量。"
+            }
+            "To reset your API key, unset the {} environment variable." => {
+                "要重置 API 密钥，请取消设置 {} 环境变量。"
+            }
+            "Uninstall MCP Server" => "卸载 MCP 服务器",
+            "URL" => "URL",
+            "Uses max_tokens for output limit" => "使用 max_tokens 作为输出上限",
+            "Value" => "值",
+            "Visit the" => "访问",
+            "Warn About Confusable Unicode" => "对易混淆 Unicode 发出警告",
+            "Warn About Windows-Drive Grants" => "对 Windows 驱动器授权发出警告",
+            "Warn when an approval prompt requests a domain or write path that contains potentially confusable Unicode characters, such as homoglyphs (i.e. two symbols that look similar, such as a Cyrillic `а`)" => {
+                "当批准提示请求的域名或写入路径包含可能易混淆的 Unicode 字符(如同形字符,即两个外观相似的符号,例如西里尔字母 `а`)时发出警告"
+            }
+            "Web Search" => "网络搜索",
+            "Web search queries" => "网络搜索查询",
+            "Wildcards are only allowed as a leading label, e.g. *.github.com." => {
+                "通配符只允许作为开头标签,例如 *.github.com。"
+            }
+            "Windows only: warn when a sandbox grant targets a file on a Windows drive (accessed inside WSL via DrvFs). Such grants are enforced through a translated path and their sandbox-integrity guarantees are weaker than files on the Linux distro's own filesystem." => {
+                "仅限 Windows:当沙箱授权指向 Windows 驱动器上的文件(在 WSL 内通过 DrvFs 访问)时发出警告。此类授权通过转换后的路径强制执行,其沙箱完整性保障弱于 Linux 发行版自身文件系统上的文件。"
+            }
+            "Wrap agent-run terminal commands in an OS-level sandbox. When off, commands run with Zed's own permissions." => {
+                "将代理运行的终端命令包装在操作系统级沙箱中。关闭时,命令将以 Zed 自身的权限运行。"
+            }
+            "Writable Paths" => "可写路径",
+            "Write File" => "写入文件",
+            "{name} must be a number" => "{name} 必须是数字",
+            "{provider_name} API Key" => "{provider_name} API 密钥",
+            "{provider_name} dashboard" => "{provider_name} 控制台",
+            "{provider_name} dashboard." => "{provider_name} 控制台。",
+            "{} invalid" => "{} 条无效",
+            "{} rules" => "{} 条规则",
+            "{} tools" => "{} 个工具",
             _ => text,
         },
     }
@@ -1589,6 +1939,24 @@ fn localized_shared(text: &SharedString, cx: &App) -> SharedString {
         "Tool Permissions" => "工具权限",
         "Test Audio" => "测试音频",
         "Create Skill" => "创建技能",
+        "Configure natively-included model providers." => "配置内置的模型提供商。",
+        "Customize keybindings in the keymap editor." => "在键位映射编辑器中自定义键位绑定。",
+        "Set up different edit prediction providers in complement to Zed's built-in Zeta model." => {
+            "设置不同的编辑预测提供商，作为 Zed 内置 Zeta 模型的补充。"
+        }
+        "Set up regex patterns to auto-allow, auto-deny, or always request confirmation, for specific tool inputs." => {
+            "设置正则表达式模式，针对特定工具输入自动允许、自动拒绝或始终请求确认。"
+        }
+        "Test your microphone and speaker setup" => "测试你的麦克风和扬声器设置",
+        "View and manage agent skills installed globally or in project worktrees." => {
+            "查看和管理全局或项目工作树中安装的智能代理技能。"
+        }
+        "View, add, configure, and remove Model Context Protocol servers." => {
+            "查看、添加、配置和移除 Model Context Protocol 服务器。"
+        }
+        "Review and change the elevated terminal sandbox permissions that are always allowed without prompting." => {
+            "查看并更改无需提示即始终允许的提升终端沙箱权限。"
+        }
         _ => text.as_ref(),
     }
     .into()

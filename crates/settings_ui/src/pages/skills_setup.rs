@@ -58,9 +58,9 @@ pub(crate) fn render_skills_setup_page(
         .map(|this| {
             if skills.is_empty() {
                 let message = match &settings_window.current_file {
-                    SettingsUiFile::User => "No global skills installed.",
-                    SettingsUiFile::Project(_) => "No project skills found.",
-                    _ => "No skills available for this context.",
+                    SettingsUiFile::User => crate::localized("No global skills installed.", cx),
+                    SettingsUiFile::Project(_) => crate::localized("No project skills found.", cx),
+                    _ => crate::localized("No skills available for this context.", cx),
                 };
 
                 this.px_8().items_center().justify_center().child(
@@ -69,21 +69,26 @@ pub(crate) fn render_skills_setup_page(
                         .gap_2()
                         .child(Label::new(message).color(Color::Muted))
                         .child(
-                            Button::new("open-skill-creator-empty", "Create a Skill")
-                                .tab_index(0_isize)
-                                .style(ButtonStyle::Outlined)
-                                .start_icon(
-                                    Icon::new(IconName::Plus)
-                                        .size(IconSize::Small)
-                                        .color(Color::Muted),
-                                )
-                                .on_click(cx.listener(move |this, _event, window, cx| {
+                            Button::new(
+                                "open-skill-creator-empty",
+                                crate::localized("Create a Skill", cx),
+                            )
+                            .tab_index(0_isize)
+                            .style(ButtonStyle::Outlined)
+                            .start_icon(
+                                Icon::new(IconName::Plus)
+                                    .size(IconSize::Small)
+                                    .color(Color::Muted),
+                            )
+                            .on_click(cx.listener(
+                                move |this, _event, window, cx| {
                                     this.open_skill_creator_sub_page(
                                         SkillCreatorOpenMode::Form,
                                         window,
                                         cx,
                                     );
-                                })),
+                                },
+                            )),
                         ),
                 )
             } else {
@@ -149,7 +154,7 @@ fn render_skill_row(
             .shape(ui::IconButtonShape::Square)
             .icon_size(IconSize::Small)
             .icon_color(share_icon_color)
-            .tooltip(Tooltip::text("Copy Share Link"))
+            .tooltip(Tooltip::text(crate::localized("Copy Share Link", cx)))
             .visible_on_hover(&group)
             .on_click(cx.listener(move |_settings_window, _event, _window, cx| {
                 let skill_file_path = share_skill_file_path.clone();
@@ -219,7 +224,7 @@ fn render_skill_row(
                     )
                     .tab_index(0_isize)
                     .icon_size(IconSize::Small)
-                    .tooltip(Tooltip::text("Delete Skill"))
+                    .tooltip(Tooltip::text(crate::localized("Delete Skill", cx)))
                     .on_click(cx.listener(
                         move |settings_window, _event, window, cx| {
                             let directory_path = directory_path.clone();
@@ -231,18 +236,25 @@ fn render_skill_row(
                             }
 
                             let prompt_message =
-                                format!("Delete the {skill_scope} skill \"{skill_name}\"?");
-                            let prompt_detail = format!(
-                                "This will move {} to the trash. This skill is shared with other \
-                                 agent tools {shared_scope}, so it will no longer be available to \
+                                crate::localized("Delete the {scope} skill \"{name}\"?", cx)
+                                    .replace("{scope}", skill_scope)
+                                    .replace("{name}", &skill_name);
+                            let prompt_detail = crate::localized(
+                                "This will move {path} to the trash. This skill is shared with \
+                                 other agent tools {scope}, so it will no longer be available to \
                                  them either.",
-                                directory_path.compact().display(),
-                            );
+                                cx,
+                            )
+                            .replace("{path}", &directory_path.compact().display().to_string())
+                            .replace("{scope}", shared_scope);
                             let answer = window.prompt(
                                 PromptLevel::Info,
                                 &prompt_message,
                                 Some(&prompt_detail),
-                                &["Delete", "Cancel"],
+                                &[
+                                    crate::localized("Delete", cx),
+                                    crate::localized("Cancel", cx),
+                                ],
                                 cx,
                             );
 
@@ -297,16 +309,20 @@ fn render_skill_row(
                     )),
                 )
                 .child(
-                    Button::new(SharedString::from(format!("open-{}", skill.name)), "Open")
-                        .tab_index(0_isize)
-                        .style(ButtonStyle::OutlinedGhost)
-                        .size(ButtonSize::Medium)
-                        .end_icon(
-                            Icon::new(IconName::ArrowUpRight)
-                                .size(IconSize::Small)
-                                .color(Color::Muted),
-                        )
-                        .on_click(cx.listener(move |settings_window, _event, window, cx| {
+                    Button::new(
+                        SharedString::from(format!("open-{}", skill.name)),
+                        crate::localized("Open", cx),
+                    )
+                    .tab_index(0_isize)
+                    .style(ButtonStyle::OutlinedGhost)
+                    .size(ButtonSize::Medium)
+                    .end_icon(
+                        Icon::new(IconName::ArrowUpRight)
+                            .size(IconSize::Small)
+                            .color(Color::Muted),
+                    )
+                    .on_click(cx.listener(
+                        move |settings_window, _event, window, cx| {
                             let skill_file_path = skill_file_path.clone();
                             let Some(original_window) = settings_window.original_window else {
                                 return;
@@ -327,7 +343,8 @@ fn render_skill_row(
                                 })
                                 .log_err();
                             window.remove_window();
-                        })),
+                        },
+                    )),
                 ),
         )
         .into_any_element()
