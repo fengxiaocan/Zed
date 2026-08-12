@@ -55,6 +55,8 @@ mod git_runtime_diagnostics;
 pub mod multi_diff_view;
 pub mod picker_prompt;
 pub mod project_diff;
+pub mod quick_commands_panel;
+mod quick_commands_settings;
 pub(crate) mod remote_output;
 pub mod repository_selector;
 pub mod solo_diff_view;
@@ -101,6 +103,7 @@ pub fn init(cx: &mut App) {
         CommitModal::register(workspace);
         git_panel::register(workspace);
         git_manager::register(workspace);
+        quick_commands_panel::register(workspace);
         repository_selector::register(workspace);
         git_picker::register(workspace);
 

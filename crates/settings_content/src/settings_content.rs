@@ -300,6 +300,13 @@ impl UiLanguage {
                 "Agent Panel" => "智能代理面板",
                 "Git Panel" => "Git 面板",
                 "Git Manager" => "Git 管理",
+                "Quick Commands" => "快捷命令",
+                "Add Quick Command" => "添加快捷命令",
+                "Edit Quick Command" => "编辑快捷命令",
+                "No quick commands yet. Add one to get started." => "还没有快捷命令。添加一个开始使用吧。",
+                "Name…" => "名称…",
+                "Command (e.g. ./gradlew.bat installDebug)…" => "命令（例如 ./gradlew.bat installDebug）…",
+                "Working directory (optional)…" => "工作目录（可选）…",
                 "Branches coming soon" => "分支列表即将推出",
                 "Remotes coming soon" => "远程列表即将推出",
                 "Tags coming soon" => "标签列表即将推出",
@@ -665,6 +672,8 @@ pub struct SettingsContent {
     pub git_panel: Option<GitPanelSettingsContent>,
 
     pub git_manager: Option<GitManagerSettingsContent>,
+
+    pub quick_commands: Option<QuickCommandsSettingsContent>,
 
     pub tabs: Option<ItemSettingsContent>,
     pub tab_bar: Option<TabBarSettingsContent>,
@@ -1283,6 +1292,41 @@ pub struct GitManagerSettingsContent {
     ///
     /// Default: ask
     pub update_project_dirty_worktree: Option<UpdateProjectDirtyWorktree>,
+}
+
+#[with_fallible_options]
+#[derive(Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, MergeFrom, Debug)]
+pub struct QuickCommandsSettingsContent {
+    /// Whether to show the Quick Commands button in the status bar.
+    ///
+    /// Default: true
+    pub button: Option<bool>,
+    /// Default width of the panel in pixels.
+    ///
+    /// Default: 360
+    #[serde(serialize_with = "crate::serialize_optional_f32_with_two_decimal_places")]
+    pub default_width: Option<f32>,
+    /// Whether the panel starts open.
+    ///
+    /// Default: false
+    pub starts_open: Option<bool>,
+    /// The list of configured quick commands.
+    ///
+    /// Default: []
+    #[serde(default)]
+    pub commands: Vec<QuickCommandEntryContent>,
+}
+
+/// A single configured quick command — a named shell command that can be
+/// launched in a terminal from the Quick Commands panel.
+#[derive(Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, MergeFrom, Debug)]
+pub struct QuickCommandEntryContent {
+    /// Human-readable name shown in the list.
+    pub name: String,
+    /// The shell command line to execute (e.g. `./gradlew.bat installDebug`).
+    pub command: String,
+    /// Optional working directory override. When omitted, the project root is used.
+    pub cwd: Option<String>,
 }
 
 #[derive(

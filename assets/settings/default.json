@@ -1075,6 +1075,16 @@
     // Default: ask
     "update_project_dirty_worktree": "ask"
   },
+  "quick_commands": {
+    // Whether to show the Quick Commands button in the status bar.
+    "button": true,
+    // Default width of the Quick Commands panel.
+    "default_width": 360,
+    // Whether the Quick Commands panel should open on startup.
+    "starts_open": false,
+    // The list of configured quick commands.
+    "commands": []
+  },
   "agent": {
     // Whether the inline assistant should use streaming tools, when available
     "inline_assistant_use_streaming_tools": true,

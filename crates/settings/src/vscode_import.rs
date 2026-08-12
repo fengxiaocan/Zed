@@ -188,6 +188,7 @@ impl VsCodeSettings {
             git: self.git_settings_content(),
             git_panel: self.git_panel_settings_content(),
             git_manager: None,
+            quick_commands: None,
             global_lsp_settings: skip_default(GlobalLspSettingsContent {
                 semantic_token_rules: self.semantic_token_rules(),
                 ..GlobalLspSettingsContent::default()
