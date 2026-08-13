@@ -303,10 +303,18 @@ impl UiLanguage {
                 "Quick Commands" => "快捷命令",
                 "Add Quick Command" => "添加快捷命令",
                 "Edit Quick Command" => "编辑快捷命令",
-                "No quick commands yet. Add one to get started." => "还没有快捷命令。添加一个开始使用吧。",
+                "No quick commands yet. Add one to get started." => {
+                    "还没有快捷命令。添加一个开始使用吧。"
+                }
+                "Command" => "命令",
+                "Working Directory" => "工作目录",
                 "Name…" => "名称…",
-                "Command (e.g. ./gradlew.bat installDebug)…" => "命令（例如 ./gradlew.bat installDebug）…",
+                "Command (e.g. ./gradlew.bat installDebug)…" => {
+                    "命令（例如 ./gradlew.bat installDebug）…"
+                }
                 "Working directory (optional)…" => "工作目录（可选）…",
+                "Browse for Folder…" => "浏览文件夹…",
+                "Select Working Directory" => "选择工作目录",
                 "Branches coming soon" => "分支列表即将推出",
                 "Remotes coming soon" => "远程列表即将推出",
                 "Tags coming soon" => "标签列表即将推出",
@@ -321,7 +329,9 @@ impl UiLanguage {
                 "Coming soon" => "即将推出",
                 "Fetch and integrate changes from upstream" => "从上游拉取并整合更改",
                 "You have uncommitted changes" => "您有未提交的更改",
-                "Update Project will integrate fetched changes. Continue, or shelve (stash) your changes first?" => "更新项目将整合拉取的更改。继续，或先搁置（stash）您的更改？",
+                "Update Project will integrate fetched changes. Continue, or shelve (stash) your changes first?" => {
+                    "更新项目将整合拉取的更改。继续，或先搁置（stash）您的更改？"
+                }
                 "Shelve & Continue" => "搁置并继续",
                 "More" => "更多",
                 "Open Git Panel" => "打开 Git 面板",
@@ -465,7 +475,9 @@ impl UiLanguage {
                 "Rebase continue failed" => "继续变基失败",
                 "Abort rebase failed" => "中止变基失败",
                 "Update Project failed" => "更新项目失败",
-                "The current branch has no upstream to update from." => "当前分支没有可更新的上游。",
+                "The current branch has no upstream to update from." => {
+                    "当前分支没有可更新的上游。"
+                }
                 "Failed to drop stash" => "丢弃贮藏失败",
                 "Failed to load commit history" => "加载提交历史失败",
                 "Failed to load commits" => "加载提交失败",
