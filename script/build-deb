@@ -1,0 +1,224 @@
+#!/usr/bin/env bash
+
+set -euxo pipefail
+
+help_info() {
+  echo "
+Usage: ${0##*/} [options]
+Build a .deb package for Linux from a fresh release bundle or existing binaries.
+
+Options:
+  -h, --help      Display this help and exit.
+  --skip-build    Skip the release build and use the existing release binaries in
+                  target/release. Useful when the full bundle toolchain
+                  (clang/lld/llvm-objcopy/musl-gcc) is not installed.
+"
+}
+
+skip_build=false
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            help_info
+            exit 0
+            ;;
+        --skip-build)
+            skip_build=true
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            help_info
+            exit 1
+            ;;
+        *)
+            echo "Error: Unexpected argument: $1" >&2
+            help_info
+            exit 1
+            ;;
+    esac
+done
+
+channel=$(<crates/zed/RELEASE_CHANNEL)
+version=$(script/get-crate-version zed)
+arch=$(uname -m)
+
+case "$arch" in
+    x86_64)
+        deb_arch=amd64
+        ;;
+    aarch64)
+        deb_arch=arm64
+        ;;
+    *)
+        deb_arch="$arch"
+        ;;
+esac
+
+suffix=""
+if [ "$channel" != "stable" ]; then
+    suffix="-$channel"
+fi
+
+# Debian package metadata. The package name stays "zed" across channels so that
+# channels replace each other when installed via dpkg/apt.
+package_name="zed"
+maintainer="Local Build <${USER}@localhost>"
+homepage="https://zed.dev"
+
+case "$channel" in
+    preview)
+        app_name="Zed Preview"
+        app_id="dev.zed.Zed-Preview"
+        ;;
+    nightly)
+        app_name="Zed Nightly"
+        app_id="dev.zed.Zed-Nightly"
+        ;;
+    dev)
+        app_name="Zed Devel"
+        app_id="dev.zed.Zed-Dev"
+        ;;
+    *)
+        app_name="Zed"
+        app_id="dev.zed.Zed"
+        ;;
+esac
+
+# Build fresh release artifacts unless asked to skip. The bundle-linux script
+# requires clang/lld/llvm-objcopy/musl-gcc and produces the tar.gz archive plus
+# bundled libraries and the desktop file.
+if ! "$skip_build"; then
+    for tool in clang lld llvm-objcopy musl-gcc; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            echo "Error: '$tool' is required for a fresh build but was not found." >&2
+            echo "Install the missing tools, e.g.:" >&2
+            echo "  sudo apt update && sudo apt install -y clang lld llvm musl-tools" >&2
+            echo "Or use --skip-build to package the existing target/release binaries." >&2
+            exit 1
+        fi
+    done
+
+    script/bundle-linux
+fi
+
+temp_dir=$(mktemp -d)
+trap 'rm -rf "$temp_dir"' EXIT
+
+pkg_root="${temp_dir}/pkg"
+mkdir -p "${pkg_root}/DEBIAN"
+mkdir -p "${pkg_root}/usr/bin"
+mkdir -p "${pkg_root}/usr/lib/zed/bin"
+mkdir -p "${pkg_root}/usr/lib/zed/libexec"
+mkdir -p "${pkg_root}/usr/lib/zed/lib"
+mkdir -p "${pkg_root}/usr/share/applications"
+mkdir -p "${pkg_root}/usr/share/doc/${package_name}"
+mkdir -p "${pkg_root}/usr/share/icons/hicolor/512x512/apps"
+mkdir -p "${pkg_root}/usr/share/icons/hicolor/1024x1024/apps"
+
+if "$skip_build"; then
+    target_dir="${CARGO_TARGET_DIR:-target}"
+    zed_bin="${target_dir}/release/zed"
+    cli_bin="${target_dir}/release/cli"
+
+    if [[ ! -x "$zed_bin" ]]; then
+        echo "Error: $zed_bin not found. Build the project first or omit --skip-build." >&2
+        exit 1
+    fi
+    if [[ ! -x "$cli_bin" ]]; then
+        echo "Error: $cli_bin not found. Build the project first or omit --skip-build." >&2
+        exit 1
+    fi
+
+    # Strip debug symbols if a strip tool is available. Prefer llvm-objcopy when
+    # present (it handles CREL sections produced by newer LLVM), otherwise fall
+    # back to GNU strip on newer distros where it is also safe.
+    if command -v llvm-objcopy >/dev/null 2>&1; then
+        llvm-objcopy --strip-debug "$zed_bin"
+        llvm-objcopy --strip-debug "$cli_bin"
+    elif command -v strip >/dev/null 2>&1; then
+        strip --strip-debug "$zed_bin"
+        strip --strip-debug "$cli_bin"
+    fi
+
+    cp "$zed_bin" "${pkg_root}/usr/lib/zed/libexec/zed-editor"
+    cp "$cli_bin" "${pkg_root}/usr/lib/zed/bin/zed"
+
+    # Bundle the same set of libraries that bundle-linux does, excluding the
+    # ones we intentionally do not ship.
+    find_libs() {
+        ldd "$zed_bin" |\
+            cut -d' ' -f3 |\
+            grep -v '\<\(libc.so\|libgcc_s.so\|libm.so\|libpthread.so\|libdl.so\|libasound.so\)'
+    }
+    cp $(find_libs) "${pkg_root}/usr/lib/zed/lib"
+
+    # Generate the .desktop entry from the project template.
+    export DO_STARTUP_NOTIFY="true"
+    export APP_CLI="zed"
+    export APP_ICON="zed"
+    export APP_ARGS="%U"
+    export APP_NAME="$app_name"
+    envsubst < "crates/zed/resources/zed.desktop.in" > "${pkg_root}/usr/share/applications/${app_id}.desktop"
+    chmod +x "${pkg_root}/usr/share/applications/${app_id}.desktop"
+
+    # Icons and licenses.
+    cp "crates/zed/resources/app-icon${suffix}.png" "${pkg_root}/usr/share/icons/hicolor/512x512/apps/zed.png"
+    cp "crates/zed/resources/app-icon${suffix}@2x.png" "${pkg_root}/usr/share/icons/hicolor/1024x1024/apps/zed.png"
+    cp "assets/licenses.md" "${pkg_root}/usr/share/doc/${package_name}/licenses.md"
+else
+    # Use the tar.gz produced by bundle-linux and remap its portable layout to
+    # the FHS layout expected by Debian packages.
+    archive="zed-linux-${arch}.tar.gz"
+    archive_path="target/release/${archive}"
+    if [[ ! -f "$archive_path" ]]; then
+        echo "Error: $archive_path not found after bundle-linux." >&2
+        exit 1
+    fi
+
+    tar -xzf "$archive_path" -C "$temp_dir"
+    app_dir="${temp_dir}/zed${suffix}.app"
+    if [[ ! -d "$app_dir" ]]; then
+        echo "Error: expected ${app_dir} inside ${archive_path}." >&2
+        exit 1
+    fi
+
+    cp "${app_dir}/libexec/zed-editor" "${pkg_root}/usr/lib/zed/libexec/zed-editor"
+    cp "${app_dir}/bin/zed" "${pkg_root}/usr/lib/zed/bin/zed"
+    cp "${app_dir}/lib/"* "${pkg_root}/usr/lib/zed/lib/"
+    cp "${app_dir}/share/applications/"* "${pkg_root}/usr/share/applications/"
+    cp "${app_dir}/share/icons/hicolor/512x512/apps/zed.png" "${pkg_root}/usr/share/icons/hicolor/512x512/apps/zed.png"
+    cp "${app_dir}/share/icons/hicolor/1024x1024/apps/zed.png" "${pkg_root}/usr/share/icons/hicolor/1024x1024/apps/zed.png"
+    cp "${app_dir}/licenses.md" "${pkg_root}/usr/share/doc/${package_name}/licenses.md"
+fi
+
+# Expose zed on PATH via a symlink in /usr/bin.
+ln -s "../lib/zed/bin/zed" "${pkg_root}/usr/bin/zed"
+
+# Compute installed size in KB (rounded up) for the control file.
+installed_size_kb=$(du -sck "${pkg_root}/usr" | tail -n1 | cut -f1)
+
+# The runtime dependencies intentionally mirror the libraries we do *not* bundle.
+cat > "${pkg_root}/DEBIAN/control" <<EOF
+Package: ${package_name}
+Version: ${version}
+Section: editors
+Priority: optional
+Architecture: ${deb_arch}
+Installed-Size: ${installed_size_kb}
+Maintainer: ${maintainer}
+Homepage: ${homepage}
+Depends: libc6, libgcc-s1, libasound2t64 | libasound2, libvulkan1
+Description: ${app_name} is a high-performance, multiplayer code editor.
+ This package was built locally from source (${channel} channel, v${version}).
+EOF
+
+# Build the package with fakeroot so file ownership appears as root:root.
+deb_file="${package_name}_${version}_${deb_arch}.deb"
+fakeroot dpkg-deb --build "${pkg_root}" "${deb_file}"
+
+echo "Built ${deb_file}"
