@@ -972,6 +972,11 @@ libwebrtc = { git = "https://github.com/zed-industries/livekit-rust-sdks", rev =
 notify = { git = "https://github.com/zed-industries/notify", rev = "0890bbb8ca40a4b5d1f67031698dd7918b37d991" }
 notify-types = { git = "https://github.com/zed-industries/notify", rev = "0890bbb8ca40a4b5d1f67031698dd7918b37d991" }
 webrtc-sys = { git = "https://github.com/zed-industries/livekit-rust-sdks", rev = "d0e27be0cdad89eadab3e36207cda0a2b6e359ee" }
+# This machine blocks reparse-point (symlink/junction) traversal, so the
+# symlinks cxx-build creates in its cxxbridge include dir are unreadable by
+# cl.exe (C1083 rust/cxx.h). The vendored copy forces cxx-build's copy
+# fallback instead of symlinking.
+cxx-build = { path = "vendor/cxx-build" }
 
 [profile.dev]
 split-debuginfo = "unpacked"

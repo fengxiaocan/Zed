@@ -21,6 +21,10 @@ use util::ResultExt as _;
 use crate::SettingsWindow;
 use crate::components::SettingsInputField;
 
+// The built-in LLM providers page is hidden in this build (the agent panel
+// uses external CLI agents instead), so this renderer is no longer linked from
+// any settings page. Kept for potential future re-enabling.
+#[allow(dead_code)]
 pub(crate) fn render_llm_providers_page(
     settings_window: &SettingsWindow,
     scroll_handle: &ScrollHandle,

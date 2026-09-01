@@ -63,3 +63,4 @@ crates/docs_preprocessor/actions.json
 
 # Build artifacts too large for GitHub
 inno/
+vendor/

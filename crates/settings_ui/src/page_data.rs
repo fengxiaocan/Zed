@@ -14,8 +14,8 @@ use crate::{
     SettingsPage, SettingsPageItem, SubPageLink, USER, active_language, all_language_names,
     pages::{
         open_audio_test_window, render_edit_prediction_setup_page, render_external_agents_page,
-        render_llm_providers_page, render_mcp_servers_page, render_sandbox_settings_page,
-        render_skills_setup_page, render_tool_permissions_setup_page,
+        render_mcp_servers_page, render_sandbox_settings_page, render_skills_setup_page,
+        render_tool_permissions_setup_page,
     },
 };
 
@@ -8105,7 +8105,7 @@ fn collaboration_page() -> SettingsPage {
 }
 
 fn ai_page(cx: &App) -> SettingsPage {
-    fn general_section() -> [SettingsPageItem; 6] {
+    fn general_section() -> [SettingsPageItem; 5] {
         [
             SettingsPageItem::SectionHeader("General"),
             SettingsPageItem::SettingItem(SettingItem {
@@ -8135,41 +8135,6 @@ fn ai_page(cx: &App) -> SettingsPage {
                 }),
                 metadata: None,
                 files: USER,
-            }),
-            SettingsPageItem::SubPageLink(SubPageLink {
-                title: "LLM Providers".into(),
-                r#type: Default::default(),
-                json_path: Some("llm_providers"),
-                description: Some("Configure natively-included model providers.".into()),
-                search_aliases: &[
-                    "ai",
-                    "amazon",
-                    "anthropic",
-                    "api key",
-                    "azure",
-                    "bedrock",
-                    "chat",
-                    "claude",
-                    "copilot",
-                    "gemini",
-                    "github",
-                    "google",
-                    "gpt",
-                    "grok",
-                    "llama",
-                    "llm",
-                    "lm studio",
-                    "mistral",
-                    "ollama",
-                    "openai",
-                    "opencode",
-                    "provider",
-                    "vercel",
-                    "xai",
-                ],
-                in_json: false,
-                files: USER,
-                render: render_llm_providers_page,
             }),
             SettingsPageItem::SubPageLink(SubPageLink {
                 title: "External Agents".into(),

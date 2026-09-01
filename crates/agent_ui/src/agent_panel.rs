@@ -1183,6 +1183,7 @@ pub struct AgentPanel {
     _draft_editor_observation: Option<Subscription>,
     _active_draft_reclaim_observation: Option<Subscription>,
     _thread_metadata_store_subscription: Subscription,
+    _agent_server_store_subscription: Subscription,
     last_context_source: Option<AgentContextSource>,
 
     is_active: bool,
@@ -1549,6 +1550,16 @@ impl AgentPanel {
             },
         );
 
+        // The built-in Zed agent is hidden in this build, so whenever external
+        // CLI agents (claude, codex, grok, ...) are (re)registered — including
+        // the first time the ACP registry finishes loading — make sure the
+        // panel isn't still pointing at the hidden native agent.
+        let agent_server_store = project.read(cx).agent_server_store().clone();
+        let _agent_server_store_subscription =
+            cx.subscribe(&agent_server_store, |this, _store, _event, cx| {
+                this.ensure_external_agent_selected(cx);
+            });
+
         cx.on_release(|this, cx| {
             this.dismiss_all_terminal_notifications(cx);
         })
@@ -1587,6 +1598,7 @@ impl AgentPanel {
             _draft_editor_observation: None,
             _active_draft_reclaim_observation: None,
             _thread_metadata_store_subscription,
+            _agent_server_store_subscription,
             last_context_source: None,
             is_active: false,
         };
@@ -1652,6 +1664,39 @@ impl AgentPanel {
             Agent::NativeAgent
         } else {
             self.selected_agent.clone()
+        }
+    }
+
+    /// The preferred order in which an external CLI agent is picked as the
+    /// panel's default agent now that the built-in Zed agent is hidden.
+    const PREFERRED_DEFAULT_AGENTS: &'static [&'static str] =
+        &["claude-acp", "codex-acp", "grok-build", "gemini"];
+
+    /// Pick a sensible external CLI agent to use as the default, preferring
+    /// well-known ones and falling back to any registered external agent.
+    fn default_external_agent(&self, cx: &App) -> Option<Agent> {
+        let store = self.project.read(cx).agent_server_store().read(cx);
+        for preferred in Self::PREFERRED_DEFAULT_AGENTS {
+            let id = AgentId::new(*preferred);
+            if store.external_agents().any(|agent_id| agent_id == &id) {
+                return Some(Agent::Custom { id });
+            }
+        }
+        store
+            .external_agents()
+            .next()
+            .map(|id| Agent::Custom { id: id.clone() })
+    }
+
+    /// The built-in Zed agent is hidden in this build. Whenever the current
+    /// selection is the native agent (the default, or a value restored from
+    /// before the change), switch to an available external CLI agent instead.
+    fn ensure_external_agent_selected(&mut self, cx: &mut Context<Self>) {
+        if self.project.read(cx).is_via_collab() || !self.selected_agent.is_native() {
+            return;
+        }
+        if let Some(agent) = self.default_external_agent(cx) {
+            self.set_selected_agent_and_persist(agent, cx);
         }
     }
 
@@ -5816,38 +5861,9 @@ impl AgentPanel {
 
             Rc::new(move |window, cx| {
                 Some(ContextMenu::build(window, cx, |menu, _window, cx| {
+                    // The built-in Zed agent is hidden in this build; the new-thread
+                    // menu only offers external CLI agents and the terminal.
                     menu.context(focus_handle.clone())
-                        .item(
-                            ContextMenuEntry::new("Zed Agent")
-                                .when(
-                                    !showing_terminal && is_agent_selected(Agent::NativeAgent),
-                                    |this| this.action(Box::new(NewThread)),
-                                )
-                                .icon(IconName::ZedAgent)
-                                .icon_color(Color::Muted)
-                                .handler({
-                                    let workspace = workspace.clone();
-                                    move |window, cx| {
-                                        if let Some(workspace) = workspace.upgrade() {
-                                            workspace.update(cx, |workspace, cx| {
-                                                if let Some(panel) =
-                                                    workspace.panel::<AgentPanel>(cx)
-                                                {
-                                                    panel.update(cx, |panel, cx| {
-                                                        panel.selected_agent = Agent::NativeAgent;
-                                                        panel.activate_new_thread(
-                                                            true,
-                                                            AgentThreadSource::AgentPanel,
-                                                            window,
-                                                            cx,
-                                                        );
-                                                    });
-                                                }
-                                            });
-                                        }
-                                    }
-                                }),
-                        )
                         .when(supports_terminal, |menu| {
                             menu.item(
                                 ContextMenuEntry::new("Terminal")
@@ -5911,7 +5927,7 @@ impl AgentPanel {
                                 .collect::<Vec<_>>();
 
                             if !agent_items.is_empty() {
-                                menu = menu.separator().header("External Agents");
+                                menu = menu.separator().header("CLI Agents");
                             }
                             for item in &agent_items {
                                 let mut entry = ContextMenuEntry::new(item.display_name.clone());
@@ -6192,50 +6208,11 @@ impl AgentPanel {
         cx.notify();
     }
 
-    fn should_render_new_user_onboarding(&mut self, cx: &mut Context<Self>) -> bool {
-        if self
-            .new_user_onboarding_upsell_dismissed
-            .load(Ordering::Acquire)
-        {
-            return false;
-        }
-
-        let user_store = self.user_store.read(cx);
-
-        if user_store.plan().is_some_and(|plan| plan == Plan::ZedPro)
-            && user_store
-                .subscription_period()
-                .and_then(|period| period.0.checked_add_days(chrono::Days::new(1)))
-                .is_some_and(|date| date < chrono::Utc::now())
-        {
-            if !self
-                .new_user_onboarding_upsell_dismissed
-                .load(Ordering::Acquire)
-            {
-                self.dismiss_ai_onboarding(cx);
-            }
-            return false;
-        }
-
-        let has_configured_non_zed_providers = LanguageModelRegistry::read_global(cx)
-            .visible_providers()
-            .iter()
-            .any(|provider| {
-                provider.is_authenticated(cx)
-                    && provider.id() != language_model::ZED_CLOUD_PROVIDER_ID
-            });
-
-        match &self.base_view {
-            BaseView::Uninitialized | BaseView::Terminal { .. } => false,
-            BaseView::AgentThread { conversation_view } => {
-                if conversation_view.read(cx).as_native_thread(cx).is_some() {
-                    let history_is_empty = ThreadStore::global(cx).read(cx).is_empty();
-                    history_is_empty || !has_configured_non_zed_providers
-                } else {
-                    false
-                }
-            }
-        }
+    fn should_render_new_user_onboarding(&mut self, _cx: &mut Context<Self>) -> bool {
+        // The built-in Zed agent (and its Zed Pro onboarding/upsell) is hidden
+        // in this build; the panel is a frontend for external CLI agents, so
+        // there is never any native-AI onboarding to show.
+        false
     }
 
     fn render_new_user_onboarding(
