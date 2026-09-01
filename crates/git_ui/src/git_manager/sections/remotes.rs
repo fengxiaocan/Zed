@@ -124,7 +124,7 @@ fn render_remote_row(
                 .min_w_0()
                 .child(Label::new(remote.name.clone()).size(LabelSize::Small))
                 .child(
-                    Label::new(remote.url.clone())
+                    Label::new(remote.url)
                         .size(LabelSize::XSmall)
                         .color(Color::Muted),
                 ),
@@ -140,7 +140,6 @@ fn render_remote_row(
                     let repo = repo;
                     let workspace = workspace;
                     move |window, cx| {
-                        let remote = remote.clone();
                         let name = remote.name.clone();
                         let url = remote.url.clone();
                         let repo = repo.clone();
@@ -148,15 +147,89 @@ fn render_remote_row(
                         Some(ContextMenu::build(window, cx, move |menu, _, cx| {
                             let copy_name = name.clone();
                             let copy_url = url.clone();
+                            let fetch_name = name.clone();
+                            let fetch_repo = repo.clone();
+                            let fetch_workspace = workspace.clone();
+                            let prune_name = name.clone();
+                            let prune_repo = repo.clone();
+                            let prune_workspace = workspace.clone();
                             let edit_name = name.clone();
                             let edit_url = url.clone();
                             let edit_repo = repo.clone();
                             let edit_workspace = workspace.clone();
                             let remove_name = name.clone();
                             let remove_repo = repo.clone();
-                            let remove_workspace = workspace.clone();
+                            let remove_workspace = workspace;
 
-                            menu.entry(translate_ui("Copy Name", cx), None, {
+                            menu.entry(translate_ui("Fetch Remote", cx), None, {
+                                let name = fetch_name;
+                                let repo = fetch_repo;
+                                let workspace = fetch_workspace;
+                                move |window, cx| {
+                                    let Some(repo) = repo.clone() else {
+                                        return;
+                                    };
+                                    let name_str = name.to_string();
+                                    let askpass = crate::git_manager::operations::askpass_delegate(
+                                        &workspace,
+                                        format!("git fetch {name_str}"),
+                                        window,
+                                        cx,
+                                    );
+                                    let remote_obj = git::repository::Remote { name: name.clone() };
+                                    let receiver = repo.update(cx, |repo, cx| {
+                                        repo.fetch(
+                                            git::repository::FetchOptions::Remote(remote_obj),
+                                            askpass,
+                                            cx,
+                                        )
+                                    });
+                                    window
+                                        .spawn(cx, async move |_cx| {
+                                            receiver.await??;
+                                            anyhow::Ok(())
+                                        })
+                                        .detach_and_prompt_err(
+                                            translate_ui("Failed to fetch remote", cx),
+                                            window,
+                                            cx,
+                                            |e, _, _| Some(e.to_string()),
+                                        );
+                                }
+                            })
+                            .entry(translate_ui("Prune Remote Branches", cx), None, {
+                                let name = prune_name;
+                                let repo = prune_repo;
+                                let workspace = prune_workspace;
+                                move |window, cx| {
+                                    let Some(repo) = repo.clone() else {
+                                        return;
+                                    };
+                                    let name_str = name.to_string();
+                                    let askpass = crate::git_manager::operations::askpass_delegate(
+                                        &workspace,
+                                        format!("git remote prune {name_str}"),
+                                        window,
+                                        cx,
+                                    );
+                                    let receiver = repo.update(cx, |repo, cx| {
+                                        repo.prune_remote(name_str, askpass, cx)
+                                    });
+                                    window
+                                        .spawn(cx, async move |_cx| {
+                                            receiver.await??;
+                                            anyhow::Ok(())
+                                        })
+                                        .detach_and_prompt_err(
+                                            translate_ui("Failed to prune remote", cx),
+                                            window,
+                                            cx,
+                                            |e, _, _| Some(e.to_string()),
+                                        );
+                                }
+                            })
+                            .separator()
+                            .entry(translate_ui("Copy Name", cx), None, {
                                 let name = copy_name;
                                 move |_, cx| {
                                     cx.write_to_clipboard(ClipboardItem::new_string(

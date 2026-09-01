@@ -976,7 +976,7 @@ webrtc-sys = { git = "https://github.com/zed-industries/livekit-rust-sdks", rev 
 # symlinks cxx-build creates in its cxxbridge include dir are unreadable by
 # cl.exe (C1083 rust/cxx.h). The vendored copy forces cxx-build's copy
 # fallback instead of symlinking.
-cxx-build = { path = "vendor/cxx-build" }
+# cxx-build = { path = "vendor/cxx-build" }
 
 [profile.dev]
 split-debuginfo = "unpacked"

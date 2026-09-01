@@ -2,7 +2,7 @@ use crate::{BufferDiagnosticsEditor, ProjectDiagnosticsEditor, ToggleDiagnostics
 use agent_settings::AgentSettings;
 use gpui::{Context, EventEmitter, ParentElement, Render, Window};
 use language::DiagnosticEntry;
-use settings::Settings;
+use settings::{Settings, translate_ui};
 use text::{Anchor, BufferId};
 use ui::{Tooltip, prelude::*};
 use workspace::{ToolbarItemEvent, ToolbarItemLocation, ToolbarItemView, item::ItemHandle};
@@ -62,7 +62,7 @@ impl Render for ToolbarControls {
                 IconButton::new("toggle_search", IconName::MagnifyingGlass)
                     .icon_size(IconSize::Small)
                     .tooltip(Tooltip::for_action_title(
-                        "Buffer Search",
+                        translate_ui("Buffer Search", cx),
                         &buffer_search::Deploy::find(),
                     ))
                     .on_click(|_, window, cx| {
@@ -74,7 +74,7 @@ impl Render for ToolbarControls {
                     IconButton::new("inline_assist", IconName::ZedAssistant)
                         .icon_size(IconSize::Small)
                         .tooltip(Tooltip::for_action_title(
-                            "Inline Assist",
+                            translate_ui("Inline Assist", cx),
                             &InlineAssist::default(),
                         ))
                         .on_click(|_, window, cx| {
@@ -89,7 +89,7 @@ impl Render for ToolbarControls {
                             .icon_color(Color::Error)
                             .icon_size(IconSize::Small)
                             .tooltip(Tooltip::for_action_title(
-                                "Stop Diagnostics Update",
+                                translate_ui("Stop Diagnostics Update", cx),
                                 &ToggleDiagnosticsRefresh,
                             ))
                             .on_click(cx.listener(move |toolbar_controls, _, _, cx| {
@@ -104,7 +104,7 @@ impl Render for ToolbarControls {
                         IconButton::new("refresh-diagnostics", IconName::ArrowCircle)
                             .icon_size(IconSize::Small)
                             .tooltip(Tooltip::for_action_title(
-                                "Refresh Diagnostics",
+                                translate_ui("Refresh Diagnostics", cx),
                                 &ToggleDiagnosticsRefresh,
                             ))
                             .on_click(cx.listener({
@@ -121,7 +121,7 @@ impl Render for ToolbarControls {
                 IconButton::new("toggle-warnings", IconName::Warning)
                     .icon_color(warning_color)
                     .icon_size(IconSize::Small)
-                    .tooltip(Tooltip::text(warning_tooltip))
+                    .tooltip(Tooltip::text(translate_ui(warning_tooltip, cx)))
                     .on_click(cx.listener(|this, _, window, cx| {
                         if let Some(editor) = &this.editor {
                             editor.toggle_warnings(window, cx)

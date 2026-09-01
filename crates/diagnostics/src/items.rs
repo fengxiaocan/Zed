@@ -7,7 +7,7 @@ use gpui::{
 };
 use language::Diagnostic;
 use project::project_settings::{GoToDiagnosticSeverityFilter, ProjectSettings};
-use settings::Settings;
+use settings::{Settings, translate_ui};
 use ui::{Button, ButtonLike, Color, Icon, IconName, Label, Tooltip, h_flex, prelude::*};
 use util::ResultExt;
 use workspace::{HideStatusItem, StatusItemView, ToolbarItemEvent, Workspace, item::ItemHandle};
@@ -77,7 +77,7 @@ impl Render for DiagnosticIndicator {
                     .tab_index(0isize)
                     .tooltip(move |_window, cx| {
                         Tooltip::for_action(
-                            tooltip,
+                            translate_ui(tooltip, cx),
                             &editor::actions::GoToDiagnostic::default(),
                             cx,
                         )
@@ -91,22 +91,30 @@ impl Render for DiagnosticIndicator {
         };
 
         let diagnostics_label = match (self.summary.error_count, self.summary.warning_count) {
-            (0, 0) => "Project diagnostics: no problems".to_string(),
+            (0, 0) => translate_ui("Project diagnostics: no problems", cx).to_string(),
             (errors, warnings) => {
                 let mut parts = Vec::new();
                 if errors > 0 {
                     parts.push(format!(
-                        "{errors} error{}",
-                        if errors == 1 { "" } else { "s" }
+                        "{errors} {}",
+                        if errors == 1 {
+                            translate_ui("error", cx)
+                        } else {
+                            translate_ui("errors", cx)
+                        }
                     ));
                 }
                 if warnings > 0 {
                     parts.push(format!(
-                        "{warnings} warning{}",
-                        if warnings == 1 { "" } else { "s" }
+                        "{warnings} {}",
+                        if warnings == 1 {
+                            translate_ui("warning", cx)
+                        } else {
+                            translate_ui("warnings", cx)
+                        }
                     ));
                 }
-                format!("Project diagnostics: {}", parts.join(", "))
+                format!("{}: {}", translate_ui("Project diagnostics", cx), parts.join(", "))
             }
         };
 
@@ -117,7 +125,7 @@ impl Render for DiagnosticIndicator {
                     .tab_index(0isize)
                     .aria_label(diagnostics_label)
                     .tooltip(move |_window, cx| {
-                        Tooltip::for_action("Project Diagnostics", &Deploy, cx)
+                        Tooltip::for_action(translate_ui("Project Diagnostics", cx), &Deploy, cx)
                     })
                     .on_click(cx.listener(|this, _, window, cx| {
                         if let Some(workspace) = this.workspace.upgrade() {

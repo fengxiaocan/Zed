@@ -7486,6 +7486,48 @@ impl Repository {
         })
     }
 
+    pub fn stash_clear(&mut self, cx: &mut Context<Self>) -> oneshot::Receiver<anyhow::Result<()>> {
+        let updates_tx = self
+            .git_store()
+            .and_then(|git_store| match &git_store.read(cx).state {
+                GitStoreState::Local { downstream, .. } => downstream
+                    .as_ref()
+                    .map(|downstream| downstream.updates_tx.clone()),
+                _ => None,
+            });
+        let this = cx.weak_entity();
+        self.send_job("stash_clear", None, move |git_repo, mut cx| async move {
+            match git_repo {
+                RepositoryState::Local(LocalRepositoryState {
+                    backend,
+                    environment,
+                    ..
+                }) => {
+                    let result = backend.stash_clear(environment).await;
+                    if result.is_ok()
+                        && let Ok(stash_entries) = backend.stash_entries().await
+                    {
+                        let snapshot = this.update(&mut cx, |this, cx| {
+                            this.snapshot.stash_entries = stash_entries;
+                            cx.emit(RepositoryEvent::StashEntriesChanged);
+                            this.snapshot.clone()
+                        })?;
+                        if let Some(updates_tx) = updates_tx {
+                            updates_tx
+                                .unbounded_send(DownstreamUpdate::UpdateRepository(snapshot))
+                                .ok();
+                        }
+                    }
+
+                    result
+                }
+                RepositoryState::Remote(..) => {
+                    Err(anyhow::anyhow!("stash_clear not supported on remote repositories"))
+                }
+            }
+        })
+    }
+
     // Kept for wire compatibility: older remote clients run the pre-commit hook explicitly
     // via `proto::RunGitHook` before committing. New code lets `git commit` run hooks itself.
     //
@@ -7971,6 +8013,35 @@ impl Repository {
         )
     }
 
+    pub fn prune_remote(
+        &mut self,
+        remote_name: String,
+        askpass: AskPassDelegate,
+        _cx: &mut Context<Self>,
+    ) -> oneshot::Receiver<Result<RemoteCommandOutput>> {
+        let remote_name_str = remote_name.clone();
+        self.send_job(
+            "prune_remote",
+            Some(format!("git remote prune {remote_name_str}").into()),
+            move |repo, cx| async move {
+                match repo {
+                    RepositoryState::Local(LocalRepositoryState {
+                        backend,
+                        environment,
+                        ..
+                    }) => {
+                        backend
+                            .prune_remote(remote_name, askpass, environment.clone(), cx)
+                            .await
+                    }
+                    RepositoryState::Remote(..) => {
+                        Err(anyhow::anyhow!("prune not supported on remote repositories"))
+                    }
+                }
+            },
+        )
+    }
+
     pub fn get_remotes(
         &mut self,
         branch_name: Option<String>,
@@ -8148,6 +8219,20 @@ impl Repository {
                 RepositoryState::Local(LocalRepositoryState {
                     backend, environment, ..
                 }) => backend.rebase_continue(environment).await,
+                RepositoryState::Remote(..) => {
+                    Err(anyhow::anyhow!("rebase not supported on remote repositories"))
+                }
+            }
+        })
+    }
+
+    /// Skips the current patch in an in-progress rebase. Local repositories only.
+    pub fn rebase_skip(&mut self) -> oneshot::Receiver<Result<()>> {
+        self.send_job("rebase_skip", None, move |repo, _cx| async move {
+            match repo {
+                RepositoryState::Local(LocalRepositoryState {
+                    backend, environment, ..
+                }) => backend.rebase_skip(environment).await,
                 RepositoryState::Remote(..) => {
                     Err(anyhow::anyhow!("rebase not supported on remote repositories"))
                 }

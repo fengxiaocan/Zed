@@ -28,7 +28,7 @@ use project::debugger::session::{Session, SessionQuirks, SessionState, SessionSt
 use project::{DebugScenarioContext, Fs, ProjectPath, TaskSourceKind, WorktreeId};
 use project::{Project, debugger::session::ThreadStatus};
 use rpc::proto::{self};
-use settings::Settings;
+use settings::{Settings, translate_ui};
 use std::sync::Arc;
 use task::{DebugScenario, SharedTaskContext};
 
@@ -1522,7 +1522,7 @@ impl Panel for DebugPanel {
 
     fn icon_tooltip(&self, _window: &Window, cx: &App) -> Option<&'static str> {
         if DebuggerSettings::get_global(cx).button {
-            Some("Debug Panel")
+            Some(translate_ui("Debug Panel", cx))
         } else {
             None
         }

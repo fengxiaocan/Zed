@@ -30,11 +30,11 @@ impl GitManagerToolbar {
 
 impl RenderOnce for GitManagerToolbar {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let focus_handle = self.focus_handle.clone();
-        let manager = self.manager.clone();
-        let manager_tag = manager.clone();
-        let manager_shelf = manager.clone();
-        let manager_update = manager.clone();
+        let focus_handle = self.focus_handle;
+        let manager_fetch_all = self.manager.clone();
+        let manager_tag = self.manager.clone();
+        let manager_shelf = self.manager.clone();
+        let manager_update = self.manager;
 
         h_flex()
             .w_full()
@@ -71,7 +71,7 @@ impl RenderOnce for GitManagerToolbar {
                 "gm-fetch",
                 translate_ui("Fetch", cx),
                 git::Fetch.boxed_clone(),
-                focus_handle.clone(),
+                focus_handle,
             ))
             .child(
                 Button::new("gm-update-project", translate_ui("Update Project", cx))
@@ -82,7 +82,6 @@ impl RenderOnce for GitManagerToolbar {
                         cx,
                     )))
                     .on_click({
-                        let manager_update = manager_update.clone();
                         move |_, window, cx| {
                             if let Some(manager) = manager_update.upgrade() {
                                 manager.update(cx, |manager, cx| {
@@ -101,10 +100,25 @@ impl RenderOnce for GitManagerToolbar {
                         Tooltip::text(translate_ui("More", cx)),
                     )
                     .menu(move |window, cx| {
+                        let manager_fetch_all = manager_fetch_all.clone();
                         let manager_tag = manager_tag.clone();
                         let manager_shelf = manager_shelf.clone();
                         Some(ContextMenu::build(window, cx, move |menu, _, cx| {
                             menu.action(translate_ui("Fetch", cx), git::Fetch.boxed_clone())
+                                .entry(
+                                    translate_ui("Fetch All Remotes", cx),
+                                    None,
+                                    {
+                                        let manager = manager_fetch_all;
+                                        move |window, cx| {
+                                            if let Some(manager) = manager.upgrade() {
+                                                manager.update(cx, |manager, cx| {
+                                                    manager.fetch_all_remotes(window, cx);
+                                                });
+                                            }
+                                        }
+                                    },
+                                )
                                 .action(
                                     translate_ui("Open Git Panel", cx),
                                     zed_actions::git_panel::ToggleFocus.boxed_clone(),
@@ -166,7 +180,6 @@ fn toolbar_action_button(
         .label_size(LabelSize::Small)
         .size(ButtonSize::Compact)
         .tooltip({
-            let focus_handle = focus_handle.clone();
             let label = SharedString::from(label);
             move |_, cx| {
                 Tooltip::for_action_in(label.clone(), action.as_ref(), &focus_handle, cx)
@@ -180,13 +193,24 @@ fn toolbar_action_button(
 /// Tab strip under the header (Branches / Remotes / Tags / Shelves).
 pub(crate) fn render_tab_bar(
     active_tab: GitManagerTab,
+    branches_count: usize,
+    remotes_count: usize,
+    tags_count: usize,
+    shelves_count: usize,
     cx: &mut Context<crate::git_manager::GitManager>,
 ) -> impl IntoElement {
     let make_tab = |id: SharedString,
-                    label: SharedString,
+                    label: &'static str,
+                    count: usize,
                     tab: GitManagerTab,
                     active: bool,
                     cx: &mut Context<crate::git_manager::GitManager>| {
+        let localized = translate_ui(label, cx);
+        let display_label = if count > 0 {
+            format!("{localized} ({count})")
+        } else {
+            localized.to_string()
+        };
         h_flex()
             .id(ElementId::Name(id))
             .cursor_pointer()
@@ -202,7 +226,11 @@ pub(crate) fn render_tab_bar(
                     .border_color(cx.theme().colors().border.opacity(0.6))
             })
             .when(active, |s| s.border_color(cx.theme().colors().border))
-            .child(Label::new(label).when(!active, |this| this.color(Color::Muted)))
+            .child(
+                Label::new(display_label)
+                    .size(LabelSize::Small)
+                    .when(!active, |this| this.color(Color::Muted)),
+            )
             .on_click(cx.listener(move |this, _, _window, cx| {
                 this.set_active_tab(tab, cx);
             }))
@@ -215,28 +243,32 @@ pub(crate) fn render_tab_bar(
         .border_color(cx.theme().colors().border)
         .child(make_tab(
             "gm-tab-branches".into(),
-            translate_ui("Branches", cx).into(),
+            "Branches",
+            branches_count,
             GitManagerTab::Branches,
             active_tab == GitManagerTab::Branches,
             cx,
         ))
         .child(make_tab(
             "gm-tab-remotes".into(),
-            translate_ui("Remotes", cx).into(),
+            "Remotes",
+            remotes_count,
             GitManagerTab::Remotes,
             active_tab == GitManagerTab::Remotes,
             cx,
         ))
         .child(make_tab(
             "gm-tab-tags".into(),
-            translate_ui("Tags", cx).into(),
+            "Tags",
+            tags_count,
             GitManagerTab::Tags,
             active_tab == GitManagerTab::Tags,
             cx,
         ))
         .child(make_tab(
             "gm-tab-shelves".into(),
-            translate_ui("Shelves", cx).into(),
+            "Shelves",
+            shelves_count,
             GitManagerTab::Shelves,
             active_tab == GitManagerTab::Shelves,
             cx,

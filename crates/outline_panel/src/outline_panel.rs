@@ -45,7 +45,7 @@ use outline_panel_settings::{DockSide, OutlinePanelSettings, ShowIndentGuides};
 use project::{File, Fs, GitEntry, GitTraversal, Project, ProjectItem};
 use search::{BufferSearchBar, ProjectSearchView};
 use serde::{Deserialize, Serialize};
-use settings::{Settings, SettingsStore};
+use settings::{Settings, SettingsStore, translate_ui};
 use theme::SyntaxTheme;
 use theme_settings::ThemeSettings;
 use ui::{
@@ -1449,23 +1449,23 @@ impl OutlinePanel {
         let is_foldable = auto_fold_dirs && !is_root && self.is_foldable(&entry);
         let is_unfoldable = auto_fold_dirs && !is_root && self.is_unfoldable(&entry);
 
-        let context_menu = ContextMenu::build(window, cx, |menu, _, _| {
+        let context_menu = ContextMenu::build(window, cx, |menu, _, cx| {
             menu.context(self.focus_handle.clone())
                 .action(
-                    ui::utils::reveal_in_file_manager_label(false),
+                    translate_ui(ui::utils::reveal_in_file_manager_label(false), cx),
                     Box::new(RevealInFileManager),
                 )
-                .action("Open in Terminal", Box::new(OpenInTerminal))
+                .action(translate_ui("Open in Terminal", cx), Box::new(OpenInTerminal))
                 .when(is_unfoldable, |menu| {
-                    menu.action("Unfold Directory", Box::new(UnfoldDirectory))
+                    menu.action(translate_ui("Unfold Directory", cx), Box::new(UnfoldDirectory))
                 })
                 .when(is_foldable, |menu| {
-                    menu.action("Fold Directory", Box::new(FoldDirectory))
+                    menu.action(translate_ui("Fold Directory", cx), Box::new(FoldDirectory))
                 })
                 .separator()
-                .action("Copy Path", Box::new(zed_actions::workspace::CopyPath))
+                .action(translate_ui("Copy Path", cx), Box::new(zed_actions::workspace::CopyPath))
                 .action(
-                    "Copy Relative Path",
+                    translate_ui("Copy Relative Path", cx),
                     Box::new(zed_actions::workspace::CopyRelativePath),
                 )
         });
@@ -4845,7 +4845,7 @@ impl OutlinePanel {
                         this.child(
                             IconButton::new("clear_filter", IconName::Close)
                                 .shape(IconButtonShape::Square)
-                                .tooltip(Tooltip::text("Clear Filter"))
+                                .tooltip(Tooltip::text(translate_ui("Clear Filter", cx)))
                                 .on_click(cx.listener(|outline_panel, _, window, cx| {
                                     outline_panel.filter_editor.update(cx, |editor, cx| {
                                         editor.set_text("", window, cx);
@@ -4856,7 +4856,7 @@ impl OutlinePanel {
                     })
                     .child(
                         IconButton::new(pin_button_id, icon)
-                            .tooltip(Tooltip::text(icon_tooltip))
+                            .tooltip(Tooltip::text(translate_ui(icon_tooltip, cx)))
                             .shape(IconButtonShape::Square)
                             .on_click(cx.listener(|outline_panel, _, window, cx| {
                                 outline_panel.toggle_active_editor_pin(
@@ -4995,8 +4995,8 @@ impl Panel for OutlinePanel {
             .then_some(IconName::ListTree)
     }
 
-    fn icon_tooltip(&self, _window: &Window, _: &App) -> Option<&'static str> {
-        Some("Outline Panel")
+    fn icon_tooltip(&self, _window: &Window, cx: &App) -> Option<&'static str> {
+        Some(translate_ui("Outline Panel", cx))
     }
 
     fn toggle_action(&self) -> Box<dyn Action> {

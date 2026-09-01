@@ -1,6 +1,6 @@
 mod update_project;
 
-pub(crate) use update_project::update_project;
+pub(crate) use update_project::{askpass_delegate, update_project};
 
 use gpui::{App, AsyncApp, Window};
 use project::git_store::Repository;
@@ -68,6 +68,22 @@ pub(crate) fn rebase_continue(repo: &gpui::Entity<Repository>, window: &mut Wind
         })
         .detach_and_prompt_err(
             translate_ui("Rebase continue failed", cx),
+            window,
+            cx,
+            |e, _, _| Some(e.to_string()),
+        );
+}
+
+/// Skips the current patch in an in-progress rebase.
+pub(crate) fn rebase_skip(repo: &gpui::Entity<Repository>, window: &mut Window, cx: &mut App) {
+    let repo = repo.clone();
+    window
+        .spawn(cx, async move |cx| {
+            repo.update(cx, |repo, _| repo.rebase_skip()).await??;
+            anyhow::Ok(())
+        })
+        .detach_and_prompt_err(
+            translate_ui("Rebase skip failed", cx),
             window,
             cx,
             |e, _, _| Some(e.to_string()),

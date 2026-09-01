@@ -46,7 +46,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use settings::{
     DockSide, ProjectPanelEntrySpacing, Settings, SettingsStore, ShowDiagnostics, ShowIndentGuides,
-    update_settings_file,
+    translate_ui, update_settings_file,
 };
 use smallvec::SmallVec;
 use std::{
@@ -1127,113 +1127,153 @@ impl ProjectPanel {
                 menu.context(self.focus_handle.clone()).map(|menu| {
                     if is_read_only {
                         menu.when(is_markdown, |menu| {
-                            menu.action("Open Markdown Preview", Box::new(OpenMarkdownPreview))
+                            menu.action(
+                                translate_ui("Open Markdown Preview", cx),
+                                Box::new(OpenMarkdownPreview),
+                            )
                         })
                         .when(is_dir, |menu| {
-                            menu.action("Search Inside", Box::new(NewSearchInDirectory))
+                            menu.action(
+                                translate_ui("Search Inside", cx),
+                                Box::new(NewSearchInDirectory),
+                            )
                         })
                     } else {
-                        menu.action("New File", Box::new(NewFile))
-                            .action("New Folder", Box::new(NewDirectory))
+                        menu.action(translate_ui("New File", cx), Box::new(NewFile))
+                            .action(translate_ui("New Folder", cx), Box::new(NewDirectory))
                             .separator()
                             .when(is_local, |menu| {
                                 menu.action(
-                                    ui::utils::reveal_in_file_manager_label(is_remote),
+                                    translate_ui(
+                                        ui::utils::reveal_in_file_manager_label(is_remote),
+                                        cx,
+                                    ),
                                     Box::new(RevealInFileManager),
                                 )
                             })
                             .when(is_local, |menu| {
-                                menu.action("Open in Default App", Box::new(OpenWithSystem))
+                                menu.action(
+                                    translate_ui("Open in Default App", cx),
+                                    Box::new(OpenWithSystem),
+                                )
                             })
-                            .action("Open in Terminal", Box::new(OpenInTerminal))
+                            .action(
+                                translate_ui("Open in Terminal", cx),
+                                Box::new(OpenInTerminal),
+                            )
                             .when(is_markdown, |menu| {
-                                menu.action("Open Markdown Preview", Box::new(OpenMarkdownPreview))
+                                menu.action(
+                                    translate_ui("Open Markdown Preview", cx),
+                                    Box::new(OpenMarkdownPreview),
+                                )
                             })
                             .when(is_dir, |menu| {
-                                menu.separator()
-                                    .action("Find in Folder…", Box::new(NewSearchInDirectory))
+                                menu.separator().action(
+                                    translate_ui("Find in Folder…", cx),
+                                    Box::new(NewSearchInDirectory),
+                                )
                             })
                             .when(is_unfoldable, |menu| {
-                                menu.action("Unfold Directory", Box::new(UnfoldDirectory))
+                                menu.action(
+                                    translate_ui("Unfold Directory", cx),
+                                    Box::new(UnfoldDirectory),
+                                )
                             })
                             .when(is_foldable, |menu| {
-                                menu.action("Fold Directory", Box::new(FoldDirectory))
+                                menu.action(
+                                    translate_ui("Fold Directory", cx),
+                                    Box::new(FoldDirectory),
+                                )
                             })
                             .when(should_show_compare, |menu| {
-                                menu.separator()
-                                    .action("Compare Marked Files", Box::new(CompareMarkedFiles))
+                                menu.separator().action(
+                                    translate_ui("Compare Marked Files", cx),
+                                    Box::new(CompareMarkedFiles),
+                                )
                             })
                             .separator()
-                            .action("Cut", Box::new(Cut))
-                            .action("Copy", Box::new(Copy))
-                            .action("Duplicate", Box::new(Duplicate))
-                            .action_disabled_when(!has_pasteable_content, "Paste", Box::new(Paste))
+                            .action(translate_ui("Cut", cx), Box::new(Cut))
+                            .action(translate_ui("Copy", cx), Box::new(Copy))
+                            .action(translate_ui("Duplicate", cx), Box::new(Duplicate))
+                            .action_disabled_when(
+                                !has_pasteable_content,
+                                translate_ui("Paste", cx),
+                                Box::new(Paste),
+                            )
                             .when(
                                 !is_collab && cx.has_flag::<ProjectPanelUndoRedoFeatureFlag>(),
                                 |menu| {
                                     let can_undo = self.undo_manager.can_undo();
                                     let can_redo = self.undo_manager.can_redo();
 
-                                    menu.action_disabled_when(!can_undo, "Undo", Box::new(Undo))
-                                        .action_disabled_when(!can_redo, "Redo", Box::new(Redo))
+                                    menu.action_disabled_when(
+                                        !can_undo,
+                                        translate_ui("Undo", cx),
+                                        Box::new(Undo),
+                                    )
+                                    .action_disabled_when(
+                                        !can_redo,
+                                        translate_ui("Redo", cx),
+                                        Box::new(Redo),
+                                    )
                                 },
                             )
                             .when(is_remote, |menu| {
                                 menu.separator()
-                                    .action("Download...", Box::new(DownloadFromRemote))
+                                    .action(translate_ui("Download...", cx), Box::new(DownloadFromRemote))
                             })
                             .separator()
-                            .action("Copy Path", Box::new(zed_actions::workspace::CopyPath))
+                            .action(translate_ui("Copy Path", cx), Box::new(zed_actions::workspace::CopyPath))
                             .action(
-                                "Copy Relative Path",
+                                translate_ui("Copy Relative Path", cx),
                                 Box::new(zed_actions::workspace::CopyRelativePath),
                             )
                             .when(has_git_repo, |menu| {
                                 menu.separator()
                                     .when(!is_dir && self.has_git_changes(entry_id), |menu| {
                                         menu.action(
-                                            "Restore File",
+                                            translate_ui("Restore File", cx),
                                             Box::new(git::RestoreFile { skip_prompt: false }),
                                         )
                                     })
-                                    .action("Add to .gitignore", Box::new(git::AddToGitignore))
+                                    .action(translate_ui("Add to .gitignore", cx), Box::new(git::AddToGitignore))
                                     .action(
-                                        "Add to .git/info/exclude",
+                                        translate_ui("Add to .git/info/exclude", cx),
                                         Box::new(git::AddToGitInfoExclude),
                                     )
                                     .when(has_history, |menu| {
-                                        menu.action("View History", Box::new(git::FileHistory))
+                                        menu.action(translate_ui("View History", cx), Box::new(git::FileHistory))
                                     })
                             })
                             .when(!should_hide_rename, |menu| {
-                                menu.separator().action("Rename", Box::new(Rename))
+                                menu.separator().action(translate_ui("Rename", cx), Box::new(Rename))
                             })
                             .when(!is_root && !is_collab, |menu| {
-                                menu.action("Trash", Box::new(Trash { skip_prompt: false }))
+                                menu.action(translate_ui("Trash", cx), Box::new(Trash { skip_prompt: false }))
                             })
                             .when(!is_root, |menu| {
-                                menu.action("Delete", Box::new(Delete { skip_prompt: false }))
+                                menu.action(translate_ui("Delete", cx), Box::new(Delete { skip_prompt: false }))
                             })
                             .when(!is_collab && is_root, |menu| {
                                 menu.separator()
                                     .action(
-                                        "Add Folders to Project…",
+                                        translate_ui("Add Folders to Project…", cx),
                                         Box::new(workspace::AddFolderToProject),
                                     )
-                                    .action("Remove from Project", Box::new(RemoveFromProject))
+                                    .action(translate_ui("Remove from Project", cx), Box::new(RemoveFromProject))
                             })
                             .when(is_dir && !is_root, |menu| {
                                 menu.separator()
-                                    .action("Expand All", Box::new(ExpandSelectedEntryAndChildren))
+                                    .action(translate_ui("Expand All", cx), Box::new(ExpandSelectedEntryAndChildren))
                                     .action(
-                                        "Collapse All",
+                                        translate_ui("Collapse All", cx),
                                         Box::new(CollapseSelectedEntryAndChildren),
                                     )
                             })
                             .when(is_dir && is_root, |menu| {
                                 menu.separator()
-                                    .action("Expand All", Box::new(ExpandAllEntries))
-                                    .action("Collapse All", Box::new(CollapseAllEntries))
+                                    .action(translate_ui("Expand All", cx), Box::new(ExpandAllEntries))
+                                    .action(translate_ui("Collapse All", cx), Box::new(CollapseAllEntries))
                             })
                     }
                 })
@@ -7661,8 +7701,8 @@ impl Panel for ProjectPanel {
             .then_some(IconName::FileTree)
     }
 
-    fn icon_tooltip(&self, _window: &Window, _cx: &App) -> Option<&'static str> {
-        Some("Project Panel")
+    fn icon_tooltip(&self, _window: &Window, cx: &App) -> Option<&'static str> {
+        Some(translate_ui("Project Panel", cx))
     }
 
     fn toggle_action(&self) -> Box<dyn Action> {

@@ -1,8 +1,8 @@
 use editor::Editor;
 use git::stash::StashEntry;
 use gpui::{
-    App, Entity, InteractiveElement, IntoElement, ParentElement, PromptLevel, SharedString, Styled,
-    Window, uniform_list,
+    App, ClipboardItem, Entity, InteractiveElement, IntoElement, ParentElement, PromptLevel,
+    SharedString, Styled, Window, uniform_list,
 };
 use project::git_store::Repository;
 use settings::translate_ui;
@@ -50,11 +50,39 @@ pub(crate) fn render_shelf_filter_editor(
     super::filter::render_filter_editor(filter_editor, cx)
 }
 
+pub(crate) fn drop_all_shelves_with_prompt(
+    repo: Entity<Repository>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let prompt_message = translate_ui(
+        "Clear all shelves? All stashed changes will be permanently deleted.",
+        cx,
+    );
+    let buttons = [translate_ui("Clear All", cx), translate_ui("Cancel", cx)];
+    let answer = window.prompt(PromptLevel::Warning, prompt_message, None, &buttons, cx);
+
+    window
+        .spawn(cx, async move |cx| {
+            if answer.await != Ok(0) {
+                return anyhow::Ok(());
+            }
+            repo.update(cx, |repo, cx| repo.stash_clear(cx)).await??;
+            anyhow::Ok(())
+        })
+        .detach_and_prompt_err(
+            translate_ui("Failed to clear shelves", cx),
+            window,
+            cx,
+            |e, _, _| Some(e.to_string()),
+        );
+}
+
 pub(crate) fn render_shelf_list(
     entries: Vec<StashEntry>,
     has_repo: bool,
     repo: Option<Entity<Repository>>,
-    _workspace: gpui::WeakEntity<Workspace>,
+    workspace: gpui::WeakEntity<Workspace>,
     cx: &App,
 ) -> AnyElement {
     if !has_repo {
@@ -78,7 +106,7 @@ pub(crate) fn render_shelf_list(
                 .enumerate()
                 .map(|(offset, entry)| {
                     let index = range.start + offset;
-                    render_shelf_row(index, entry.clone(), repo.clone(), cx)
+                    render_shelf_row(index, entry.clone(), repo.clone(), workspace.clone(), cx)
                 })
                 .collect()
         },
@@ -92,6 +120,7 @@ fn render_shelf_row(
     index: usize,
     entry: StashEntry,
     repo: Option<Entity<Repository>>,
+    workspace: gpui::WeakEntity<Workspace>,
     cx: &App,
 ) -> AnyElement {
     let id = SharedString::from(format!("gm-shelf-row-{index}"));
@@ -131,7 +160,7 @@ fn render_shelf_row(
                         }),
                 )
                 .child(
-                    Label::new(entry.message.clone())
+                    Label::new(entry.message)
                         .size(LabelSize::XSmall)
                         .color(Color::Muted),
                 ),
@@ -145,18 +174,48 @@ fn render_shelf_row(
                 .menu({
                     let entry = entry_for_menu;
                     let repo = repo;
+                    let workspace = workspace;
                     move |window, cx| {
                         let entry = entry.clone();
                         let repo = repo.clone();
+                        let workspace = workspace.clone();
                         Some(ContextMenu::build(window, cx, move |menu, _, cx| {
                             let apply_repo = repo.clone();
                             let pop_repo = repo.clone();
                             let drop_repo = repo.clone();
+                            let diff_repo = repo.clone();
+                            let diff_workspace = workspace.clone();
                             let apply_index = entry.index;
                             let pop_index = entry.index;
                             let drop_index = entry.index;
+                            let stash_ref = format!("stash@{{{}}}", entry.index);
+                            let sha = entry.oid.to_string();
 
-                            menu.entry(translate_ui("Apply Shelf", cx), None, {
+                            menu.entry(translate_ui("View Diff", cx), None, {
+                                let repo = diff_repo;
+                                let workspace = diff_workspace;
+                                let stash_ref = stash_ref.clone();
+                                move |window, cx| {
+                                    let Some(repo) = repo.clone() else {
+                                        return;
+                                    };
+                                    if let Some(workspace) = workspace.upgrade() {
+                                        workspace.update(cx, |workspace, cx| {
+                                            let project = workspace.project().clone();
+                                            crate::branch_diff::BranchDiff::deploy_branch_diff_with_base_ref(
+                                                workspace,
+                                                project,
+                                                repo,
+                                                stash_ref.clone().into(),
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                    }
+                                }
+                            })
+                            .separator()
+                            .entry(translate_ui("Apply Shelf", cx), None, {
                                 let repo = apply_repo;
                                 move |window, cx| {
                                     let Some(repo) = repo.clone() else {
@@ -199,6 +258,13 @@ fn render_shelf_row(
                                             |e, _, _| Some(e.to_string()),
                                         );
                                 }
+                            })
+                            .separator()
+                            .entry(translate_ui("Copy Stash SHA", cx), None, move |_, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(sha.clone()));
+                            })
+                            .entry(translate_ui("Copy Name", cx), None, move |_, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(stash_ref.clone()));
                             })
                             .separator()
                             .entry(

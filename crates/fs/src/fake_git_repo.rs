@@ -1063,6 +1063,10 @@ impl GitRepository for FakeGitRepository {
         unimplemented!()
     }
 
+    fn stash_clear(&self, _env: Arc<HashMap<String, String>>) -> BoxFuture<'_, Result<()>> {
+        unimplemented!()
+    }
+
     fn commit(
         &self,
         _message: gpui::SharedString,
@@ -1484,6 +1488,21 @@ impl GitRepository for FakeGitRepository {
         })
     }
 
+    fn prune_remote(
+        &self,
+        _name: String,
+        _askpass: git::repository::AskPassDelegate,
+        _env: Arc<HashMap<String, String>>,
+        _cx: gpui::AsyncApp,
+    ) -> BoxFuture<'_, Result<git::repository::RemoteCommandOutput>> {
+        self.with_state_async(false, |_| {
+            Ok(git::repository::RemoteCommandOutput {
+                stdout: "".to_string(),
+                stderr: "".to_string(),
+            })
+        })
+    }
+
     fn remove_remote(&self, name: String) -> BoxFuture<'_, Result<()>> {
         self.with_state_async(true, move |state| {
             state.branches.retain(|branch| {
@@ -1571,6 +1590,13 @@ impl GitRepository for FakeGitRepository {
     }
 
     fn rebase_continue(&self, _env: Arc<HashMap<String, String>>) -> BoxFuture<'_, Result<()>> {
+        self.with_state_async(true, move |state| {
+            state.rebase_in_progress = false;
+            Ok(())
+        })
+    }
+
+    fn rebase_skip(&self, _env: Arc<HashMap<String, String>>) -> BoxFuture<'_, Result<()>> {
         self.with_state_async(true, move |state| {
             state.rebase_in_progress = false;
             Ok(())

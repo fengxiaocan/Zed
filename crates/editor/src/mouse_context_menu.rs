@@ -9,6 +9,7 @@ use crate::{
 use gpui::prelude::FluentBuilder;
 use gpui::{Context, DismissEvent, Entity, Focusable as _, Pixels, Point, Subscription, Window};
 use project::DisableAiSettings;
+use settings::translate_ui;
 use std::ops::Range;
 use text::PointUtf16;
 use workspace::OpenInTerminal;
@@ -243,76 +244,103 @@ pub fn deploy_context_menu(
                     .is_some_and(|ext| ext.eq_ignore_ascii_case("svg"))
             });
 
-        ui::ContextMenu::build(window, cx, |menu, _window, _cx| {
+        ui::ContextMenu::build(window, cx, |menu, _window, cx| {
             let builder = menu
                 .on_blur_subscription(Subscription::new(|| {}))
                 .when(run_to_cursor, |builder| {
-                    builder.action("Run to Cursor", Box::new(RunToCursor))
+                    builder.action(
+                        translate_ui("Run to Cursor", cx),
+                        Box::new(RunToCursor),
+                    )
                 })
                 .when(evaluate_selection && has_selections, |builder| {
-                    builder.action("Evaluate Selection", Box::new(EvaluateSelectedText))
+                    builder.action(
+                        translate_ui("Evaluate Selection", cx),
+                        Box::new(EvaluateSelectedText),
+                    )
                 })
                 .when(
                     run_to_cursor || (evaluate_selection && has_selections),
                     |builder| builder.separator(),
                 )
-                .action("Go to Definition", Box::new(GoToDefinition::default()))
-                .action("Go to Declaration", Box::new(GoToDeclaration))
-                .action("Go to Type Definition", Box::new(GoToTypeDefinition))
                 .action(
-                    "Go to Implementation",
+                    translate_ui("Go to Definition", cx),
+                    Box::new(GoToDefinition::default()),
+                )
+                .action(
+                    translate_ui("Go to Declaration", cx),
+                    Box::new(GoToDeclaration),
+                )
+                .action(
+                    translate_ui("Go to Type Definition", cx),
+                    Box::new(GoToTypeDefinition),
+                )
+                .action(
+                    translate_ui("Go to Implementation", cx),
                     Box::new(GoToImplementation::default()),
                 )
                 .action(
-                    "Find All References",
+                    translate_ui("Find All References", cx),
                     Box::new(FindAllReferences::default()),
                 )
                 .separator()
-                .action("Rename Symbol", Box::new(Rename))
-                .action("Format Buffer", Box::new(Format))
-                .when(format_selections, |cx| {
-                    cx.action("Format Selections", Box::new(FormatSelections))
+                .action(translate_ui("Rename Symbol", cx), Box::new(Rename))
+                .action(translate_ui("Format Buffer", cx), Box::new(Format))
+                .when(format_selections, |cx_menu| {
+                    cx_menu.action(
+                        translate_ui("Format Selections", cx),
+                        Box::new(FormatSelections),
+                    )
                 })
                 .action(
-                    "Show Code Actions",
+                    translate_ui("Show Code Actions", cx),
                     Box::new(ToggleCodeActions {
                         deployed_from: None,
                         quick_launch: false,
                     }),
                 )
                 .when(!disable_ai && has_selections, |this| {
-                    this.action("Add to Agent Thread", Box::new(AddSelectionToThread))
+                    this.action(
+                        translate_ui("Add to Agent Thread", cx),
+                        Box::new(AddSelectionToThread),
+                    )
                 })
                 .separator()
-                .action("Cut", Box::new(Cut))
-                .action("Copy", Box::new(Copy))
-                .action("Copy and Trim", Box::new(CopyAndTrim))
-                .action("Paste", Box::new(Paste))
+                .action(translate_ui("Cut", cx), Box::new(Cut))
+                .action(translate_ui("Copy", cx), Box::new(Copy))
+                .action(translate_ui("Copy and Trim", cx), Box::new(CopyAndTrim))
+                .action(translate_ui("Paste", cx), Box::new(Paste))
                 .separator()
                 .action_disabled_when(
                     !has_reveal_target,
-                    ui::utils::reveal_in_file_manager_label(false),
+                    translate_ui(ui::utils::reveal_in_file_manager_label(false), cx),
                     Box::new(RevealInFileManager),
                 )
                 .when(is_markdown, |builder| {
-                    builder.action("Open Markdown Preview", Box::new(OpenMarkdownPreview))
+                    builder.action(
+                        translate_ui("Open Markdown Preview", cx),
+                        Box::new(OpenMarkdownPreview),
+                    )
                 })
                 .when(is_svg, |builder| {
-                    builder.action("Open SVG Preview", Box::new(OpenSvgPreview))
+                    builder.action(
+                        translate_ui("Open SVG Preview", cx),
+                        Box::new(OpenSvgPreview),
+                    )
                 })
                 .action_disabled_when(
                     !has_reveal_target,
-                    "Open in Terminal",
+                    translate_ui("Open in Terminal", cx),
                     Box::new(OpenInTerminal),
                 )
                 .action_disabled_when(
                     !has_git_repo,
-                    "Copy Permalink",
+                    translate_ui("Copy Permalink", cx),
                     Box::new(CopyPermalinkToLine),
                 )
                 .action_disabled_when(
                     !has_git_repo,
-                    "View File History",
+                    translate_ui("View File History", cx),
                     Box::new(git::FileHistory),
                 );
             match focus {

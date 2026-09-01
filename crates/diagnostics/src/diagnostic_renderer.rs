@@ -9,7 +9,7 @@ use gpui::{AppContext, Entity, Focusable, WeakEntity};
 use language::{BufferId, Diagnostic, DiagnosticEntryRef, LanguageRegistry};
 use lsp::DiagnosticSeverity;
 use markdown::{CopyButtonVisibility, Markdown, MarkdownElement};
-use settings::Settings;
+use settings::{Settings, translate_ui};
 use text::Point;
 use theme_settings::ThemeSettings;
 use ui::{CopyButton, prelude::*};
@@ -261,7 +261,7 @@ impl DiagnosticBlock {
             )
             .child(
                 CopyButton::new(copy_button_id, self.copy_message.clone())
-                    .tooltip_label("Copy Diagnostic"),
+                    .tooltip_label(translate_ui("Copy Diagnostic", cx)),
             )
             .into_any_element()
     }

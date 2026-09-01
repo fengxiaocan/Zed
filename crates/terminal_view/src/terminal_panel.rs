@@ -18,7 +18,7 @@ use gpui::{
 use itertools::Itertools;
 use project::{Fs, Project};
 
-use settings::{Settings, TerminalDockPosition};
+use settings::{Settings, TerminalDockPosition, translate_ui};
 use task::{RevealStrategy, RevealTarget, Shell, ShellBuilder, SpawnInTerminal, TaskId};
 use terminal::{Terminal, terminal_settings::TerminalSettings};
 use ui::{
@@ -1659,8 +1659,8 @@ impl Panel for TerminalPanel {
         }
     }
 
-    fn icon_tooltip(&self, _window: &Window, _cx: &App) -> Option<&'static str> {
-        Some("Terminal Panel")
+    fn icon_tooltip(&self, _window: &Window, cx: &App) -> Option<&'static str> {
+        Some(translate_ui("Terminal Panel", cx))
     }
 
     fn toggle_action(&self) -> Box<dyn gpui::Action> {

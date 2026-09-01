@@ -164,10 +164,10 @@ impl QuickCommandsPanel {
         let spawn = SpawnInTerminal {
             id: TaskId(format!("quick_command_{index}")),
             full_label: label.clone(),
-            label: label.clone(),
+            label,
             command: Some(command.command.clone()),
             args: Vec::new(),
-            command_label: command.command.clone(),
+            command_label: command.command,
             cwd,
             env: Default::default(),
             use_new_terminal: true,

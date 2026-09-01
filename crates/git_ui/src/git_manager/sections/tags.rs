@@ -2,8 +2,8 @@ use editor::{Editor, EditorEvent};
 use git::repository::TagInfo;
 use gpui::{
     App, ClipboardItem, Context, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, ParentElement, SharedString, Styled, Subscription, Window,
-    rems, uniform_list,
+    InteractiveElement, IntoElement, ParentElement, PromptLevel, SharedString, Styled,
+    Subscription, Window, rems, uniform_list,
 };
 use menu::{Cancel, Confirm};
 use project::git_store::Repository;
@@ -81,7 +81,7 @@ fn render_tag_row(
     index: usize,
     tag: TagInfo,
     repo: Option<Entity<Repository>>,
-    _workspace: gpui::WeakEntity<Workspace>,
+    workspace: gpui::WeakEntity<Workspace>,
     cx: &App,
 ) -> AnyElement {
     let id = SharedString::from(format!("gm-tag-row-{index}"));
@@ -117,7 +117,7 @@ fn render_tag_row(
                             )
                         }),
                 )
-                .when_some(tag.message.clone(), |this, message| {
+                .when_some(tag.message, |this, message| {
                     this.child(
                         Label::new(message)
                             .size(LabelSize::XSmall)
@@ -134,17 +134,117 @@ fn render_tag_row(
                 .menu({
                     let tag = tag_for_menu;
                     let repo = repo;
+                    let workspace = workspace;
                     move |window, cx| {
                         let tag = tag.clone();
                         let name = tag.name.clone();
                         let repo = repo.clone();
+                        let workspace = workspace.clone();
                         Some(ContextMenu::build(window, cx, move |menu, _, cx| {
+                            let checkout_name = name.clone();
+                            let checkout_repo = repo.clone();
+                            let new_branch_name = name.clone();
+                            let new_branch_repo = repo.clone();
+                            let new_branch_workspace = workspace.clone();
+                            let push_name = name.clone();
+                            let push_repo = repo.clone();
+                            let push_workspace = workspace.clone();
                             let copy_name = name.clone();
                             let copy_sha = tag.target.clone();
-                            let delete_name = name.clone();
-                            let delete_repo = repo.clone();
 
-                            menu.entry(translate_ui("Copy Tag Name", cx), None, {
+                            menu.entry(translate_ui("Checkout Tag", cx), None, {
+                                let name = checkout_name;
+                                let repo = checkout_repo;
+                                move |window, cx| {
+                                    let Some(repo) = repo.clone() else {
+                                        return;
+                                    };
+                                    let name = name.to_string();
+                                    let receiver =
+                                        repo.update(cx, |repo, _| repo.change_branch(name));
+                                    window
+                                        .spawn(cx, async move |_cx| {
+                                            receiver.await??;
+                                            anyhow::Ok(())
+                                        })
+                                        .detach_and_prompt_err(
+                                            translate_ui("Failed to checkout tag", cx),
+                                            window,
+                                            cx,
+                                            |e, _, _| Some(e.to_string()),
+                                        );
+                                }
+                            })
+                            .entry(translate_ui("New Branch from Tag…", cx), None, {
+                                let name = new_branch_name;
+                                let repo = new_branch_repo;
+                                let workspace = new_branch_workspace;
+                                move |window, cx| {
+                                    let Some(repo) = repo.clone() else {
+                                        return;
+                                    };
+                                    let name = name.to_string();
+                                    if let Some(workspace) = workspace.upgrade() {
+                                        workspace.update(cx, |workspace, cx| {
+                                            let title = format!(
+                                                "{} ({})",
+                                                translate_ui("New Branch from Tag", cx),
+                                                name
+                                            );
+                                            workspace.toggle_modal(window, cx, |window, cx| {
+                                                crate::NewBranchModal::new(
+                                                    title,
+                                                    name.clone(),
+                                                    Some(format!("refs/tags/{name}")),
+                                                    repo,
+                                                    window,
+                                                    cx,
+                                                )
+                                            });
+                                        });
+                                    }
+                                }
+                            })
+                            .entry(translate_ui("Push Tag to Remote", cx), None, {
+                                let name = push_name;
+                                let repo = push_repo;
+                                let workspace = push_workspace;
+                                move |window, cx| {
+                                    let Some(repo) = repo.clone() else {
+                                        return;
+                                    };
+                                    let tag_name = name.to_string();
+                                    let askpass = crate::git_manager::operations::askpass_delegate(
+                                        &workspace,
+                                        format!("git push origin {tag_name}"),
+                                        window,
+                                        cx,
+                                    );
+                                    let receiver = repo.update(cx, |repo, cx| {
+                                        repo.push(
+                                            format!("refs/tags/{tag_name}").into(),
+                                            format!("refs/tags/{tag_name}").into(),
+                                            "origin".into(),
+                                            None,
+                                            askpass,
+                                            cx,
+                                        )
+                                    });
+                                    window
+                                        .spawn(cx, async move |_cx| {
+                                            receiver.await??;
+                                            anyhow::Ok(())
+                                        })
+                                        .detach_and_prompt_err(
+                                            translate_ui("Failed to push tag", cx),
+                                            window,
+                                            cx,
+                                            |e, _, _| Some(e.to_string()),
+                                        );
+                                }
+                            })
+                            .separator()
+                            .entry(translate_ui("Copy Tag Name", cx), None, {
                                 let name = copy_name;
                                 move |_, cx| {
                                     cx.write_to_clipboard(ClipboardItem::new_string(
@@ -165,15 +265,34 @@ fn render_tag_row(
                                 translate_ui("Delete Tag", cx),
                                 None,
                                 {
-                                    let name = delete_name;
-                                    let repo = delete_repo;
+                                    let name = name;
+                                    let repo = repo;
                                     move |window, cx| {
                                         let Some(repo) = repo.clone() else {
                                             return;
                                         };
                                         let name = name.to_string();
+                                        let prompt_message = format!(
+                                            "{} '{}'?",
+                                            translate_ui("Delete tag", cx),
+                                            name
+                                        );
+                                        let buttons = [
+                                            translate_ui("Delete", cx),
+                                            translate_ui("Cancel", cx),
+                                        ];
+                                        let answer = window.prompt(
+                                            PromptLevel::Warning,
+                                            &prompt_message,
+                                            None,
+                                            &buttons,
+                                            cx,
+                                        );
                                         window
                                             .spawn(cx, async move |cx| {
+                                                if answer.await != Ok(0) {
+                                                    return anyhow::Ok(());
+                                                }
                                                 repo.update(cx, |repo, _| {
                                                     repo.delete_tag(name.clone())
                                                 })

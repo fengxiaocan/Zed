@@ -30,7 +30,7 @@ use project::{
     DiagnosticSummary, Project, ProjectPath,
     project_settings::{DiagnosticSeverity, ProjectSettings},
 };
-use settings::Settings;
+use settings::{Settings, translate_ui};
 use std::{
     any::{Any, TypeId},
     cmp,
@@ -104,9 +104,9 @@ impl Render for ProjectDiagnosticsEditor {
         let child =
             if warning_count + self.summary.error_count == 0 && self.editor.read(cx).is_empty(cx) {
                 let label = if self.summary.warning_count == 0 {
-                    SharedString::new_static("No problems in workspace")
+                    SharedString::new_static(translate_ui("No problems in workspace", cx))
                 } else {
-                    SharedString::new_static("No errors in workspace")
+                    SharedString::new_static(translate_ui("No errors in workspace", cx))
                 };
                 v_flex()
                     .key_context("EmptyPane")
@@ -118,15 +118,15 @@ impl Render for ProjectDiagnosticsEditor {
                     .bg(cx.theme().colors().editor_background)
                     .child(Label::new(label).color(Color::Muted))
                     .when(self.summary.warning_count > 0, |this| {
-                        let plural_suffix = if self.summary.warning_count > 1 {
-                            "s"
+                        let label = if self.summary.warning_count == 1 {
+                            translate_ui("Show 1 warning", cx).to_string()
                         } else {
-                            ""
+                            format!(
+                                "{} {}",
+                                translate_ui("Show warnings", cx),
+                                self.summary.warning_count
+                            )
                         };
-                        let label = format!(
-                            "Show {} warning{}",
-                            self.summary.warning_count, plural_suffix
-                        );
                         this.child(
                             Button::new("diagnostics-show-warning-label", label).on_click(
                                 cx.listener(|this, _, window, cx| {
@@ -748,15 +748,15 @@ impl Item for ProjectDiagnosticsEditor {
             .update(cx, |editor, cx| editor.navigate(data, window, cx))
     }
 
-    fn tab_tooltip_text(&self, _: &App) -> Option<SharedString> {
-        Some("Project Diagnostics".into())
+    fn tab_tooltip_text(&self, cx: &App) -> Option<SharedString> {
+        Some(translate_ui("Project Diagnostics", cx).into())
     }
 
-    fn tab_content_text(&self, _detail: usize, _: &App) -> SharedString {
-        "Diagnostics".into()
+    fn tab_content_text(&self, _detail: usize, cx: &App) -> SharedString {
+        translate_ui("Diagnostics", cx).into()
     }
 
-    fn tab_content(&self, params: TabContentParams, _window: &Window, _: &App) -> AnyElement {
+    fn tab_content(&self, params: TabContentParams, _window: &Window, cx: &App) -> AnyElement {
         h_flex()
             .gap_1()
             .when(
@@ -766,7 +766,7 @@ impl Item for ProjectDiagnosticsEditor {
                         h_flex()
                             .gap_1()
                             .child(Icon::new(IconName::Check).color(Color::Success))
-                            .child(Label::new("No problems").color(params.text_color())),
+                            .child(Label::new(translate_ui("No problems", cx)).color(params.text_color())),
                     )
                 },
             )

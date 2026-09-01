@@ -963,6 +963,8 @@ pub trait GitRepository: Send + Sync {
         env: Arc<HashMap<String, String>>,
     ) -> BoxFuture<'_, Result<()>>;
 
+    fn stash_clear(&self, env: Arc<HashMap<String, String>>) -> BoxFuture<'_, Result<()>>;
+
     fn push(
         &self,
         branch_name: String,
@@ -1008,6 +1010,14 @@ pub trait GitRepository: Send + Sync {
 
     fn create_remote(&self, name: String, url: String) -> BoxFuture<'_, Result<()>>;
 
+    fn prune_remote(
+        &self,
+        name: String,
+        askpass: AskPassDelegate,
+        env: Arc<HashMap<String, String>>,
+        cx: AsyncApp,
+    ) -> BoxFuture<'_, Result<RemoteCommandOutput>>;
+
     /// Lists all tags (lightweight and annotated), sorted by name.
     fn list_tags(&self) -> BoxFuture<'_, Result<Vec<TagInfo>>>;
 
@@ -1034,6 +1044,9 @@ pub trait GitRepository: Send + Sync {
 
     /// Continues an in-progress rebase after conflicts are resolved.
     fn rebase_continue(&self, env: Arc<HashMap<String, String>>) -> BoxFuture<'_, Result<()>>;
+
+    /// Skips the current patch in an in-progress rebase.
+    fn rebase_skip(&self, env: Arc<HashMap<String, String>>) -> BoxFuture<'_, Result<()>>;
 
     /// Aborts an in-progress rebase.
     fn rebase_abort(&self, env: Arc<HashMap<String, String>>) -> BoxFuture<'_, Result<()>>;
@@ -2471,6 +2484,27 @@ impl GitRepository for RealGitRepository {
             .boxed()
     }
 
+    fn stash_clear(&self, env: Arc<HashMap<String, String>>) -> BoxFuture<'_, Result<()>> {
+        let git = self.git_binary_in_worktree();
+        self.executor
+            .spawn(async move {
+                let git = git?;
+                let output = git
+                    .build_command(&["stash", "clear"])
+                    .envs(env.iter())
+                    .output()
+                    .await?;
+
+                anyhow::ensure!(
+                    output.status.success(),
+                    "Failed to clear stash:\n{}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                Ok(())
+            })
+            .boxed()
+    }
+
     fn commit(
         &self,
         message: SharedString,
@@ -2754,6 +2788,39 @@ impl GitRepository for RealGitRepository {
             .boxed()
     }
 
+    fn prune_remote(
+        &self,
+        name: String,
+        ask_pass: AskPassDelegate,
+        env: Arc<HashMap<String, String>>,
+        cx: AsyncApp,
+    ) -> BoxFuture<'_, Result<RemoteCommandOutput>> {
+        let working_directory = self.command_directory();
+        let git_directory = self.path();
+        let git_binary_path = self.system_git_binary_path.clone();
+        let executor = cx.background_executor().clone();
+        let is_trusted = self.is_trusted();
+        async move {
+            let git_binary_path =
+                git_binary_path.context("git not found on $PATH, can't prune remote")?;
+            let git = GitBinary::new(
+                git_binary_path,
+                working_directory,
+                git_directory,
+                executor.clone(),
+                is_trusted,
+            );
+            let mut command = git.build_command(&["remote", "prune", &name]);
+            command
+                .envs(env.iter())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+
+            run_git_command(env, ask_pass, command, executor).await
+        }
+        .boxed()
+    }
+
     fn list_tags(&self) -> BoxFuture<'_, Result<Vec<TagInfo>>> {
         let git_binary = self.git_binary();
         self.executor
@@ -2909,6 +2976,25 @@ impl GitRepository for RealGitRepository {
                     output.status.success(),
                     "git rebase --continue failed:\n{}\n{}",
                     String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr),
+                );
+                Ok(())
+            })
+            .boxed()
+    }
+
+    fn rebase_skip(&self, env: Arc<HashMap<String, String>>) -> BoxFuture<'_, Result<()>> {
+        let git = self.git_binary();
+        self.executor
+            .spawn(async move {
+                let output = git
+                    .build_command(&["rebase", "--skip"])
+                    .envs(env.iter())
+                    .output()
+                    .await?;
+                anyhow::ensure!(
+                    output.status.success(),
+                    "git rebase --skip failed:\n{}",
                     String::from_utf8_lossy(&output.stderr),
                 );
                 Ok(())

@@ -412,14 +412,14 @@ pub fn git_status_icon(status: FileStatus) -> impl IntoElement {
     GitStatusIcon::new(status)
 }
 
-struct RenameBranchModal {
+pub(crate) struct RenameBranchModal {
     current_branch: SharedString,
     editor: Entity<Editor>,
     repo: Entity<Repository>,
 }
 
 impl RenameBranchModal {
-    fn new(
+    pub(crate) fn new(
         current_branch: String,
         repo: Entity<Repository>,
         window: &mut Window,
@@ -500,6 +500,96 @@ impl Render for RenameBranchModal {
     }
 }
 
+pub(crate) struct NewBranchModal {
+    title: SharedString,
+    base_ref: Option<String>,
+    editor: Entity<Editor>,
+    repo: Entity<Repository>,
+}
+
+impl NewBranchModal {
+    pub(crate) fn new(
+        title: impl Into<SharedString>,
+        default_name: String,
+        base_ref: Option<String>,
+        repo: Entity<Repository>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let editor = cx.new(|cx| {
+            let mut editor = Editor::single_line(window, cx);
+            editor.set_placeholder_text(translate_ui("Branch name…", cx), window, cx);
+            if !default_name.is_empty() {
+                editor.set_text(default_name, window, cx);
+            }
+            editor
+        });
+        Self {
+            title: title.into(),
+            base_ref,
+            editor,
+            repo,
+        }
+    }
+
+    fn cancel(&mut self, _: &Cancel, _window: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(DismissEvent);
+    }
+
+    fn confirm(&mut self, _: &Confirm, window: &mut Window, cx: &mut Context<Self>) {
+        let new_name = self.editor.read(cx).text(cx).trim().to_string();
+        if new_name.is_empty() {
+            cx.emit(DismissEvent);
+            return;
+        }
+
+        let repo = self.repo.clone();
+        let base_ref = self.base_ref.clone();
+        cx.spawn(async move |_, cx| {
+            repo.update(cx, |repo, _| repo.create_branch(new_name, base_ref))
+                .await??;
+            anyhow::Ok(())
+        })
+        .detach_and_prompt_err(
+            translate_ui("Failed to create branch", cx),
+            window,
+            cx,
+            |e, _, _| Some(e.to_string()),
+        );
+        cx.emit(DismissEvent);
+    }
+}
+
+impl EventEmitter<DismissEvent> for NewBranchModal {}
+impl ModalView for NewBranchModal {}
+impl Focusable for NewBranchModal {
+    fn focus_handle(&self, cx: &App) -> FocusHandle {
+        self.editor.focus_handle(cx)
+    }
+}
+
+impl Render for NewBranchModal {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        v_flex()
+            .key_context("NewBranchModal")
+            .on_action(cx.listener(Self::cancel))
+            .on_action(cx.listener(Self::confirm))
+            .elevation_2(cx)
+            .w(rems(34.))
+            .child(
+                h_flex()
+                    .px_3()
+                    .pt_2()
+                    .pb_1()
+                    .w_full()
+                    .gap_1p5()
+                    .child(Icon::new(IconName::GitBranch).size(IconSize::XSmall))
+                    .child(Headline::new(self.title.clone()).size(HeadlineSize::XSmall)),
+            )
+            .child(div().px_3().pb_3().w_full().child(self.editor.clone()))
+    }
+}
+
 fn rename_current_branch(
     workspace: &mut Workspace,
     window: &mut Window,
@@ -542,7 +632,7 @@ fn copy_branch_name(workspace: &mut Workspace, cx: &mut Context<Workspace>) {
     }
 }
 
-struct RefPickerModal {
+pub(crate) struct RefPickerModal {
     editor: Entity<Editor>,
     repo: Entity<Repository>,
     workspace: Entity<Workspace>,
@@ -552,7 +642,7 @@ struct RefPickerModal {
 }
 
 impl RefPickerModal {
-    fn new(
+    pub(crate) fn new(
         repo: Entity<Repository>,
         workspace: Entity<Workspace>,
         window: &mut Window,

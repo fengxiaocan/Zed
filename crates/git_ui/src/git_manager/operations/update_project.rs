@@ -139,7 +139,7 @@ fn plan_inputs(
     Some(UpdateInputs { plan, remote })
 }
 
-fn askpass_delegate(
+pub(crate) fn askpass_delegate(
     workspace: &gpui::WeakEntity<Workspace>,
     operation: impl Into<gpui::SharedString>,
     window: &mut Window,

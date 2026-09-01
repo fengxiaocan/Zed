@@ -9,9 +9,9 @@ use fs::Fs;
 use git::repository::{Branch, TagInfo};
 use git::stash::StashEntry;
 use gpui::{
-    Action, App, AsyncWindowContext, Context, Entity, EventEmitter, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, ParentElement, Pixels, Render, Styled, Subscription,
-    WeakEntity, Window, actions, div,
+    Action, Anchor, App, AsyncWindowContext, Context, Empty, Entity, EventEmitter, FocusHandle,
+    Focusable, InteractiveElement, IntoElement, ParentElement, Pixels, Render, Styled,
+    Subscription, WeakEntity, Window, actions, div, rems,
 };
 use project::{
     Project,
@@ -19,7 +19,10 @@ use project::{
 };
 use settings::{Settings, translate_ui, update_settings_file};
 use std::sync::Arc;
-use ui::{Button, Label, prelude::*};
+use ui::{
+    Button, ButtonSize, Color, Icon, IconButton, IconName, IconSize, Label, LabelSize, PopoverMenu,
+    Tooltip, prelude::*,
+};
 use util::ResultExt;
 use workspace::notifications::DetachAndPromptErr;
 use workspace::{
@@ -69,6 +72,7 @@ pub struct GitManager {
     branches: Vec<Branch>,
     filtered_branches: Vec<Branch>,
     filter_editor: Entity<Editor>,
+    favorite_branches: collections::HashSet<String>,
     remotes: Vec<sections::RemoteEntry>,
     filtered_remotes: Vec<sections::RemoteEntry>,
     remote_filter_editor: Entity<Editor>,
@@ -134,13 +138,14 @@ impl GitManager {
         let mut this = Self {
             focus_handle: cx.focus_handle(),
             workspace: workspace.weak_handle(),
-            project: project.clone(),
+            project,
             fs: workspace.app_state().fs.clone(),
             active_tab: GitManagerTab::Branches,
             active_repository: None,
             branches: Vec::new(),
             filtered_branches: Vec::new(),
             filter_editor: filter_editor.clone(),
+            favorite_branches: collections::HashSet::default(),
             remotes: Vec::new(),
             filtered_remotes: Vec::new(),
             remote_filter_editor: remote_filter_editor.clone(),
@@ -213,17 +218,55 @@ impl GitManager {
         operations::update_project(&repo, &self.workspace, window, cx);
     }
 
+    /// Fetches all remotes for the active repository.
+    pub(crate) fn fetch_all_remotes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(repo) = self.active_repository.clone() else {
+            return;
+        };
+        let workspace = self.workspace.clone();
+        let askpass = operations::askpass_delegate(
+            &workspace,
+            "git fetch --all".to_string(),
+            window,
+            cx,
+        );
+        let receiver = repo.update(cx, |repo, cx| {
+            repo.fetch(git::repository::FetchOptions::All, askpass, cx)
+        });
+        let handle = cx.entity().downgrade();
+        window
+            .spawn(cx, async move |cx| {
+                receiver.await??;
+                handle
+                    .update(cx, |this, cx| {
+                        this.reload_all(cx);
+                    })
+                    .log_err();
+                anyhow::Ok(())
+            })
+            .detach_and_prompt_err(
+                translate_ui("Failed to fetch all remotes", cx),
+                window,
+                cx,
+                |e, _, _| Some(e.to_string()),
+            );
+    }
+
+    pub(crate) fn reload_all(&mut self, cx: &mut Context<Self>) {
+        self.reload_branches(cx);
+        self.reload_remotes(cx);
+        self.reload_tags(cx);
+        self.reload_shelves(cx);
+        self.refresh_in_progress_state(cx);
+    }
+
     fn reload_active_repository(&mut self, cx: &mut Context<Self>) {
         let new_repo = self.project.read(cx).active_repository(cx);
         let changed = self.active_repository.as_ref().map(Entity::entity_id)
             != new_repo.as_ref().map(Entity::entity_id);
         self.active_repository = new_repo;
         if changed {
-            self.reload_branches(cx);
-            self.reload_remotes(cx);
-            self.reload_tags(cx);
-            self.reload_shelves(cx);
-            self.refresh_in_progress_state(cx);
+            self.reload_all(cx);
         } else {
             cx.notify();
         }
@@ -256,11 +299,24 @@ impl GitManager {
 
     fn reload_branches(&mut self, cx: &mut Context<Self>) {
         if let Some(repo) = self.active_repository.as_ref() {
-            self.branches = sections::load_branches_from_repo(repo, cx);
+            self.branches = sections::load_branches_from_repo_with_favorites(
+                repo,
+                &self.favorite_branches,
+                cx,
+            );
         } else {
             self.branches.clear();
         }
         self.refresh_filtered_branches(cx);
+    }
+
+    pub(crate) fn toggle_favorite_branch(&mut self, branch_name: String, cx: &mut Context<Self>) {
+        if self.favorite_branches.contains(&branch_name) {
+            self.favorite_branches.remove(&branch_name);
+        } else {
+            self.favorite_branches.insert(branch_name);
+        }
+        self.reload_branches(cx);
     }
 
     fn reload_remotes(&mut self, cx: &mut Context<Self>) {
@@ -372,6 +428,8 @@ impl GitManager {
                 self.active_repository.is_some(),
                 self.active_repository.clone(),
                 self.workspace.clone(),
+                cx.entity().downgrade(),
+                self.favorite_branches.clone(),
                 cx,
             ))
             .into_any_element()
@@ -471,6 +529,7 @@ impl GitManager {
 
     fn render_shelves_section(&self, cx: &mut Context<Self>) -> AnyElement {
         let has_repo = self.active_repository.is_some();
+        let has_shelves = !self.shelves.is_empty();
         v_flex()
             .id("git-manager-shelves-body")
             .flex_1()
@@ -504,6 +563,18 @@ impl GitManager {
                                     cx,
                                     |e, _, _| Some(e.to_string()),
                                 );
+                            })),
+                    )
+                    .child(
+                        Button::new("gm-clear-shelves", translate_ui("Clear All Shelves", cx))
+                            .label_size(ui::LabelSize::Small)
+                            .size(ui::ButtonSize::Compact)
+                            .disabled(!has_repo || !has_shelves)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                let Some(repo) = this.active_repository.clone() else {
+                                    return;
+                                };
+                                sections::drop_all_shelves_with_prompt(repo, window, cx);
                             })),
                     ),
             )
@@ -588,6 +659,17 @@ impl Panel for GitManager {
 
 impl Render for GitManager {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let active_repo_name = self
+            .active_repository
+            .as_ref()
+            .map(|repo| repo.read(cx).display_name().to_string())
+            .unwrap_or_else(|| translate_ui("No Git Repositories", cx).to_string());
+
+        let git_store = self.project.read(cx).git_store().clone();
+        let repo_count = git_store.read(cx).repositories().len();
+        let has_multiple_repos = repo_count > 1;
+        let project = self.project.clone();
+
         v_flex()
             .size_full()
             .bg(cx.theme().colors().panel_background)
@@ -598,16 +680,81 @@ impl Render for GitManager {
                     .px_2()
                     .pt_2()
                     .pb_1()
+                    .items_center()
+                    .justify_between()
                     .child(
-                        Label::new(translate_ui("Git Manager", cx))
-                            .weight(gpui::FontWeight::SEMIBOLD),
+                        h_flex()
+                            .gap_1p5()
+                            .items_center()
+                            .min_w_0()
+                            .child(
+                                Label::new(translate_ui("Git Manager", cx))
+                                    .weight(gpui::FontWeight::SEMIBOLD),
+                            )
+                            .when(self.active_repository.is_some(), |this| {
+                                let project = project.clone();
+                                this.child(
+                                    PopoverMenu::new("gm-repo-switcher")
+                                        .trigger_with_tooltip(
+                                            Button::new("gm-repo-selector", active_repo_name)
+                                                .label_size(LabelSize::Small)
+                                                .size(ButtonSize::None)
+                                                .color(Color::Muted)
+                                                .truncate(true)
+                                                .when(has_multiple_repos, |b| {
+                                                    b.end_icon(
+                                                        Icon::new(IconName::ChevronDown)
+                                                            .size(IconSize::XSmall)
+                                                            .color(Color::Muted),
+                                                    )
+                                                }),
+                                            move |_, cx| {
+                                                if has_multiple_repos {
+                                                    Tooltip::simple(
+                                                        translate_ui("Switch Active Repository", cx),
+                                                        cx,
+                                                    )
+                                                } else {
+                                                    cx.new(|_| Empty).into()
+                                                }
+                                            },
+                                        )
+                                        .menu(move |window, cx| {
+                                            let project = project.clone();
+                                            Some(cx.new(|cx| {
+                                                crate::repository_selector::RepositorySelector::new(
+                                                    project,
+                                                    rems(20.),
+                                                    window,
+                                                    cx,
+                                                )
+                                            }))
+                                        })
+                                        .anchor(Anchor::BottomLeft),
+                                )
+                            }),
+                    )
+                    .child(
+                        IconButton::new("gm-refresh-btn", IconName::ArrowCircle)
+                            .icon_size(IconSize::Small)
+                            .tooltip(Tooltip::text(translate_ui("Refresh", cx)))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.reload_all(cx);
+                            })),
                     ),
             )
             .child(toolbar::GitManagerToolbar::new(
                 self.focus_handle.clone(),
                 cx.entity().downgrade(),
             ))
-            .child(toolbar::render_tab_bar(self.active_tab, cx))
+            .child(toolbar::render_tab_bar(
+                self.active_tab,
+                self.branches.len(),
+                self.remotes.len(),
+                self.tags.len(),
+                self.shelves.len(),
+                cx,
+            ))
             .children(self.render_in_progress_banner(cx))
             .child(self.render_body(cx))
     }
@@ -620,7 +767,7 @@ impl GitManager {
         };
 
         if self.merge_in_progress {
-            let repo_abort = repo.clone();
+            let repo_abort = repo;
             return Some(
                 h_flex()
                     .w_full()
@@ -648,7 +795,8 @@ impl GitManager {
 
         if self.rebase_in_progress {
             let repo_continue = repo.clone();
-            let repo_abort = repo.clone();
+            let repo_skip = repo.clone();
+            let repo_abort = repo;
             return Some(
                 h_flex()
                     .w_full()
@@ -667,6 +815,15 @@ impl GitManager {
                             .size(ui::ButtonSize::Compact)
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 operations::rebase_continue(&repo_continue, window, cx);
+                                this.refresh_in_progress_state(cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("gm-skip-rebase", translate_ui("Skip Commit", cx))
+                            .label_size(ui::LabelSize::Small)
+                            .size(ui::ButtonSize::Compact)
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                operations::rebase_skip(&repo_skip, window, cx);
                                 this.refresh_in_progress_state(cx);
                             })),
                     )

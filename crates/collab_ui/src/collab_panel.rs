@@ -28,7 +28,7 @@ use rpc::{
     proto::{self, ChannelVisibility, PeerId, reorder_channel::Direction},
 };
 use serde::{Deserialize, Serialize};
-use settings::Settings;
+use settings::{Settings, translate_ui};
 use smallvec::SmallVec;
 use std::{mem, ops::Range, sync::Arc, time::Duration};
 use theme::ActiveTheme;
@@ -3987,8 +3987,8 @@ impl Panel for CollabPanel {
             .then_some(ui::IconName::UserGroup)
     }
 
-    fn icon_tooltip(&self, _window: &Window, _cx: &App) -> Option<&'static str> {
-        Some("Collab Panel")
+    fn icon_tooltip(&self, _window: &Window, cx: &App) -> Option<&'static str> {
+        Some(translate_ui("Collab Panel", cx))
     }
 
     fn toggle_action(&self) -> Box<dyn gpui::Action> {
