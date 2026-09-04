@@ -22,7 +22,11 @@ pub fn documentation_aside_side(cx: &gpui::App) -> ui::DocumentationSide {
     use ui::DocumentationSide;
 
     match AgentSettings::get_global(cx).dock {
-        settings::DockPosition::Left => DocumentationSide::Right,
-        settings::DockPosition::Bottom | settings::DockPosition::Right => DocumentationSide::Left,
+        settings::DockPosition::Left | settings::DockPosition::FloatingLeft => {
+            DocumentationSide::Right
+        }
+        settings::DockPosition::Bottom
+        | settings::DockPosition::Right
+        | settings::DockPosition::FloatingRight => DocumentationSide::Left,
     }
 }

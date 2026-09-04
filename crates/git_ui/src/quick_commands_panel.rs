@@ -338,13 +338,18 @@ impl Panel for QuickCommandsPanel {
     }
 
     fn position_is_valid(&self, position: DockPosition) -> bool {
-        matches!(position, DockPosition::Left | DockPosition::Right)
+        matches!(
+            position,
+            DockPosition::Left
+                | DockPosition::Right
+                | DockPosition::FloatingLeft
+                | DockPosition::FloatingRight
+        )
     }
 
     fn set_position(&mut self, position: DockPosition, _: &mut Window, cx: &mut Context<Self>) {
-        // Follow the Git Panel dock, matching Git Manager's convention.
         update_settings_file(self.fs.clone(), cx, move |settings, _| {
-            settings.git_panel.get_or_insert_default().dock = Some(position.into());
+            settings.quick_commands.get_or_insert_default().dock = Some(position.into());
         });
     }
 

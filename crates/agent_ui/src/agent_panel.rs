@@ -82,7 +82,6 @@ use language::LanguageRegistry;
 use language_model::LanguageModelRegistry;
 use notifications::status_toast::StatusToast;
 use project::{Project, ProjectPath, Worktree};
-use settings::TerminalDockPosition;
 use settings::{NotifyWhenAgentWaiting, Settings, translate_ui, update_settings_file};
 
 use search::{BufferSearchBar, buffer_search::Deploy as DeployBufferSearch};
@@ -666,11 +665,8 @@ pub fn init(cx: &mut App) {
 
                         let has_terminal_panel_selection =
                             workspace.panel::<TerminalPanel>(cx).is_some_and(|panel| {
-                                let position = match TerminalSettings::get_global(cx).dock {
-                                    TerminalDockPosition::Left => DockPosition::Left,
-                                    TerminalDockPosition::Bottom => DockPosition::Bottom,
-                                    TerminalDockPosition::Right => DockPosition::Right,
-                                };
+                                let position: DockPosition =
+                                    TerminalSettings::get_global(cx).dock.into();
                                 let dock_is_open =
                                     workspace.dock_at_position(position).read(cx).is_open();
                                 dock_is_open && !panel.read(cx).terminal_selections(cx).is_empty()
@@ -5017,8 +5013,8 @@ impl Panel for AgentPanel {
 
     fn set_position(&mut self, position: DockPosition, _: &mut Window, cx: &mut Context<Self>) {
         let side = match position {
-            DockPosition::Left => "left",
-            DockPosition::Right | DockPosition::Bottom => "right",
+            DockPosition::Left | DockPosition::FloatingLeft => "left",
+            DockPosition::Right | DockPosition::FloatingRight | DockPosition::Bottom => "right",
         };
         telemetry::event!("Agent Panel Side Changed", side = side);
         settings::update_settings_file(self.fs.clone(), cx, move |settings, _| {
@@ -5032,14 +5028,20 @@ impl Panel for AgentPanel {
     fn default_size(&self, window: &Window, cx: &App) -> Pixels {
         let settings = AgentSettings::get_global(cx);
         match self.position(window, cx) {
-            DockPosition::Left | DockPosition::Right => settings.default_width,
+            DockPosition::Left
+            | DockPosition::Right
+            | DockPosition::FloatingLeft
+            | DockPosition::FloatingRight => settings.default_width,
             DockPosition::Bottom => settings.default_height,
         }
     }
 
     fn min_size(&self, window: &Window, cx: &App) -> Option<Pixels> {
         match self.position(window, cx) {
-            DockPosition::Left | DockPosition::Right => Some(MIN_PANEL_WIDTH),
+            DockPosition::Left
+            | DockPosition::Right
+            | DockPosition::FloatingLeft
+            | DockPosition::FloatingRight => Some(MIN_PANEL_WIDTH),
             DockPosition::Bottom => None,
         }
     }

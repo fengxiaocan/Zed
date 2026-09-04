@@ -25,16 +25,19 @@ impl From<&QuickCommandEntryContent> for QuickCommand {
 #[derive(Debug, Clone, PartialEq, RegisterSetting)]
 pub struct QuickCommandsSettings {
     pub button: bool,
+    pub dock: Option<DockPosition>,
     pub default_width: Pixels,
     pub starts_open: bool,
     pub commands: Vec<QuickCommand>,
 }
 
 impl QuickCommandsSettings {
-    /// Dock follows the existing Git Panel (same convention as Git Manager).
+    /// Dock follows quick_commands setting if configured, or falls back to Git Panel.
     pub fn dock(cx: &gpui::App) -> DockPosition {
-        use crate::git_panel_settings::GitPanelSettings;
-        GitPanelSettings::get_global(cx).dock
+        Self::get_global(cx).dock.unwrap_or_else(|| {
+            use crate::git_panel_settings::GitPanelSettings;
+            GitPanelSettings::get_global(cx).dock
+        })
     }
 }
 
@@ -43,6 +46,7 @@ impl Settings for QuickCommandsSettings {
         let qc = content.quick_commands.clone().unwrap_or_default();
         Self {
             button: qc.button.unwrap_or(true),
+            dock: qc.dock.map(Into::into),
             default_width: px(qc.default_width.unwrap_or(360.0)),
             starts_open: qc.starts_open.unwrap_or(false),
             commands: qc.commands.iter().map(QuickCommand::from).collect(),

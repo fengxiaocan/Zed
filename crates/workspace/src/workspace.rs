@@ -337,6 +337,10 @@ actions!(
         ToggleLeftDock,
         /// Toggles the right dock.
         ToggleRightDock,
+        /// Toggles the floating left dock.
+        ToggleFloatingLeftDock,
+        /// Toggles the floating right dock.
+        ToggleFloatingRightDock,
         /// Toggles zoom on the active pane.
         ToggleZoom,
         /// Toggles maximizing the active editor pane within the center area,
@@ -1380,6 +1384,8 @@ pub struct Workspace {
     left_dock: Entity<Dock>,
     bottom_dock: Entity<Dock>,
     right_dock: Entity<Dock>,
+    floating_left_dock: Entity<Dock>,
+    floating_right_dock: Entity<Dock>,
     panes: Vec<Entity<Pane>>,
     panes_by_item: HashMap<EntityId, WeakEntity<Pane>>,
     active_pane: Entity<Pane>,
@@ -1744,7 +1750,15 @@ impl Workspace {
         let left_dock = Dock::new(DockPosition::Left, modal_layer.clone(), window, cx);
         let bottom_dock = Dock::new(DockPosition::Bottom, modal_layer.clone(), window, cx);
         let right_dock = Dock::new(DockPosition::Right, modal_layer.clone(), window, cx);
+        let floating_left_dock =
+            Dock::new(DockPosition::FloatingLeft, modal_layer.clone(), window, cx);
+        let floating_right_dock =
+            Dock::new(DockPosition::FloatingRight, modal_layer.clone(), window, cx);
         let left_dock_buttons = cx.new(|cx| PanelButtons::new(left_dock.clone(), cx));
+        let floating_left_dock_buttons =
+            cx.new(|cx| PanelButtons::new(floating_left_dock.clone(), cx));
+        let floating_right_dock_buttons =
+            cx.new(|cx| PanelButtons::new(floating_right_dock.clone(), cx));
         let bottom_dock_buttons = cx.new(|cx| PanelButtons::new(bottom_dock.clone(), cx));
         let right_dock_buttons = cx.new(|cx| PanelButtons::new(right_dock.clone(), cx));
         let multi_workspace = window
@@ -1755,6 +1769,8 @@ impl Workspace {
             let mut status_bar =
                 StatusBar::new(&center_pane.clone(), multi_workspace.clone(), window, cx);
             status_bar.add_left_item(left_dock_buttons, window, cx);
+            status_bar.add_left_item(floating_left_dock_buttons, window, cx);
+            status_bar.add_right_item(floating_right_dock_buttons, window, cx);
             status_bar.add_right_item(right_dock_buttons, window, cx);
             status_bar.add_right_item(bottom_dock_buttons, window, cx);
             status_bar
@@ -1849,6 +1865,8 @@ impl Workspace {
             left_dock,
             bottom_dock,
             right_dock,
+            floating_left_dock,
+            floating_right_dock,
             _panels_task: None,
             project: project.clone(),
             follower_states: Default::default(),
@@ -2211,8 +2229,22 @@ impl Workspace {
         &self.right_dock
     }
 
-    pub fn all_docks(&self) -> [&Entity<Dock>; 3] {
-        [&self.left_dock, &self.bottom_dock, &self.right_dock]
+    pub fn floating_left_dock(&self) -> &Entity<Dock> {
+        &self.floating_left_dock
+    }
+
+    pub fn floating_right_dock(&self) -> &Entity<Dock> {
+        &self.floating_right_dock
+    }
+
+    pub fn all_docks(&self) -> [&Entity<Dock>; 5] {
+        [
+            &self.left_dock,
+            &self.bottom_dock,
+            &self.right_dock,
+            &self.floating_left_dock,
+            &self.floating_right_dock,
+        ]
     }
 
     pub fn capture_dock_state(&self, _window: &Window, cx: &App) -> DockStructure {
@@ -2283,6 +2315,8 @@ impl Workspace {
             (DockPosition::Left, &self.left_dock),
             (DockPosition::Right, &self.right_dock),
             (DockPosition::Bottom, &self.bottom_dock),
+            (DockPosition::FloatingLeft, &self.floating_left_dock),
+            (DockPosition::FloatingRight, &self.floating_right_dock),
         ]
         .into_iter()
         .find(|(_, dock)| {
@@ -2348,6 +2382,8 @@ impl Workspace {
             DockPosition::Left => &self.left_dock,
             DockPosition::Bottom => &self.bottom_dock,
             DockPosition::Right => &self.right_dock,
+            DockPosition::FloatingLeft => &self.floating_left_dock,
+            DockPosition::FloatingRight => &self.floating_right_dock,
         }
     }
 
@@ -2450,6 +2486,7 @@ impl Workspace {
         let use_flex = panel.has_flexible_size(window, cx);
 
         if position.axis() == Axis::Horizontal
+            && !position.is_floating()
             && use_flex
             && let Some(flex) = size_state.flex.or_else(|| self.default_dock_flex(position))
         {
@@ -2488,7 +2525,7 @@ impl Workspace {
         window: &Window,
         cx: &App,
     ) -> Option<f32> {
-        if position.axis() != Axis::Horizontal {
+        if position.axis() != Axis::Horizontal || position.is_floating() {
             return None;
         }
 
@@ -2521,7 +2558,7 @@ impl Workspace {
         let opposite_position = match position {
             DockPosition::Left => DockPosition::Right,
             DockPosition::Right => DockPosition::Left,
-            DockPosition::Bottom => return None,
+            DockPosition::Bottom | DockPosition::FloatingLeft | DockPosition::FloatingRight => return None,
         };
 
         let opposite_dock = self.dock_at_position(opposite_position).read(cx);
@@ -2540,7 +2577,7 @@ impl Workspace {
     }
 
     pub fn default_dock_flex(&self, position: DockPosition) -> Option<f32> {
-        if position.axis() != Axis::Horizontal {
+        if position.axis() != Axis::Horizontal || position.is_floating() {
             return None;
         }
 
@@ -2561,7 +2598,7 @@ impl Workspace {
         cx.on_focus_in(&focus_handle, window, Self::handle_panel_focused)
             .detach();
 
-        let dock_position = panel.position(window, cx);
+        let dock_position = panel.read(cx).position(window, cx);
         let dock = self.dock_at_position(dock_position);
         let any_panel = panel.to_any();
         let persisted_size_state =
@@ -2594,7 +2631,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        for dock in [&self.left_dock, &self.bottom_dock, &self.right_dock] {
+        for dock in self.all_docks() {
             dock.update(cx, |dock, cx| dock.remove_panel(panel, window, cx));
         }
     }
@@ -5230,7 +5267,9 @@ impl Workspace {
         } else {
             [
                 (&self.left_dock, Origin::LeftDock),
+                (&self.floating_left_dock, Origin::LeftDock),
                 (&self.right_dock, Origin::RightDock),
+                (&self.floating_right_dock, Origin::RightDock),
                 (&self.bottom_dock, Origin::BottomDock),
             ]
             .into_iter()
@@ -5507,6 +5546,12 @@ impl Workspace {
                 DockPosition::Left => self.resize_left_dock(panel_size + amount, window, cx),
                 DockPosition::Bottom => self.resize_bottom_dock(panel_size + amount, window, cx),
                 DockPosition::Right => self.resize_right_dock(panel_size + amount, window, cx),
+                DockPosition::FloatingLeft => {
+                    self.resize_floating_left_dock(panel_size + amount, window, cx)
+                }
+                DockPosition::FloatingRight => {
+                    self.resize_floating_right_dock(panel_size + amount, window, cx)
+                }
             }
         } else {
             self.center
@@ -7489,6 +7534,18 @@ impl Workspace {
             }
         }
 
+        if self.floating_left_dock.read(cx).is_open() {
+            if let Some(active_panel) = self.floating_left_dock.read(cx).active_panel() {
+                context.set("floating_left_dock", active_panel.panel_key());
+            }
+        }
+
+        if self.floating_right_dock.read(cx).is_open() {
+            if let Some(active_panel) = self.floating_right_dock.read(cx).active_panel() {
+                context.set("floating_right_dock", active_panel.panel_key());
+            }
+        }
+
         context
     }
 
@@ -7633,6 +7690,16 @@ impl Workspace {
             .on_action(cx.listener(
                 |workspace: &mut Workspace, _: &ToggleBottomDock, window, cx| {
                     workspace.toggle_dock(DockPosition::Bottom, window, cx);
+                },
+            ))
+            .on_action(cx.listener(
+                |workspace: &mut Workspace, _: &ToggleFloatingLeftDock, window, cx| {
+                    workspace.toggle_dock(DockPosition::FloatingLeft, window, cx);
+                },
+            ))
+            .on_action(cx.listener(
+                |workspace: &mut Workspace, _: &ToggleFloatingRightDock, window, cx| {
+                    workspace.toggle_dock(DockPosition::FloatingRight, window, cx);
                 },
             ))
             .on_action(cx.listener(
@@ -8105,6 +8172,8 @@ impl Workspace {
             DockPosition::Left => ("left-dock", "Left dock"),
             DockPosition::Right => ("right-dock", "Right dock"),
             DockPosition::Bottom => ("bottom-dock", "Bottom dock"),
+            DockPosition::FloatingLeft => ("floating-left-dock", "Floating left dock"),
+            DockPosition::FloatingRight => ("floating-right-dock", "Floating right dock"),
         };
         let dock_is_open = dock.read(cx).is_open();
         let a11y_active = window.is_a11y_active();
@@ -8172,6 +8241,84 @@ impl Workspace {
         Some(container)
     }
 
+    fn render_floating_dock(
+        &self,
+        position: DockPosition,
+        dock: &Entity<Dock>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Option<Stateful<Div>> {
+        if self.zoomed_position == Some(position) {
+            return None;
+        }
+
+        let dock_model = dock.read(cx);
+        let dock_is_open = dock_model.is_open();
+
+        let (dock_element_id, dock_label) = match position {
+            DockPosition::FloatingLeft => ("floating-left-dock", "Floating left dock"),
+            DockPosition::FloatingRight => ("floating-right-dock", "Floating right dock"),
+            _ => ("dock", "Dock"),
+        };
+
+        if !dock_is_open {
+            return Some(
+                div()
+                    .id(dock_element_id)
+                    .invisible()
+                    .absolute()
+                    .size_0()
+                    .child(dock.clone()),
+            );
+        }
+
+        let panel = dock_model.visible_panel()?;
+        let size_state = dock_model.stored_panel_size_state(panel.as_ref());
+        let min_size = panel.min_size(window, cx);
+        let size = size_state
+            .and_then(|state| state.size)
+            .unwrap_or_else(|| panel.default_size(window, cx));
+
+        let leader_border = dock_model.active_panel().and_then(|panel| {
+            let pane = panel.pane(cx)?;
+            let follower_states = &self.follower_states;
+            leader_border_for_pane(follower_states, &pane, window, cx)
+        });
+
+        let a11y_active = window.is_a11y_active();
+
+        let mut container = div()
+            .id(dock_element_id)
+            .role(gpui::Role::Complementary)
+            .aria_label(dock_label)
+            .when(a11y_active, |this| {
+                this.track_focus(self.region_focus_handles.dock(position))
+            })
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .h_full()
+            .w(size)
+            .occlude()
+            .shadow_xl()
+            .flex()
+            .flex_none();
+
+        if position == DockPosition::FloatingLeft {
+            container = container.left_0();
+        } else {
+            container = container.right_0();
+        }
+
+        if let Some(min) = min_size {
+            container = container.min_w(min);
+        }
+
+        container = container.child(dock.clone()).children(leader_border);
+
+        Some(container)
+    }
+
     /// Returns the currently-visible major window regions ("parts"), in a stable
     /// cyclic order: title bar, left dock, editor, right dock, bottom dock,
     /// status bar. Closed docks are skipped. Used by
@@ -8204,6 +8351,10 @@ impl Workspace {
             &self.left_dock,
             &self.region_focus_handles.left_dock,
         ));
+        parts.extend(dock_part(
+            &self.floating_left_dock,
+            &self.region_focus_handles.floating_left_dock,
+        ));
 
         let center_pane = self
             .last_active_center_pane
@@ -8215,6 +8366,10 @@ impl Workspace {
             center_pane.read(cx).focus_handle(cx),
         ));
 
+        parts.extend(dock_part(
+            &self.floating_right_dock,
+            &self.region_focus_handles.floating_right_dock,
+        ));
         parts.extend(dock_part(
             &self.right_dock,
             &self.region_focus_handles.right_dock,
@@ -8415,7 +8570,31 @@ impl Workspace {
             DockPosition::Left => self.resize_left_dock(new_size, window, cx),
             DockPosition::Right => self.resize_right_dock(new_size, window, cx),
             DockPosition::Bottom => self.resize_bottom_dock(new_size, window, cx),
+            DockPosition::FloatingLeft => self.resize_floating_left_dock(new_size, window, cx),
+            DockPosition::FloatingRight => self.resize_floating_right_dock(new_size, window, cx),
         }
+    }
+
+    fn resize_floating_left_dock(&mut self, new_size: Pixels, window: &mut Window, cx: &mut App) {
+        let workspace_width = self.bounds.size.width;
+        let size = new_size.clamp(
+            RESIZE_HANDLE_SIZE,
+            (workspace_width - RESIZE_HANDLE_SIZE).max(RESIZE_HANDLE_SIZE),
+        );
+        self.floating_left_dock.update(cx, |dock, cx| {
+            dock.resize_active_panel(Some(size), None, window, cx);
+        });
+    }
+
+    fn resize_floating_right_dock(&mut self, new_size: Pixels, window: &mut Window, cx: &mut App) {
+        let workspace_width = self.bounds.size.width;
+        let size = new_size.clamp(
+            RESIZE_HANDLE_SIZE,
+            (workspace_width - RESIZE_HANDLE_SIZE).max(RESIZE_HANDLE_SIZE),
+        );
+        self.floating_right_dock.update(cx, |dock, cx| {
+            dock.resize_active_panel(Some(size), None, window, cx);
+        });
     }
 
     fn resize_left_dock(&mut self, new_size: Pixels, window: &mut Window, cx: &mut App) {
@@ -8875,6 +9054,8 @@ struct RegionFocusHandles {
     left_dock: FocusHandle,
     right_dock: FocusHandle,
     bottom_dock: FocusHandle,
+    floating_left_dock: FocusHandle,
+    floating_right_dock: FocusHandle,
     editor: FocusHandle,
 }
 
@@ -8884,6 +9065,8 @@ impl RegionFocusHandles {
             left_dock: cx.focus_handle(),
             right_dock: cx.focus_handle(),
             bottom_dock: cx.focus_handle(),
+            floating_left_dock: cx.focus_handle(),
+            floating_right_dock: cx.focus_handle(),
             editor: cx.focus_handle(),
         }
     }
@@ -8893,6 +9076,8 @@ impl RegionFocusHandles {
             DockPosition::Left => &self.left_dock,
             DockPosition::Right => &self.right_dock,
             DockPosition::Bottom => &self.bottom_dock,
+            DockPosition::FloatingLeft => &self.floating_left_dock,
+            DockPosition::FloatingRight => &self.floating_right_dock,
         }
     }
 }
@@ -9126,7 +9311,7 @@ impl Render for Workspace {
                                             let bounds_changed = this.bounds != bounds;
                                             this.bounds = bounds;
 
-                                            if bounds_changed {
+                                             if bounds_changed {
                                                 this.left_dock.update(cx, |dock, cx| {
                                                     dock.clamp_panel_size(
                                                         bounds.size.width,
@@ -9136,6 +9321,22 @@ impl Render for Workspace {
                                                 });
 
                                                 this.right_dock.update(cx, |dock, cx| {
+                                                    dock.clamp_panel_size(
+                                                        bounds.size.width,
+                                                        window,
+                                                        cx,
+                                                    )
+                                                });
+
+                                                this.floating_left_dock.update(cx, |dock, cx| {
+                                                    dock.clamp_panel_size(
+                                                        bounds.size.width,
+                                                        window,
+                                                        cx,
+                                                    )
+                                                });
+
+                                                this.floating_right_dock.update(cx, |dock, cx| {
                                                     dock.clamp_panel_size(
                                                         bounds.size.width,
                                                         window,
@@ -9188,6 +9389,22 @@ impl Render for Workspace {
                                                     workspace.resize_bottom_dock(
                                                         workspace.bounds.bottom()
                                                             - e.event.position.y,
+                                                        window,
+                                                        cx,
+                                                    );
+                                                }
+                                                DockPosition::FloatingLeft => {
+                                                    workspace.resize_floating_left_dock(
+                                                        e.event.position.x
+                                                            - workspace.bounds.left(),
+                                                        window,
+                                                        cx,
+                                                    );
+                                                }
+                                                DockPosition::FloatingRight => {
+                                                    workspace.resize_floating_right_dock(
+                                                        workspace.bounds.right()
+                                                            - e.event.position.x,
                                                         window,
                                                         cx,
                                                     );
@@ -9435,6 +9652,18 @@ impl Render for Workspace {
                                         )),
                                 }
                             })
+                            .children(self.render_floating_dock(
+                                DockPosition::FloatingLeft,
+                                &self.floating_left_dock,
+                                window,
+                                cx,
+                            ))
+                            .children(self.render_floating_dock(
+                                DockPosition::FloatingRight,
+                                &self.floating_right_dock,
+                                window,
+                                cx,
+                            ))
                             .children(self.zoomed.as_ref().and_then(|view| {
                                 let zoomed_view = view.upgrade()?;
                                 let div = div()
@@ -9452,8 +9681,12 @@ impl Render for Workspace {
                                 }
 
                                 Some(match self.zoomed_position {
-                                    Some(DockPosition::Left) => div.right_2().border_r_1(),
-                                    Some(DockPosition::Right) => div.left_2().border_l_1(),
+                                    Some(DockPosition::Left | DockPosition::FloatingLeft) => {
+                                        div.right_2().border_r_1()
+                                    }
+                                    Some(DockPosition::Right | DockPosition::FloatingRight) => {
+                                        div.left_2().border_l_1()
+                                    }
                                     Some(DockPosition::Bottom) => div.top_2().border_t_1(),
                                     None => div.top_2().bottom_2().left_2().right_2().border_1(),
                                 })
@@ -11618,7 +11851,10 @@ fn load_legacy_panel_size(
     let state = serde_json::from_str::<LegacyPanelState>(&json).log_err()?;
     let size = match dock_position {
         DockPosition::Bottom => state.height,
-        DockPosition::Left | DockPosition::Right => state.width,
+        DockPosition::Left
+        | DockPosition::Right
+        | DockPosition::FloatingLeft
+        | DockPosition::FloatingRight => state.width,
     }?;
 
     cx.background_spawn(async move { kvp.delete_kvp(legacy_key).await })
@@ -15996,6 +16232,63 @@ mod tests {
         workspace.update(cx, |workspace, cx| {
             assert!(workspace.right_dock().read(cx).is_open());
             assert_eq!(panel.read(cx).position, DockPosition::Right);
+        });
+    }
+
+    #[gpui::test]
+    async fn test_floating_docks(cx: &mut TestAppContext) {
+        init_test(cx);
+        let fs = FakeFs::new(cx.executor());
+        let project = Project::test(fs, [], cx).await;
+        let (multi_workspace, cx) =
+            cx.add_window_view(|window, cx| MultiWorkspace::test_new(project, window, cx));
+        let workspace = multi_workspace.read_with(cx, |mw, _| mw.workspace().clone());
+
+        let floating_left_panel = workspace.update_in(cx, |workspace, window, cx| {
+            let panel = cx.new(|cx| TestPanel::new(DockPosition::FloatingLeft, 250, cx));
+            workspace.add_panel(panel.clone(), window, cx);
+            panel
+        });
+
+        let floating_right_panel = workspace.update_in(cx, |workspace, window, cx| {
+            let panel = cx.new(|cx| TestPanel::new(DockPosition::FloatingRight, 300, cx));
+            workspace.add_panel(panel.clone(), window, cx);
+            panel
+        });
+
+        workspace.update(cx, |workspace, cx| {
+            assert!(!workspace.floating_left_dock().read(cx).is_open());
+            assert!(!workspace.floating_right_dock().read(cx).is_open());
+        });
+
+        cx.dispatch_action(ToggleFloatingLeftDock);
+        workspace.update(cx, |workspace, cx| {
+            assert!(workspace.floating_left_dock().read(cx).is_open());
+            assert_eq!(
+                workspace.floating_left_dock().read(cx).active_panel().map(|p| p.panel_id()),
+                Some(floating_left_panel.entity_id())
+            );
+        });
+
+        cx.dispatch_action(ToggleFloatingRightDock);
+        workspace.update(cx, |workspace, cx| {
+            assert!(workspace.floating_right_dock().read(cx).is_open());
+            assert_eq!(
+                workspace.floating_right_dock().read(cx).active_panel().map(|p| p.panel_id()),
+                Some(floating_right_panel.entity_id())
+            );
+        });
+
+        workspace.update_in(cx, |workspace, window, cx| {
+            workspace.resize_dock(DockPosition::FloatingLeft, px(420.0), window, cx);
+            let size = workspace.dock_size(&workspace.floating_left_dock().read(cx), window, cx);
+            assert_eq!(size, Some(px(420.0)));
+        });
+
+        workspace.update_in(cx, |workspace, window, cx| {
+            workspace.close_all_docks(window, cx);
+            assert!(!workspace.floating_left_dock().read(cx).is_open());
+            assert!(!workspace.floating_right_dock().read(cx).is_open());
         });
     }
 

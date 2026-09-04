@@ -305,6 +305,8 @@ pub enum DockPosition {
     Left,
     Bottom,
     Right,
+    FloatingLeft,
+    FloatingRight,
 }
 
 impl From<settings::DockPosition> for DockPosition {
@@ -313,6 +315,8 @@ impl From<settings::DockPosition> for DockPosition {
             settings::DockPosition::Left => Self::Left,
             settings::DockPosition::Bottom => Self::Bottom,
             settings::DockPosition::Right => Self::Right,
+            settings::DockPosition::FloatingLeft => Self::FloatingLeft,
+            settings::DockPosition::FloatingRight => Self::FloatingRight,
         }
     }
 }
@@ -323,6 +327,8 @@ impl Into<settings::DockPosition> for DockPosition {
             Self::Left => settings::DockPosition::Left,
             Self::Bottom => settings::DockPosition::Bottom,
             Self::Right => settings::DockPosition::Right,
+            Self::FloatingLeft => settings::DockPosition::FloatingLeft,
+            Self::FloatingRight => settings::DockPosition::FloatingRight,
         }
     }
 }
@@ -333,6 +339,8 @@ impl From<TerminalDockPosition> for DockPosition {
             TerminalDockPosition::Left => DockPosition::Left,
             TerminalDockPosition::Bottom => DockPosition::Bottom,
             TerminalDockPosition::Right => DockPosition::Right,
+            TerminalDockPosition::FloatingLeft => DockPosition::FloatingLeft,
+            TerminalDockPosition::FloatingRight => DockPosition::FloatingRight,
         }
     }
 }
@@ -343,14 +351,20 @@ impl DockPosition {
             Self::Left => "Left",
             Self::Bottom => "Bottom",
             Self::Right => "Right",
+            Self::FloatingLeft => "Floating Left",
+            Self::FloatingRight => "Floating Right",
         }
     }
 
     pub fn axis(&self) -> Axis {
         match self {
-            Self::Left | Self::Right => Axis::Horizontal,
+            Self::Left | Self::Right | Self::FloatingLeft | Self::FloatingRight => Axis::Horizontal,
             Self::Bottom => Axis::Vertical,
         }
+    }
+
+    pub fn is_floating(&self) -> bool {
+        matches!(self, Self::FloatingLeft | Self::FloatingRight)
     }
 }
 
@@ -380,7 +394,7 @@ fn panel_uses_flexible_width(
     window: &Window,
     cx: &App,
 ) -> bool {
-    position.axis() == Axis::Horizontal && panel.has_flexible_size(window, cx)
+    position.axis() == Axis::Horizontal && !position.is_floating() && panel.has_flexible_size(window, cx)
 }
 
 fn resize_panel_entry(
@@ -617,12 +631,7 @@ impl Dock {
                         if panel.is_zoomed(window, cx) {
                             workspace.zoomed_position = Some(new_position);
                         }
-                        match new_position {
-                            DockPosition::Left => &workspace.left_dock,
-                            DockPosition::Bottom => &workspace.bottom_dock,
-                            DockPosition::Right => &workspace.right_dock,
-                        }
-                        .clone()
+                        workspace.dock_at_position(new_position).clone()
                     }) else {
                         return;
                     };
@@ -1053,6 +1062,8 @@ impl Dock {
             DockPosition::Left => crate::ToggleLeftDock.boxed_clone(),
             DockPosition::Bottom => crate::ToggleBottomDock.boxed_clone(),
             DockPosition::Right => crate::ToggleRightDock.boxed_clone(),
+            DockPosition::FloatingLeft => crate::ToggleFloatingLeftDock.boxed_clone(),
+            DockPosition::FloatingRight => crate::ToggleFloatingRightDock.boxed_clone(),
         }
     }
 
@@ -1140,7 +1151,7 @@ impl Render for Dock {
                     )
                     .occlude();
                 match self.position() {
-                    DockPosition::Left => deferred(
+                    DockPosition::Left | DockPosition::FloatingLeft => deferred(
                         handle
                             .absolute()
                             .right(-RESIZE_HANDLE_SIZE / 2.)
@@ -1158,7 +1169,7 @@ impl Render for Dock {
                             .h(RESIZE_HANDLE_SIZE)
                             .cursor_row_resize(),
                     ),
-                    DockPosition::Right => deferred(
+                    DockPosition::Right | DockPosition::FloatingRight => deferred(
                         handle
                             .absolute()
                             .top(px(0.))
@@ -1186,8 +1197,8 @@ impl Render for Dock {
                     Axis::Vertical => this.h_full().w_full().flex_col(),
                 })
                 .map(|this| match self.position() {
-                    DockPosition::Left => this.border_r_1(),
-                    DockPosition::Right => this.border_l_1(),
+                    DockPosition::Left | DockPosition::FloatingLeft => this.border_r_1(),
+                    DockPosition::Right | DockPosition::FloatingRight => this.border_l_1(),
                     DockPosition::Bottom => this.border_t_1(),
                 })
                 .child(
@@ -1234,8 +1245,12 @@ impl Render for PanelButtons {
         let dock_position = dock.position;
 
         let (menu_anchor, menu_attach) = match dock.position {
-            DockPosition::Left => (Anchor::BottomLeft, Anchor::TopLeft),
-            DockPosition::Bottom | DockPosition::Right => (Anchor::BottomRight, Anchor::TopRight),
+            DockPosition::Left | DockPosition::FloatingLeft => {
+                (Anchor::BottomLeft, Anchor::TopLeft)
+            }
+            DockPosition::Bottom | DockPosition::Right | DockPosition::FloatingRight => {
+                (Anchor::BottomRight, Anchor::TopRight)
+            }
         };
 
         let dock_entity = self.dock.clone();
@@ -1255,7 +1270,8 @@ impl Render for PanelButtons {
                     .log_err()?;
                 let name = entry.panel.persistent_name();
                 let panel = entry.panel.clone();
-                let supports_flexible = panel.supports_flexible_size(cx);
+                let supports_flexible =
+                    panel.supports_flexible_size(cx) && !dock_position.is_floating();
                 let currently_flexible = panel.has_flexible_size(window, cx);
                 let dock_for_menu = dock_entity.clone();
                 let workspace_for_menu = workspace.clone();
@@ -1280,10 +1296,12 @@ impl Render for PanelButtons {
                 Some(
                     right_click_menu(name)
                         .menu(move |window, cx| {
-                            const POSITIONS: [DockPosition; 3] = [
+                            const POSITIONS: [DockPosition; 5] = [
                                 DockPosition::Left,
                                 DockPosition::Right,
                                 DockPosition::Bottom,
+                                DockPosition::FloatingLeft,
+                                DockPosition::FloatingRight,
                             ];
 
                             let panel_hide = panel.hide_button_setting(cx);
@@ -1293,8 +1311,15 @@ impl Render for PanelButtons {
                                     if panel.position_is_valid(position, cx) {
                                         let is_current = position == dock_position;
                                         let panel = panel.clone();
+                                        let label = match position {
+                                            DockPosition::Left => "Dock Left",
+                                            DockPosition::Right => "Dock Right",
+                                            DockPosition::Bottom => "Dock Bottom",
+                                            DockPosition::FloatingLeft => "Float Left",
+                                            DockPosition::FloatingRight => "Float Right",
+                                        };
                                         menu = menu.toggleable_entry(
-                                            format!("Dock {}", position.label()),
+                                            label,
                                             is_current,
                                             IconPosition::Start,
                                             None,

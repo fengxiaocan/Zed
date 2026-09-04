@@ -515,6 +515,8 @@ pub enum TerminalDockPosition {
     Left,
     Bottom,
     Right,
+    FloatingLeft,
+    FloatingRight,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema, MergeFrom)]

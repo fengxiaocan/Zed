@@ -628,10 +628,9 @@
       "cmd-k cmd-9": "editor::FoldAtLevel_9",
       "cmd-k cmd-0": "editor::FoldAll",
       "cmd-k cmd-j": "editor::UnfoldAll",
-      // Using `ctrl-space` / `ctrl-shift-space` in Zed requires disabling the macOS global shortcut.
+      // Using `ctrl-space` in Zed requires disabling the macOS global shortcut.
       // System Preferences->Keyboard->Keyboard Shortcuts->Input Sources->Select the previous input source (uncheck)
       "ctrl-space": "editor::ShowCompletions",
-      "ctrl-shift-space": "editor::ShowWordCompletions",
       "cmd-.": "editor::ToggleCodeActions",
       "cmd-k r": "editor::RevealInFileManager",
       "cmd-k p": "editor::CopyPath",
@@ -1322,6 +1321,9 @@
       "pagedown": ["terminal::SendKeystroke", "pagedown"],
       "escape": ["terminal::SendKeystroke", "escape"],
       "enter": ["terminal::SendKeystroke", "enter"],
+      "home": ["terminal::SendKeystroke", "home"],
+      "end": ["terminal::SendKeystroke", "end"],
+      "delete": ["terminal::SendKeystroke", "delete"],
       "ctrl-c": ["terminal::SendKeystroke", "ctrl-c"],
       "ctrl-r": ["terminal::SendKeystroke", "ctrl-r"],
       "ctrl-backspace": ["terminal::SendKeystroke", "ctrl-w"],
@@ -1335,9 +1337,6 @@
       "cmd-home": "terminal::ScrollToTop",
       "shift-end": "terminal::ScrollToBottom",
       "cmd-end": "terminal::ScrollToBottom",
-      // Using `ctrl-shift-space` in Zed requires disabling the macOS global shortcut.
-      // System Preferences->Keyboard->Keyboard Shortcuts->Input Sources->Select the previous input source (uncheck)
-      "ctrl-shift-space": "terminal::ToggleViMode",
       "ctrl-alt-up": "pane::SplitUp",
       "ctrl-alt-down": "pane::SplitDown",
       "ctrl-alt-left": "pane::SplitLeft",
@@ -1553,7 +1552,6 @@
     "use_key_equivalents": true,
     "bindings": {
       "ctrl-space": "git::ApplyCurrentStash",
-      "ctrl-shift-space": "git::PopCurrentStash",
       "ctrl-shift-backspace": "git::DropCurrentStash",
     },
   },

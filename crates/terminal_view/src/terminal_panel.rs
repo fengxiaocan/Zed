@@ -1565,6 +1565,8 @@ impl Panel for TerminalPanel {
                 DockPosition::Left => TerminalDockPosition::Left,
                 DockPosition::Bottom => TerminalDockPosition::Bottom,
                 DockPosition::Right => TerminalDockPosition::Right,
+                DockPosition::FloatingLeft => TerminalDockPosition::FloatingLeft,
+                DockPosition::FloatingRight => TerminalDockPosition::FloatingRight,
             };
             settings.terminal.get_or_insert_default().dock = Some(dock);
         });
@@ -1573,7 +1575,10 @@ impl Panel for TerminalPanel {
     fn default_size(&self, window: &Window, cx: &App) -> Pixels {
         let settings = TerminalSettings::get_global(cx);
         match self.position(window, cx) {
-            DockPosition::Left | DockPosition::Right => settings.default_width,
+            DockPosition::Left
+            | DockPosition::Right
+            | DockPosition::FloatingLeft
+            | DockPosition::FloatingRight => settings.default_width,
             DockPosition::Bottom => settings.default_height,
         }
     }

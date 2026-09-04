@@ -1283,6 +1283,8 @@ pub enum DockPosition {
     Left,
     Bottom,
     Right,
+    FloatingLeft,
+    FloatingRight,
 }
 
 /// Configuration of voice calls in Zed.
@@ -1422,6 +1424,10 @@ pub struct QuickCommandsSettingsContent {
     ///
     /// Default: true
     pub button: Option<bool>,
+    /// Where to dock the panel.
+    ///
+    /// Default: follows git_panel dock
+    pub dock: Option<DockPosition>,
     /// Default width of the panel in pixels.
     ///
     /// Default: 360

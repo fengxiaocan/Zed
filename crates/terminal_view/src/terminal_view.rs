@@ -2338,6 +2338,37 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "linux")]
+    #[gpui::test]
+    async fn conflicting_ctrl_keys_are_forwarded_to_terminal(cx: &mut TestAppContext) {
+        let (project, _workspace, window_handle) = init_test_with_window(cx).await;
+        cx.update(load_default_keymap);
+        let (_pane, terminal, _terminal_view) =
+            add_display_only_terminal(&project, window_handle, true, cx);
+
+        let mut cx = VisualTestContext::from_window(window_handle.into(), cx);
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        cx.run_until_parked();
+
+        for (keystroke, expected_byte) in [
+            ("ctrl-j", 0x0a),
+            ("ctrl-k", 0x0b),
+            ("ctrl-n", 0x0e),
+            ("ctrl-p", 0x10),
+            ("ctrl-s", 0x13),
+            ("ctrl-t", 0x14),
+        ] {
+            cx.simulate_keystrokes(keystroke);
+            assert_eq!(
+                terminal.update(&mut cx, |terminal, _| terminal.take_input_log()),
+                vec![vec![expected_byte]],
+                "{keystroke} in a focused terminal should be forwarded to the PTY",
+            );
+        }
+    }
+
     // Working directory calculation tests
 
     // No Worktrees in project -> home_dir()
