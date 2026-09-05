@@ -1,18 +1,17 @@
 $ErrorActionPreference = 'Stop'
-$PSNativeCommandUseErrorActionPreference = $true
 
-$CARGO_ABOUT_VERSION="0.8.2"
-$outputFile=$args[0] ? $args[0] : "$(Get-Location)/assets/licenses.md"
-$templateFile="script/licenses/template.md.hbs"
+$CARGO_ABOUT_VERSION = "0.8.2"
+$outputFile = if ($args.Count -gt 0 -and $args[0]) { $args[0] } else { "$(Get-Location)/assets/licenses.md" }
+$templateFile = "script/licenses/template.md.hbs"
 
 New-Item -Path "$outputFile" -ItemType File -Value "" -Force
 
 @(
-    "# ###### THEME LICENSES ######\n"
+    "# ###### THEME LICENSES ######`n"
     Get-Content assets/themes/LICENSES
-    "\n# ###### ICON LICENSES ######\n"
+    "`n# ###### ICON LICENSES ######`n"
     Get-Content assets/icons/LICENSES
-    "\n# ###### CODE LICENSES ######\n"
+    "`n# ###### CODE LICENSES ######`n"
 ) | Add-Content -Path $outputFile
 
 $needsInstall = $false
@@ -34,9 +33,13 @@ if ($needsInstall) {
 
 Write-Host "Generating cargo licenses"
 
-$failFlag = $env:ALLOW_MISSING_LICENSES ? "--fail" : ""
-$args = @('about', 'generate', $failFlag, '-c', 'script/licenses/zed-licenses.toml', $templateFile, '-o', $outputFile) | Where-Object { $_ }
-cargo @args
+$cargoArgs = @('about', 'generate')
+if ($env:ALLOW_MISSING_LICENSES) {
+    $cargoArgs += '--fail'
+}
+$cargoArgs += @('-c', 'script/licenses/zed-licenses.toml', $templateFile, '-o', $outputFile)
+
+cargo @cargoArgs
 
 Write-Host "Applying replacements"
 $replacements = @{
@@ -54,3 +57,4 @@ foreach ($find in $replacements.keys) {
 $content | Set-Content $outputFile
 
 Write-Host "generate-licenses completed. See $outputFile"
+

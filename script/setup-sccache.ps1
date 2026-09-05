@@ -140,12 +140,12 @@ function Show-Config {
     Write-Host "=== sccache configuration ==="
     Write-Host "sccache version: $(sccache --version)"
     Write-Host "sccache path: $((Get-Command sccache).Source)"
-    Write-Host "RUSTC_WRAPPER: $($env:RUSTC_WRAPPER ?? '<not set>')"
-    Write-Host "SCCACHE_BUCKET: $($env:SCCACHE_BUCKET ?? '<not set>')"
-    Write-Host "SCCACHE_ENDPOINT: $($env:SCCACHE_ENDPOINT ?? '<not set>')"
-    Write-Host "SCCACHE_REGION: $($env:SCCACHE_REGION ?? '<not set>')"
-    Write-Host "SCCACHE_S3_KEY_PREFIX: $($env:SCCACHE_S3_KEY_PREFIX ?? '<not set>')"
-    Write-Host "SCCACHE_BASEDIRS: $($env:SCCACHE_BASEDIRS ?? '<not set>')"
+    Write-Host "RUSTC_WRAPPER: $(if ($env:RUSTC_WRAPPER) { $env:RUSTC_WRAPPER } else { '<not set>' })"
+    Write-Host "SCCACHE_BUCKET: $(if ($env:SCCACHE_BUCKET) { $env:SCCACHE_BUCKET } else { '<not set>' })"
+    Write-Host "SCCACHE_ENDPOINT: $(if ($env:SCCACHE_ENDPOINT) { $env:SCCACHE_ENDPOINT } else { '<not set>' })"
+    Write-Host "SCCACHE_REGION: $(if ($env:SCCACHE_REGION) { $env:SCCACHE_REGION } else { '<not set>' })"
+    Write-Host "SCCACHE_S3_KEY_PREFIX: $(if ($env:SCCACHE_S3_KEY_PREFIX) { $env:SCCACHE_S3_KEY_PREFIX } else { '<not set>' })"
+    Write-Host "SCCACHE_BASEDIRS: $(if ($env:SCCACHE_BASEDIRS) { $env:SCCACHE_BASEDIRS } else { '<not set>' })"
 
     if ($env:AWS_ACCESS_KEY_ID) {
         Write-Host "AWS_ACCESS_KEY_ID: <set>"
