@@ -6,16 +6,26 @@ pub struct Session {
     session_id: String,
     old_session_id: Option<String>,
     old_window_ids: Option<Vec<WindowId>>,
+    had_abnormal_exit: bool,
 }
 
 const SESSION_ID_KEY: &str = "session_id";
 const SESSION_WINDOW_STACK_KEY: &str = "session_window_stack";
+const CLEAN_EXIT_KEY: &str = "clean_exit";
 
 impl Session {
     pub async fn new(session_id: String, db: KeyValueStore) -> Self {
         let old_session_id = db.read_kvp(SESSION_ID_KEY).ok().flatten();
+        let clean_exit = db.read_kvp(CLEAN_EXIT_KEY).ok().flatten();
+
+        let had_abnormal_exit =
+            old_session_id.is_some() && clean_exit.as_deref() == Some("false");
 
         db.write_kvp(SESSION_ID_KEY.to_string(), session_id.clone())
+            .await
+            .log_err();
+
+        db.write_kvp(CLEAN_EXIT_KEY.to_string(), "false".to_string())
             .await
             .log_err();
 
@@ -34,6 +44,7 @@ impl Session {
             session_id,
             old_session_id,
             old_window_ids,
+            had_abnormal_exit,
         }
     }
 
@@ -43,6 +54,7 @@ impl Session {
             session_id: uuid::Uuid::new_v4().to_string(),
             old_session_id: None,
             old_window_ids: None,
+            had_abnormal_exit: false,
         }
     }
 
@@ -52,11 +64,30 @@ impl Session {
             session_id: uuid::Uuid::new_v4().to_string(),
             old_session_id: Some(old_session_id),
             old_window_ids: None,
+            had_abnormal_exit: false,
+        }
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn test_with_abnormal_exit(old_session_id: String) -> Self {
+        Self {
+            session_id: uuid::Uuid::new_v4().to_string(),
+            old_session_id: Some(old_session_id),
+            old_window_ids: None,
+            had_abnormal_exit: true,
         }
     }
 
     pub fn id(&self) -> &str {
         &self.session_id
+    }
+
+    pub fn had_abnormal_exit(&self) -> bool {
+        self.had_abnormal_exit
+    }
+
+    pub fn old_session_id(&self) -> Option<&str> {
+        self.old_session_id.as_deref()
     }
 }
 
@@ -103,16 +134,24 @@ impl AppSession {
     }
 
     fn app_will_quit(&mut self, cx: &mut Context<Self>) -> Task<()> {
-        if let Some(window_stack) = window_stack(cx) {
-            let db = KeyValueStore::global(cx);
-            cx.background_spawn(async move { store_window_stack(db, &window_stack).await })
-        } else {
-            Task::ready(())
-        }
+        let db = KeyValueStore::global(cx);
+        let window_stack = window_stack(cx);
+        cx.background_spawn(async move {
+            if let Some(window_stack) = window_stack {
+                store_window_stack(db.clone(), &window_stack).await;
+            }
+            db.write_kvp(CLEAN_EXIT_KEY.to_string(), "true".to_string())
+                .await
+                .log_err();
+        })
     }
 
     pub fn id(&self) -> &str {
         self.session.id()
+    }
+
+    pub fn had_abnormal_exit(&self) -> bool {
+        self.session.had_abnormal_exit()
     }
 
     pub fn last_session_id(&self) -> Option<&str> {
@@ -145,3 +184,33 @@ async fn store_window_stack(db: KeyValueStore, windows: &[u64]) {
             .log_err();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[gpui::test]
+    async fn test_abnormal_exit_detection() {
+        let db = KeyValueStore::open_test_db("test_session_abnormal_exit").await;
+
+        let id1 = uuid::Uuid::new_v4().to_string();
+        let session1 = Session::new(id1.clone(), db.clone()).await;
+        assert!(!session1.had_abnormal_exit());
+
+        let id2 = uuid::Uuid::new_v4().to_string();
+        let session2 = Session::new(id2.clone(), db.clone()).await;
+        assert!(session2.had_abnormal_exit());
+        assert_eq!(session2.old_session_id(), Some(id1.as_str()));
+
+        db.write_kvp(CLEAN_EXIT_KEY.to_string(), "true".to_string())
+            .await
+            .unwrap();
+
+        let id3 = uuid::Uuid::new_v4().to_string();
+        let session3 = Session::new(id3.clone(), db.clone()).await;
+        assert!(!session3.had_abnormal_exit());
+        assert_eq!(session3.old_session_id(), Some(id2.as_str()));
+    }
+}
+
+

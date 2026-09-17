@@ -349,6 +349,17 @@ impl MultiWorkspace {
         workspace.update(cx, |workspace, cx| {
             workspace.set_multi_workspace(weak_self, active_workspace_id.clone(), cx);
         });
+        if let Some(workspace_id) = workspace.read(cx).database_id() {
+            let db = crate::persistence::WorkspaceDb::global(cx);
+            let session_id = workspace.read(cx).session_id();
+            let window_id = window.window_handle().window_id().as_u64();
+            cx.background_spawn(async move {
+                db.set_session_binding(workspace_id, session_id, Some(window_id))
+                    .await
+                    .log_err();
+            })
+            .detach();
+        }
         Self {
             window_id: window.window_handle().window_id(),
             retained_workspaces: Vec::new(),

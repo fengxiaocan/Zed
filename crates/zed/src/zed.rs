@@ -5878,6 +5878,7 @@ mod tests {
     }
 
     pub(crate) fn init_test(cx: &mut TestAppContext) -> Arc<AppState> {
+        cx.update(|cx| cx.set_global(db::AppDatabase::test_new()));
         init_test_with_state(cx, cx.update(AppState::test))
     }
 
@@ -5894,6 +5895,7 @@ mod tests {
 
             gpui_tokio::init(cx);
             AppState::set_global(app_state.clone(), cx);
+            client::Client::set_global(app_state.client.clone(), cx);
             theme_settings::init(theme::LoadThemes::JustBase, cx);
             audio::init(cx);
             channel::init(&app_state.client, app_state.user_store.clone(), cx);
@@ -7488,4 +7490,220 @@ mod tests {
             "active workspace should contain the remaining project, not be empty: {active_paths:?}"
         );
     }
+
+    #[gpui::test]
+    async fn test_abnormal_exit_prompt_restore(cx: &mut TestAppContext) {
+        use session::Session;
+        use workspace::{OpenMode, Workspace};
+
+        let app_state = init_test(cx);
+        cx.update(init);
+        let fs = app_state.fs.clone();
+        let fake_fs = fs.as_fake();
+        fake_fs.insert_tree(path!("/dir1"), json!({})).await;
+
+        let session_id = cx.read(|cx| app_state.session.read(cx).id().to_owned());
+
+        let workspace::OpenResult { window, .. } = cx
+            .update(|cx| {
+                Workspace::new_local(
+                    vec![path!("/dir1").into()],
+                    app_state.clone(),
+                    None,
+                    None,
+                    None,
+                    OpenMode::Activate,
+                    cx,
+                )
+            })
+            .await
+            .expect("failed to open workspace");
+
+        cx.run_until_parked();
+        flush_workspace_serialization(&window, cx).await;
+        cx.run_until_parked();
+
+        window
+            .update(cx, |_, window, _| window.remove_window())
+            .unwrap();
+        cx.run_until_parked();
+
+        cx.update(|cx| {
+            app_state.session.update(cx, |app_session, _cx| {
+                app_session
+                    .replace_session_for_test(Session::test_with_abnormal_exit(session_id.clone()));
+            });
+        });
+
+        let restore_task = cx.spawn({
+            let app_state = app_state.clone();
+            |mut cx| async move {
+                crate::restore_or_create_workspace(app_state, &mut cx).await
+            }
+        });
+        cx.run_until_parked();
+
+        assert!(cx.has_pending_prompt());
+        let (prompt_msg, prompt_detail) = cx.pending_prompt().unwrap();
+        assert_eq!(prompt_msg, "Zed exited unexpectedly");
+        assert!(prompt_detail.contains("restore the projects"));
+
+        cx.simulate_prompt_answer("Restore");
+        restore_task.await.expect("restore should succeed");
+        cx.run_until_parked();
+
+        let restored_windows: Vec<WindowHandle<MultiWorkspace>> = cx.read(|cx| {
+            cx.windows()
+                .into_iter()
+                .filter_map(|w| w.downcast::<MultiWorkspace>())
+                .collect()
+        });
+        assert_eq!(restored_windows.len(), 1);
+        let active_paths = restored_windows[0]
+            .read_with(cx, |mw, cx| mw.workspace().read(cx).root_paths(cx))
+            .unwrap();
+        assert!(active_paths.iter().any(|p| p.as_ref() == Path::new(path!("/dir1"))));
+
+        let db = cx.update(|cx| workspace::WorkspaceDb::global(cx));
+        let locations =
+            workspace::last_session_workspace_locations(&db, &session_id, None, fs.as_ref())
+                .await
+                .expect("expected query to succeed");
+        assert!(locations.is_empty(), "old session should be cleared in DB");
+    }
+
+    #[gpui::test]
+    async fn test_abnormal_exit_prompt_do_not_restore(cx: &mut TestAppContext) {
+        use session::Session;
+        use workspace::{OpenMode, Workspace};
+
+        let app_state = init_test(cx);
+        cx.update(init);
+        let fs = app_state.fs.clone();
+        let fake_fs = fs.as_fake();
+        fake_fs.insert_tree(path!("/dir1"), json!({})).await;
+
+        let session_id = cx.read(|cx| app_state.session.read(cx).id().to_owned());
+
+        let workspace::OpenResult { window, .. } = cx
+            .update(|cx| {
+                Workspace::new_local(
+                    vec![path!("/dir1").into()],
+                    app_state.clone(),
+                    None,
+                    None,
+                    None,
+                    OpenMode::Activate,
+                    cx,
+                )
+            })
+            .await
+            .expect("failed to open workspace");
+
+        cx.run_until_parked();
+        flush_workspace_serialization(&window, cx).await;
+        cx.run_until_parked();
+
+        window
+            .update(cx, |_, window, _| window.remove_window())
+            .unwrap();
+        cx.run_until_parked();
+
+        cx.update(|cx| {
+            app_state.session.update(cx, |app_session, _cx| {
+                app_session
+                    .replace_session_for_test(Session::test_with_abnormal_exit(session_id.clone()));
+            });
+        });
+
+        let restore_task = cx.spawn({
+            let app_state = app_state.clone();
+            |mut cx| async move {
+                crate::restore_or_create_workspace(app_state, &mut cx).await
+            }
+        });
+        cx.run_until_parked();
+
+        assert!(cx.has_pending_prompt());
+        cx.simulate_prompt_answer("Don't Restore");
+        restore_task.await.expect("restore should succeed");
+        cx.run_until_parked();
+
+        let restored_windows: Vec<WindowHandle<MultiWorkspace>> = cx.read(|cx| {
+            cx.windows()
+                .into_iter()
+                .filter_map(|w| w.downcast::<MultiWorkspace>())
+                .collect()
+        });
+        assert_eq!(restored_windows.len(), 1);
+        let active_paths = restored_windows[0]
+            .read_with(cx, |mw, cx| mw.workspace().read(cx).root_paths(cx))
+            .unwrap();
+        assert!(active_paths.is_empty(), "restored workspace should be empty");
+
+        let db = cx.update(|cx| workspace::WorkspaceDb::global(cx));
+        let locations =
+            workspace::last_session_workspace_locations(&db, &session_id, None, fs.as_ref())
+                .await
+                .expect("expected query to succeed");
+        assert!(locations.is_empty(), "old session should be cleared in DB");
+    }
+
+    #[gpui::test]
+    async fn test_close_window_removes_from_session(cx: &mut TestAppContext) {
+        use workspace::{CloseIntent, OpenMode, Workspace};
+
+        let app_state = init_test(cx);
+        cx.update(init);
+        let fs = app_state.fs.clone();
+        let fake_fs = fs.as_fake();
+        fake_fs.insert_tree(path!("/dir1"), json!({})).await;
+
+        let session_id = cx.read(|cx| app_state.session.read(cx).id().to_owned());
+
+        let workspace::OpenResult { window, .. } = cx
+            .update(|cx| {
+                Workspace::new_local(
+                    vec![path!("/dir1").into()],
+                    app_state.clone(),
+                    None,
+                    None,
+                    None,
+                    OpenMode::Activate,
+                    cx,
+                )
+            })
+            .await
+            .expect("failed to open workspace");
+
+        cx.run_until_parked();
+        flush_workspace_serialization(&window, cx).await;
+        cx.run_until_parked();
+
+        let db = cx.update(|cx| workspace::WorkspaceDb::global(cx));
+        let locations =
+            workspace::last_session_workspace_locations(&db, &session_id, None, fs.as_ref())
+                .await
+                .expect("expected session workspace locations");
+        assert_eq!(locations.len(), 1, "workspace should be in session before close");
+
+        let close_task = window
+            .update(cx, |mw, window, cx| {
+                mw.workspace()
+                    .update(cx, |w, cx| w.prepare_to_close(CloseIntent::CloseWindow, window, cx))
+            })
+            .unwrap();
+        assert!(close_task.await.unwrap());
+        cx.run_until_parked();
+
+        let locations_after =
+            workspace::last_session_workspace_locations(&db, &session_id, None, fs.as_ref())
+                .await
+                .expect("expected session workspace locations");
+        assert!(
+            locations_after.is_empty(),
+            "workspace should be removed from session after window close"
+        );
+    }
 }
+

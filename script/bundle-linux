@@ -45,7 +45,7 @@ done
 
 export ZED_BUNDLE=true
 
-channel=$(<crates/zed/RELEASE_CHANNEL)
+channel="${RELEASE_CHANNEL:-$(<crates/zed/RELEASE_CHANNEL)}"
 target_dir="${CARGO_TARGET_DIR:-target}"
 
 version="$(script/get-crate-version zed)"
@@ -65,7 +65,9 @@ if command -v rustup >/dev/null 2>&1; then
 fi
 
 # Generate the licenses first, so they can be baked into the binaries
-script/generate-licenses
+if [[ "${ZED_SKIP_LICENSES:-0}" != "1" ]]; then
+    script/generate-licenses
+fi
 
 if "$rustup_installed"; then
     rustup target add "$remote_server_triple"

@@ -692,15 +692,18 @@ impl X11Client {
                             self.handle_event(event);
                         }
                     }
-                    Err(err) => {
-                        // this might happen when xim server crashes on one of the events
-                        // we do lose 1-2 keys when crash happens since there is no reliable way to get that info
-                        // luckily, x11 sends us window not found error when xim server crashes upon further key press
-                        // hence we fall back to handle_event
-                        log::error!("XIMClientError: {}", err);
+                    Err(xim::ClientError::NoXimServer) => {
+                        // This happens when the XIM server window is destroyed / server crashes.
+                        log::error!("XIM server disconnected: NoXimServer");
                         let mut state = self.0.borrow_mut();
                         state.take_xim();
                         drop(state);
+                        self.handle_event(event);
+                    }
+                    Err(err) => {
+                        // Non-fatal XIM error (e.g. fcitx4 sending an empty reply resulting in InvalidReply).
+                        // Do not drop the XIM connection, otherwise IME support is permanently lost.
+                        log::warn!("XIMClientError (non-fatal): {}", err);
                         self.handle_event(event);
                     }
                 }

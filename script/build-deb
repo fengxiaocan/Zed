@@ -1,29 +1,86 @@
 #!/usr/bin/env bash
 
-set -euxo pipefail
+set -euo pipefail
 
 help_info() {
-  echo "
-Usage: ${0##*/} [options]
-Build a .deb package for Linux from a fresh release bundle or existing binaries.
+  cat <<EOF
+用法: ${0##*/} [选项]
 
-Options:
-  -h, --help      Display this help and exit.
-  --skip-build    Skip the release build and use the existing release binaries in
-                  target/release. Useful when the full bundle toolchain
-                  (clang/lld/llvm-objcopy/musl-gcc) is not installed.
-"
+从源码编译或复用已有二进制，构建适用于 Linux (Debian / Ubuntu / Deepin / UOS 等) 的 .deb 安装包。
+
+选项:
+  -h, --help                显示此帮助信息并退出。
+  -s, --skip-build          跳过重新编译，直接使用现有的构建产物打包。
+                            优先使用 target/release/zed-linux-<arch>.tar.gz，
+                            其次查找 target/<target-triple>/release 或 target/release 中的二进制。
+  -i, --install             打包完成后立即调用 sudo apt install 自动安装到当前系统。
+  -c, --channel <channel>   指定发布渠道 (dev, preview, nightly, stable)。默认读取 crates/zed/RELEASE_CHANNEL。
+  -a, --arch <arch>         指定目标架构 (amd64, arm64, x86_64, aarch64)。默认自动检测当前系统架构。
+  -o, --output-dir <dir>    指定生成的 .deb 文件输出目录。默认输出到项目根目录。
+      --skip-licenses       跳过生成许可证文档（使用现有的 assets/licenses.md）。
+      --clean               打包前清理目标目录中旧的同名 .deb 文件。
+
+示例:
+  ${0##*/}                          # 完整编译并打包生成 .deb
+  ${0##*/} --skip-build             # 跳过编译，极速打包现有二进制
+  ${0##*/} -s -i                    # 极速打包并立即安装到系统
+  ${0##*/} -c preview -o ./dist     # 指定 preview 渠道并输出到 ./dist 目录
+EOF
 }
 
+# 默认配置
 skip_build=false
+install=false
+channel_override=""
+arch_override=""
+output_dir="."
+skip_licenses=false
+clean=false
+
 while [[ $# -gt 0 ]]; do
-    case $1 in
+    case "$1" in
         -h|--help)
             help_info
             exit 0
             ;;
-        --skip-build)
+        -s|--skip-build)
             skip_build=true
+            shift
+            ;;
+        -i|--install)
+            install=true
+            shift
+            ;;
+        -c|--channel)
+            channel_override="$2"
+            shift 2
+            ;;
+        --channel=*)
+            channel_override="${1#*=}"
+            shift
+            ;;
+        -a|--arch)
+            arch_override="$2"
+            shift 2
+            ;;
+        --arch=*)
+            arch_override="${1#*=}"
+            shift
+            ;;
+        -o|--output-dir|--output)
+            output_dir="$2"
+            shift 2
+            ;;
+        --output-dir=*|--output=*)
+            output_dir="${1#*=}"
+            shift
+            ;;
+        --skip-licenses)
+            skip_licenses=true
+            shift
+            ;;
+        --clean)
+            clean=true
             shift
             ;;
         --)
@@ -31,31 +88,67 @@ while [[ $# -gt 0 ]]; do
             break
             ;;
         -*)
-            echo "Unknown option: $1" >&2
+            echo "错误: 未知参数 $1" >&2
             help_info
             exit 1
             ;;
         *)
-            echo "Error: Unexpected argument: $1" >&2
+            echo "错误: 未预期的位置参数 $1" >&2
             help_info
             exit 1
             ;;
     esac
 done
 
-channel=$(<crates/zed/RELEASE_CHANNEL)
-version=$(script/get-crate-version zed)
-arch=$(uname -m)
+# 1. 基础环境与工具校验
+for tool in dpkg-deb fakeroot; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "错误: 系统中未找到 '$tool' 命令，无法构建 Debian 软件包。" >&2
+        echo "请先安装必要工具:" >&2
+        echo "  sudo apt update && sudo apt install -y dpkg fakeroot" >&2
+        exit 1
+    fi
+done
 
-case "$arch" in
-    x86_64)
-        deb_arch=amd64
+if ! "$skip_build"; then
+    for tool in clang lld llvm-objcopy musl-gcc cargo rustc; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            echo "错误: 完整编译需要工具 '$tool'，但当前系统未安装。" >&2
+            echo "建议安装对应依赖:" >&2
+            echo "  sudo apt update && sudo apt install -y clang lld llvm musl-tools" >&2
+            echo "或者使用 --skip-build 参数直接打包已有二进制。" >&2
+            exit 1
+        fi
+    done
+fi
+
+# 2. 版本、渠道与架构解析
+if [[ -n "$channel_override" ]]; then
+    channel="$channel_override"
+else
+    channel=$(<crates/zed/RELEASE_CHANNEL)
+fi
+export RELEASE_CHANNEL="$channel"
+
+if "$skip_licenses"; then
+    export ZED_SKIP_LICENSES=1
+fi
+
+version=$(script/get-crate-version zed)
+raw_arch="${arch_override:-$(uname -m)}"
+
+case "$raw_arch" in
+    x86_64|amd64)
+        deb_arch="amd64"
+        tar_arch="x86_64"
         ;;
-    aarch64)
-        deb_arch=arm64
+    aarch64|arm64)
+        deb_arch="arm64"
+        tar_arch="aarch64"
         ;;
     *)
-        deb_arch="$arch"
+        deb_arch="$raw_arch"
+        tar_arch="$raw_arch"
         ;;
 esac
 
@@ -64,10 +157,8 @@ if [ "$channel" != "stable" ]; then
     suffix="-$channel"
 fi
 
-# Debian package metadata. The package name stays "zed" across channels so that
-# channels replace each other when installed via dpkg/apt.
 package_name="zed"
-maintainer="Local Build <${USER}@localhost>"
+maintainer="Local Build <${USER:-user}@localhost>"
 homepage="https://zed.dev"
 
 case "$channel" in
@@ -89,23 +180,38 @@ case "$channel" in
         ;;
 esac
 
-# Build fresh release artifacts unless asked to skip. The bundle-linux script
-# requires clang/lld/llvm-objcopy/musl-gcc and produces the tar.gz archive plus
-# bundled libraries and the desktop file.
-if ! "$skip_build"; then
-    for tool in clang lld llvm-objcopy musl-gcc; do
-        if ! command -v "$tool" >/dev/null 2>&1; then
-            echo "Error: '$tool' is required for a fresh build but was not found." >&2
-            echo "Install the missing tools, e.g.:" >&2
-            echo "  sudo apt update && sudo apt install -y clang lld llvm musl-tools" >&2
-            echo "Or use --skip-build to package the existing target/release binaries." >&2
-            exit 1
-        fi
-    done
+echo "=========================================================="
+echo "📦 Zed Debian 软件包打包"
+echo "=========================================================="
+echo "  发布渠道 (Channel) : ${channel}"
+echo "  软件版本 (Version) : ${version}"
+echo "  目标架构 (Arch)    : ${deb_arch}"
+echo "  构建模式 (Mode)    : $(if "$skip_build"; then echo "跳过编译 (Skip Build)"; else echo "全量编译构建 (Fresh Build)"; fi)"
+echo "  输出目录 (Output)  : ${output_dir}"
+echo "=========================================================="
 
+target_dir="${CARGO_TARGET_DIR:-target}"
+mkdir -p "$output_dir"
+
+if [[ "$output_dir" == "." || -z "$output_dir" ]]; then
+    deb_file="${package_name}_${version}_${deb_arch}.deb"
+    deb_display_path="./${deb_file}"
+else
+    deb_file="${output_dir%/}/${package_name}_${version}_${deb_arch}.deb"
+    deb_display_path="${deb_file}"
+fi
+
+if "$clean"; then
+    rm -f "${deb_file}"
+fi
+
+# 3. 编译流程（若未跳过）
+if ! "$skip_build"; then
+    echo "🔨 正在调用 script/bundle-linux 执行 release 构建与打包..."
     script/bundle-linux
 fi
 
+# 4. 组装 Debian 包文件系统结构
 temp_dir=$(mktemp -d)
 trap 'rm -rf "$temp_dir"' EXIT
 
@@ -120,89 +226,133 @@ mkdir -p "${pkg_root}/usr/share/doc/${package_name}"
 mkdir -p "${pkg_root}/usr/share/icons/hicolor/512x512/apps"
 mkdir -p "${pkg_root}/usr/share/icons/hicolor/1024x1024/apps"
 
-if "$skip_build"; then
-    target_dir="${CARGO_TARGET_DIR:-target}"
-    zed_bin="${target_dir}/release/zed"
-    cli_bin="${target_dir}/release/cli"
+archive="zed-linux-${tar_arch}.tar.gz"
+archive_path="${target_dir}/release/${archive}"
 
-    if [[ ! -x "$zed_bin" ]]; then
-        echo "Error: $zed_bin not found. Build the project first or omit --skip-build." >&2
-        exit 1
-    fi
-    if [[ ! -x "$cli_bin" ]]; then
-        echo "Error: $cli_bin not found. Build the project first or omit --skip-build." >&2
-        exit 1
-    fi
-
-    # Strip debug symbols if a strip tool is available. Prefer llvm-objcopy when
-    # present (it handles CREL sections produced by newer LLVM), otherwise fall
-    # back to GNU strip on newer distros where it is also safe.
-    if command -v llvm-objcopy >/dev/null 2>&1; then
-        llvm-objcopy --strip-debug "$zed_bin"
-        llvm-objcopy --strip-debug "$cli_bin"
-    elif command -v strip >/dev/null 2>&1; then
-        strip --strip-debug "$zed_bin"
-        strip --strip-debug "$cli_bin"
-    fi
-
-    cp "$zed_bin" "${pkg_root}/usr/lib/zed/libexec/zed-editor"
-    cp "$cli_bin" "${pkg_root}/usr/lib/zed/bin/zed"
-
-    # Bundle the same set of libraries that bundle-linux does, excluding the
-    # ones we intentionally do not ship.
-    find_libs() {
-        ldd "$zed_bin" |\
-            cut -d' ' -f3 |\
-            grep -v '\<\(libc.so\|libgcc_s.so\|libm.so\|libpthread.so\|libdl.so\|libasound.so\)'
-    }
-    cp $(find_libs) "${pkg_root}/usr/lib/zed/lib"
-
-    # Generate the .desktop entry from the project template.
-    export DO_STARTUP_NOTIFY="true"
-    export APP_CLI="zed"
-    export APP_ICON="zed"
-    export APP_ARGS="%U"
-    export APP_NAME="$app_name"
-    envsubst < "crates/zed/resources/zed.desktop.in" > "${pkg_root}/usr/share/applications/${app_id}.desktop"
-    chmod +x "${pkg_root}/usr/share/applications/${app_id}.desktop"
-
-    # Icons and licenses.
-    cp "crates/zed/resources/app-icon${suffix}.png" "${pkg_root}/usr/share/icons/hicolor/512x512/apps/zed.png"
-    cp "crates/zed/resources/app-icon${suffix}@2x.png" "${pkg_root}/usr/share/icons/hicolor/1024x1024/apps/zed.png"
-    cp "assets/licenses.md" "${pkg_root}/usr/share/doc/${package_name}/licenses.md"
-else
-    # Use the tar.gz produced by bundle-linux and remap its portable layout to
-    # the FHS layout expected by Debian packages.
-    archive="zed-linux-${arch}.tar.gz"
-    archive_path="target/release/${archive}"
-    if [[ ! -f "$archive_path" ]]; then
-        echo "Error: $archive_path not found after bundle-linux." >&2
-        exit 1
-    fi
-
+if [[ -f "$archive_path" ]]; then
+    echo "📂 正在从 ${archive_path} 解压文件..."
     tar -xzf "$archive_path" -C "$temp_dir"
+
     app_dir="${temp_dir}/zed${suffix}.app"
     if [[ ! -d "$app_dir" ]]; then
-        echo "Error: expected ${app_dir} inside ${archive_path}." >&2
+        app_dir=$(find "$temp_dir" -maxdepth 1 -name "zed*.app" | head -n 1)
+    fi
+
+    if [[ -z "$app_dir" || ! -d "$app_dir" ]]; then
+        echo "错误: 在 ${archive_path} 中未找到预期的 zed*.app 目录结构。" >&2
         exit 1
     fi
 
     cp "${app_dir}/libexec/zed-editor" "${pkg_root}/usr/lib/zed/libexec/zed-editor"
     cp "${app_dir}/bin/zed" "${pkg_root}/usr/lib/zed/bin/zed"
-    cp "${app_dir}/lib/"* "${pkg_root}/usr/lib/zed/lib/"
+    if [[ -d "${app_dir}/lib" ]]; then
+        cp -a "${app_dir}/lib/." "${pkg_root}/usr/lib/zed/lib/"
+    fi
     cp "${app_dir}/share/applications/"* "${pkg_root}/usr/share/applications/"
     cp "${app_dir}/share/icons/hicolor/512x512/apps/zed.png" "${pkg_root}/usr/share/icons/hicolor/512x512/apps/zed.png"
     cp "${app_dir}/share/icons/hicolor/1024x1024/apps/zed.png" "${pkg_root}/usr/share/icons/hicolor/1024x1024/apps/zed.png"
-    cp "${app_dir}/licenses.md" "${pkg_root}/usr/share/doc/${package_name}/licenses.md"
+    if [[ -f "${app_dir}/licenses.md" ]]; then
+        cp "${app_dir}/licenses.md" "${pkg_root}/usr/share/doc/${package_name}/licenses.md"
+    fi
+else
+    echo "🔍 未检测到发布压缩包 ${archive_path}，正在查找散装二进制文件..."
+    version_info=$(rustc --version --verbose 2>/dev/null || true)
+    host_line=$(echo "$version_info" | grep host || true)
+    target_triple=${host_line#*: }
+
+    zed_bin=""
+    cli_bin=""
+    for try_zed in "${target_dir}/${target_triple}/release/zed" "${target_dir}/release/zed"; do
+        if [[ -x "$try_zed" ]]; then
+            zed_bin="$try_zed"
+            break
+        fi
+    done
+
+    for try_cli in "${target_dir}/${target_triple}/release/cli" "${target_dir}/release/cli"; do
+        if [[ -x "$try_cli" ]]; then
+            cli_bin="$try_cli"
+            break
+        fi
+    done
+
+    if [[ -z "$zed_bin" || ! -x "$zed_bin" ]]; then
+        echo "错误: 未找到 zed 二进制文件。请先运行构建或不要使用 --skip-build。" >&2
+        exit 1
+    fi
+    if [[ -z "$cli_bin" || ! -x "$cli_bin" ]]; then
+        echo "错误: 未找到 cli 二进制文件。请先运行构建或不要使用 --skip-build。" >&2
+        exit 1
+    fi
+
+    echo "  找到 zed 二进制: ${zed_bin}"
+    echo "  找到 cli 二进制: ${cli_bin}"
+
+    cp "$zed_bin" "${pkg_root}/usr/lib/zed/libexec/zed-editor"
+    cp "$cli_bin" "${pkg_root}/usr/lib/zed/bin/zed"
+
+    # 去除调试符号以减小体积
+    if command -v llvm-objcopy >/dev/null 2>&1; then
+        llvm-objcopy --strip-debug "${pkg_root}/usr/lib/zed/libexec/zed-editor" 2>/dev/null || true
+        llvm-objcopy --strip-debug "${pkg_root}/usr/lib/zed/bin/zed" 2>/dev/null || true
+    elif command -v strip >/dev/null 2>&1; then
+        strip --strip-debug "${pkg_root}/usr/lib/zed/libexec/zed-editor" 2>/dev/null || true
+        strip --strip-debug "${pkg_root}/usr/lib/zed/bin/zed" 2>/dev/null || true
+    fi
+
+    # 收集依赖库
+    find_libs() {
+        ldd "$zed_bin" 2>/dev/null |\
+            cut -d' ' -f3 |\
+            grep -v '\<\(libc.so\|libgcc_s.so\|libm.so\|libpthread.so\|libdl.so\|libasound.so\)'
+    }
+    cp $(find_libs) "${pkg_root}/usr/lib/zed/lib" 2>/dev/null || true
+
+    # 生成 .desktop 文件
+    export DO_STARTUP_NOTIFY="true"
+    export APP_CLI="zed"
+    export APP_ICON="zed"
+    export APP_ARGS="%U"
+    export APP_NAME="$app_name"
+
+    if command -v envsubst >/dev/null 2>&1; then
+        envsubst < "crates/zed/resources/zed.desktop.in" > "${pkg_root}/usr/share/applications/${app_id}.desktop"
+    else
+        sed -e "s|\$APP_NAME|$APP_NAME|g" \
+            -e "s|\$APP_CLI|$APP_CLI|g" \
+            -e "s|\$APP_ICON|$APP_ICON|g" \
+            -e "s|\$APP_ARGS|$APP_ARGS|g" \
+            -e "s|\$DO_STARTUP_NOTIFY|$DO_STARTUP_NOTIFY|g" \
+            "crates/zed/resources/zed.desktop.in" > "${pkg_root}/usr/share/applications/${app_id}.desktop"
+    fi
+    chmod +x "${pkg_root}/usr/share/applications/${app_id}.desktop"
+
+    # 图标与许可证
+    for icon_512 in "crates/zed/resources/app-icon${suffix}.png" "crates/zed/resources/app-icon.png"; do
+        if [[ -f "$icon_512" ]]; then
+            cp "$icon_512" "${pkg_root}/usr/share/icons/hicolor/512x512/apps/zed.png"
+            break
+        fi
+    done
+
+    for icon_1024 in "crates/zed/resources/app-icon${suffix}@2x.png" "crates/zed/resources/app-icon@2x.png"; do
+        if [[ -f "$icon_1024" ]]; then
+            cp "$icon_1024" "${pkg_root}/usr/share/icons/hicolor/1024x1024/apps/zed.png"
+            break
+        fi
+    done
+
+    if [[ -f "assets/licenses.md" ]]; then
+        cp "assets/licenses.md" "${pkg_root}/usr/share/doc/${package_name}/licenses.md"
+    fi
 fi
 
-# Expose zed on PATH via a symlink in /usr/bin.
-ln -s "../lib/zed/bin/zed" "${pkg_root}/usr/bin/zed"
+# 5. 建立全局 PATH 软链接
+ln -sf "../lib/zed/bin/zed" "${pkg_root}/usr/bin/zed"
 
-# Compute installed size in KB (rounded up) for the control file.
+# 6. 计算安装后占用空间 (KB) 并生成 DEBIAN/control 控制文件
 installed_size_kb=$(du -sck "${pkg_root}/usr" | tail -n1 | cut -f1)
 
-# The runtime dependencies intentionally mirror the libraries we do *not* bundle.
 cat > "${pkg_root}/DEBIAN/control" <<EOF
 Package: ${package_name}
 Version: ${version}
@@ -217,8 +367,33 @@ Description: ${app_name} is a high-performance, multiplayer code editor.
  This package was built locally from source (${channel} channel, v${version}).
 EOF
 
-# Build the package with fakeroot so file ownership appears as root:root.
-deb_file="${package_name}_${version}_${deb_arch}.deb"
+# 7. 打包 DEB
+echo "🔨 正在调用 dpkg-deb 构建 ${deb_file}..."
 fakeroot dpkg-deb --build "${pkg_root}" "${deb_file}"
 
-echo "Built ${deb_file}"
+file_size=$(du -h "${deb_file}" | cut -f1)
+
+echo ""
+echo "=========================================================="
+echo "🎉 Debian 安装包构建成功: ${deb_file}"
+echo "📦 文件大小: ${file_size}"
+echo "🏷️  版本信息: v${version} (${channel} 渠道, 架构: ${deb_arch})"
+echo "=========================================================="
+echo "常用操作命令:"
+echo "  👉 本地安装:   sudo apt install ${deb_display_path}"
+echo "  👉 替代安装:   sudo dpkg -i ${deb_file}"
+echo "  👉 查看信息:   dpkg -I ${deb_file}"
+echo "  👉 查看内容:   dpkg -c ${deb_file}"
+echo "=========================================================="
+
+# 8. 自动安装（若指定 -i/--install）
+if "$install"; then
+    echo ""
+    echo "🚀 正在执行自动安装..."
+    if command -v apt >/dev/null 2>&1; then
+        sudo apt install -y "${deb_display_path}"
+    else
+        sudo dpkg -i "${deb_file}"
+    fi
+    echo "✅ 安装成功！终端运行 'zed' 即可启动编辑器。"
+fi

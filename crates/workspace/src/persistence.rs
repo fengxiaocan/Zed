@@ -2468,6 +2468,14 @@ impl WorkspaceDb {
         }
     }
 
+    query! {
+        pub async fn clear_session(session_id: String) -> Result<()> {
+            UPDATE workspaces
+            SET session_id = NULL, window_id = NULL
+            WHERE session_id = ?1
+        }
+    }
+
     pub(crate) async fn toolchains(
         &self,
         workspace_id: WorkspaceId,

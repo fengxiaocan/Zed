@@ -374,7 +374,7 @@ impl Panel for QuickCommandsPanel {
     }
 
     fn activation_priority(&self) -> u32 {
-        5 // after GitPanel (3) and GitManager (4)
+        8
     }
 
     fn hide_button_setting(&self, _: &App) -> Option<workspace::HideStatusItem> {
