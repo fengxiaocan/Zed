@@ -66,3 +66,8 @@ inno/
 vendor/
 *.deb
 *.tar.gz
+# Packaging dependencies (auto-downloaded to target/ during build)
+/AGS_SDK*
+/conpty/
+*.zip
+*.nupkg

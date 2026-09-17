@@ -346,14 +346,9 @@ function SignZedAndItsFriends {
 }
 
 function Get-AgsDllPath {
-    $candidates = @(
-        "$env:ZED_WORKSPACE\target\AGS_SDK-6.3.0\ags_lib\lib\amd_ags_x64.dll",
-        "$env:ZED_WORKSPACE\AGS_SDK-6.3.0\ags_lib\lib\amd_ags_x64.dll"
-    )
-    foreach ($cand in $candidates) {
-        if (Test-Path $cand) {
-            return (Resolve-Path $cand).Path
-        }
+    $cand = "$env:ZED_WORKSPACE\target\AGS_SDK-6.3.0\ags_lib\lib\amd_ags_x64.dll"
+    if (Test-Path $cand) {
+        return (Resolve-Path $cand).Path
     }
     return $null
 }
@@ -361,14 +356,9 @@ function Get-AgsDllPath {
 function Get-ConptyDllPath {
     param([string]$Arch)
     $subDir = if ($Arch -eq "aarch64") { "win-arm64" } else { "win-x64" }
-    $candidates = @(
-        "$env:ZED_WORKSPACE\target\conpty\runtimes\$subDir\native\conpty.dll",
-        "$env:ZED_WORKSPACE\conpty\runtimes\$subDir\native\conpty.dll"
-    )
-    foreach ($cand in $candidates) {
-        if (Test-Path $cand) {
-            return (Resolve-Path $cand).Path
-        }
+    $cand = "$env:ZED_WORKSPACE\target\conpty\runtimes\$subDir\native\conpty.dll"
+    if (Test-Path $cand) {
+        return (Resolve-Path $cand).Path
     }
     return $null
 }
@@ -376,14 +366,9 @@ function Get-ConptyDllPath {
 function Get-OpenConsolePath {
     param([string]$Arch)
     $subDir = if ($Arch -eq "aarch64") { "arm64" } else { "x64" }
-    $candidates = @(
-        "$env:ZED_WORKSPACE\target\conpty\build\native\runtimes\$subDir\OpenConsole.exe",
-        "$env:ZED_WORKSPACE\conpty\build\native\runtimes\$subDir\OpenConsole.exe"
-    )
-    foreach ($cand in $candidates) {
-        if (Test-Path $cand) {
-            return (Resolve-Path $cand).Path
-        }
+    $cand = "$env:ZED_WORKSPACE\target\conpty\build\native\runtimes\$subDir\OpenConsole.exe"
+    if (Test-Path $cand) {
+        return (Resolve-Path $cand).Path
     }
     return $null
 }
