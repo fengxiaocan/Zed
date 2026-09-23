@@ -306,6 +306,20 @@ impl UiLanguage {
                 "No quick commands yet. Add one to get started." => {
                     "还没有快捷命令。添加一个开始使用吧。"
                 }
+                "No quick commands yet" => "还没有快捷命令",
+                "Add commands to quickly run tasks in the terminal" => {
+                    "添加常用命令，一键在终端中快速执行"
+                }
+                "Move Up" => "上移",
+                "Move Down" => "下移",
+                "Move to Top" => "置顶",
+                "Move to Bottom" => "置底",
+                "Panel Position" => "面板位置",
+                "Dock Left" => "停靠在左侧",
+                "Dock Right" => "停靠在右侧",
+                "Float Left" => "悬浮在左侧",
+                "Float Right" => "悬浮在右侧",
+                "More Options" => "更多选项",
                 "Command" => "命令",
                 "Working Directory" => "工作目录",
                 "Name…" => "名称…",
