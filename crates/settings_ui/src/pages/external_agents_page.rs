@@ -232,28 +232,14 @@ fn render_agent(
     .action(remove_button)
 }
 
-fn remove_agent(id: &AgentId, source: ExternalAgentSource, cx: &mut App) {
+fn remove_agent(id: &AgentId, _source: ExternalAgentSource, cx: &mut App) {
     let fs = <dyn fs::Fs>::global(cx);
     let id = id.clone();
     update_settings_file(fs, cx, move |settings, _| {
         let Some(agent_servers) = settings.agent_servers.as_mut() else {
             return;
         };
-        // Only remove the entry if it still matches the source we rendered, so a
-        // stale row can't clobber an entry that was changed in the meantime.
-        let matches_source = agent_servers
-            .get(id.0.as_ref())
-            .is_some_and(|entry| match source {
-                ExternalAgentSource::Registry => {
-                    matches!(entry, CustomAgentServerSettings::Registry { .. })
-                }
-                ExternalAgentSource::Custom => {
-                    matches!(entry, CustomAgentServerSettings::Custom { .. })
-                }
-            });
-        if matches_source {
-            agent_servers.remove(id.0.as_ref());
-        }
+        agent_servers.remove(id.0.as_ref());
     });
 }
 

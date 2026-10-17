@@ -344,7 +344,8 @@ impl Render for EditPredictionButton {
                         .with_handle(self.popover_menu_handle.clone()),
                 )
             }
-            provider @ (EditPredictionProvider::Zed | EditPredictionProvider::Mercury) => {
+            EditPredictionProvider::Zed => div().hidden(),
+            provider @ EditPredictionProvider::Mercury => {
                 let enabled = self.editor_enabled.unwrap_or(true);
                 let file = self.file.clone();
                 let language = self.language.clone();

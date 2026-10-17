@@ -310,6 +310,42 @@ pub fn parse_skill_file_content(content: &str) -> Result<(SkillMetadata, &str)> 
     Ok((metadata, body))
 }
 
+/// Normalize a skill name for loading, tolerating colons, underscores, spaces,
+/// and uppercase by converting them to valid hyphens and lowercase.
+pub fn normalize_skill_name_for_loading(name: &str) -> Option<String> {
+    if validate_name(name).is_ok() {
+        return Some(name.to_string());
+    }
+    let input = name.replace('&', "-and-");
+    let mut slug = String::with_capacity(input.len());
+    let mut last_was_dash = true;
+    for ch in input.chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+            last_was_dash = false;
+        } else if ch == ' ' || ch == '-' || ch == ':' || ch == '_' || ch == '/' || ch == '.' {
+            if !last_was_dash {
+                slug.push('-');
+                last_was_dash = true;
+            }
+        }
+    }
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+    if slug.len() > MAX_SKILL_NAME_LEN {
+        slug.truncate(MAX_SKILL_NAME_LEN);
+        while slug.ends_with('-') {
+            slug.pop();
+        }
+    }
+    if validate_name(&slug).is_ok() {
+        Some(slug)
+    } else {
+        None
+    }
+}
+
 fn parse_skill_file_content_for_loading(
     content: &str,
 ) -> Result<(SkillMetadata, &str, Vec<SkillLoadWarning>)> {
@@ -659,10 +695,45 @@ pub async fn load_skill_frontmatter(
             message: format!("Failed to read file: {}", e),
         })?;
 
-    parse_skill_frontmatter(&skill_file_path, &content, source).map_err(|e| SkillLoadError {
-        path: skill_file_path.clone(),
-        message: e.to_string(),
-    })
+    match parse_skill_frontmatter(&skill_file_path, &content, source.clone()) {
+        Ok(skill) => Ok(skill),
+        Err(e) => {
+            // Attempt resilient recovery for on-disk skills that might have colons,
+            // underscores, or formatting quirks in name, or fall back to directory name.
+            if let Ok((mut metadata, _body)) = extract_skill_frontmatter(&content) {
+                let candidate_name = normalize_skill_name_for_loading(&metadata.name).or_else(|| {
+                    skill_file_path
+                        .parent()
+                        .and_then(|p| p.file_name())
+                        .and_then(|n| n.to_str())
+                        .and_then(normalize_skill_name_for_loading)
+                });
+                if let Some(candidate_name) = candidate_name {
+                    metadata.name = candidate_name;
+                    let directory_path = skill_file_path
+                        .parent()
+                        .map(|p| p.to_path_buf())
+                        .unwrap_or_else(|| PathBuf::from("."));
+                    let load_warnings = validate_description_for_loading(&metadata.description)
+                        .unwrap_or_default();
+                    return Ok(Skill {
+                        name: metadata.name,
+                        description: metadata.description,
+                        source,
+                        directory_path,
+                        skill_file_path,
+                        load_warnings,
+                        disable_model_invocation: metadata.disable_model_invocation,
+                        embedded_body: None,
+                    });
+                }
+            }
+            Err(SkillLoadError {
+                path: skill_file_path.clone(),
+                message: e.to_string(),
+            })
+        }
+    }
 }
 
 /// Read the body of a SKILL.md from disk — everything after the closing
@@ -685,11 +756,10 @@ pub fn read_skill_body_from_content(
     skill_file_path: &Path,
     content: &str,
 ) -> Result<String, SkillLoadError> {
-    let (_metadata, body, _load_warnings) =
-        parse_skill_file_content_for_loading(content).map_err(|e| SkillLoadError {
-            path: skill_file_path.to_path_buf(),
-            message: e.to_string(),
-        })?;
+    let (_metadata, body) = extract_skill_frontmatter(content).map_err(|e| SkillLoadError {
+        path: skill_file_path.to_path_buf(),
+        message: e.to_string(),
+    })?;
 
     Ok(body.trim().to_string())
 }
@@ -1803,6 +1873,37 @@ description: A skill with no body content
 
         let error = errors[0].as_ref().unwrap_err();
         assert!(error.path.to_string_lossy().contains("invalid-skill"));
+    }
+
+    #[gpui::test]
+    async fn test_load_resilient_to_colons_and_underscores(cx: &mut TestAppContext) {
+        let fs = FakeFs::new(cx.executor());
+        fs.insert_tree(
+            "/skills",
+            serde_json::json!({
+                "ckm-banner-design": {
+                    "SKILL.md": "---\nname: ckm:banner-design\ndescription: Design banner\n---\n\nContent"
+                },
+                "other_tool": {
+                    "SKILL.md": "---\nname: OTHER_TOOL\ndescription: Other tool\n---\n\nContent"
+                }
+            }),
+        )
+        .await;
+
+        let results = load_skills_from_directory(
+            &(fs as Arc<dyn Fs>),
+            Path::new("/skills"),
+            SkillSource::Global,
+        )
+        .await;
+
+        assert_eq!(results.len(), 2);
+        assert!(results[0].is_ok());
+        assert!(results[1].is_ok());
+        let names: Vec<String> = results.into_iter().map(|r| r.unwrap().name).collect();
+        assert!(names.contains(&"ckm-banner-design".to_string()));
+        assert!(names.contains(&"other-tool".to_string()));
     }
 
     #[gpui::test]

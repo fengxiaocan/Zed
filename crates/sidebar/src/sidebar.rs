@@ -12,7 +12,7 @@ use agent_ui::thread_metadata_store::{
     ThreadMetadata, ThreadMetadataStore, WorktreePaths, worktree_info_from_thread_paths,
 };
 use agent_ui::threads_archive_view::{
-    ThreadsArchiveView, ThreadsArchiveViewEvent, format_history_entry_timestamp,
+    ThreadsArchiveView, ThreadsArchiveViewEvent, format_history_entry_timestamp_localized,
     fuzzy_match_positions,
 };
 use agent_ui::{
@@ -45,7 +45,7 @@ use remote::{RemoteConnectionOptions, same_remote_connection_identity};
 use ui::utils::platform_title_bar_height;
 
 use serde::{Deserialize, Serialize};
-use settings::Settings as _;
+use settings::{Settings as _, translate_ui};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::mem;
@@ -5974,7 +5974,7 @@ impl Sidebar {
                     }?;
                     let notified = self.contents.is_thread_notified(&thread.metadata.thread_id);
                     let timestamp: SharedString =
-                        format_history_entry_timestamp(Self::thread_display_time(&thread.metadata))
+                        format_history_entry_timestamp_localized(Self::thread_display_time(&thread.metadata), cx)
                             .into();
                     Some(ThreadSwitcherEntry::Thread(ThreadSwitcherThreadEntry {
                         title: thread.metadata.display_title(),
@@ -6002,7 +6002,7 @@ impl Sidebar {
                 }
                 ListEntry::Terminal(terminal) => {
                     let timestamp: SharedString =
-                        format_history_entry_timestamp(terminal.metadata.created_at).into();
+                        format_history_entry_timestamp_localized(terminal.metadata.created_at, cx).into();
                     Some(ThreadSwitcherEntry::Terminal(ThreadSwitcherTerminalEntry {
                         metadata: terminal.metadata.clone(),
                         workspace: terminal.workspace.clone(),
@@ -6317,7 +6317,7 @@ impl Sidebar {
         let timestamp: SharedString = if is_empty_draft {
             SharedString::default()
         } else {
-            format_history_entry_timestamp(Self::thread_display_time(&thread.metadata)).into()
+            format_history_entry_timestamp_localized(Self::thread_display_time(&thread.metadata), cx).into()
         };
 
         let is_remote = thread.workspace.is_remote(cx);
@@ -6345,6 +6345,8 @@ impl Sidebar {
                 this.icon_color(Color::Custom(cx.theme().colors().icon_muted.opacity(0.2)))
             })
             .status(thread.status)
+            .error_tooltip(translate_ui("Thread has an Error", cx))
+            .waiting_tooltip(translate_ui("Waiting for Confirmation", cx))
             .is_remote(is_remote)
             .when_some(icon_svg, |this, svg| {
                 this.custom_icon_from_external_svg(svg)
@@ -6649,7 +6651,7 @@ impl Sidebar {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let id = ElementId::from(format!("terminal-{}", terminal.metadata.terminal_id));
-        let timestamp = format_history_entry_timestamp(terminal.metadata.created_at);
+        let timestamp = format_history_entry_timestamp_localized(terminal.metadata.created_at, cx);
         let is_hovered = self.hovered_thread_index == Some(ix);
         let color = cx.theme().colors();
         let sidebar_bg = color

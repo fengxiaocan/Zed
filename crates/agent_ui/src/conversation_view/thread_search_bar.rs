@@ -19,7 +19,7 @@ use markdown::Markdown;
 use multi_buffer::{Anchor, MultiBufferOffset, MultiBufferSnapshot};
 use project::search::SearchQuery;
 use search::{SearchOption, SearchOptions, SearchSource};
-use settings::Settings as _;
+use settings::{Settings as _, translate_ui};
 use theme_settings::ThemeSettings;
 use ui::{IconButtonShape, Tooltip, prelude::*};
 use util::paths::PathMatcher;
@@ -169,7 +169,7 @@ impl ThreadSearchBar {
     ) -> Self {
         let query_editor = cx.new(|cx| {
             let mut editor = Editor::single_line(window, cx);
-            editor.set_placeholder_text("Search this thread…", window, cx);
+            editor.set_placeholder_text(&translate_ui("Search this thread…", cx), window, cx);
             editor
         });
         let editor_subscription = cx.subscribe_in(

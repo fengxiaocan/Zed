@@ -2,6 +2,7 @@ use std::{
     path::{Path, PathBuf},
     pin::Pin,
     task::Poll,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result};
@@ -40,12 +41,68 @@ impl GithubBinaryMetadata {
     }
 }
 
+pub type ProgressCallback = std::sync::Arc<dyn Fn(u64, Option<u64>) + Send + Sync>;
+
+pub struct ProgressReader<R> {
+    reader: R,
+    downloaded: u64,
+    total: Option<u64>,
+    on_progress: Option<ProgressCallback>,
+    last_reported: Instant,
+}
+
+impl<R: AsyncRead + Unpin> AsyncRead for ProgressReader<R> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<std::io::Result<usize>> {
+        let this = self.as_mut().get_mut();
+        let poll = Pin::new(&mut this.reader).poll_read(cx, buf);
+        if let Poll::Ready(Ok(n)) = poll {
+            if n > 0 {
+                this.downloaded += n as u64;
+                if this.last_reported.elapsed() >= Duration::from_millis(200) {
+                    if let Some(on_progress) = this.on_progress.as_ref() {
+                        on_progress(this.downloaded, this.total);
+                    }
+                    this.last_reported = Instant::now();
+                }
+            } else if n == 0 {
+                if let Some(on_progress) = this.on_progress.as_ref() {
+                    on_progress(this.downloaded, this.total);
+                }
+            }
+        }
+        poll
+    }
+}
+
 pub async fn download_server_binary(
     http_client: &dyn HttpClient,
     url: &str,
     digest: Option<&str>,
     destination_path: &Path,
     asset_kind: AssetKind,
+) -> Result<(), anyhow::Error> {
+    download_server_binary_with_progress(
+        http_client,
+        url,
+        digest,
+        destination_path,
+        asset_kind,
+        None,
+    )
+    .await
+}
+
+pub async fn download_server_binary_with_progress(
+    http_client: &dyn HttpClient,
+    url: &str,
+    digest: Option<&str>,
+    destination_path: &Path,
+    asset_kind: AssetKind,
+    on_progress: Option<ProgressCallback>,
 ) -> Result<(), anyhow::Error> {
     log::info!("downloading github artifact from {url}");
     let Some(destination_parent) = destination_path.parent() else {
@@ -57,7 +114,20 @@ pub async fn download_server_binary(
         .get(url, Default::default(), true)
         .await
         .with_context(|| format!("downloading release from {url}"))?;
-    let body = response.body_mut();
+
+    let total_size = response
+        .headers()
+        .get(http::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok());
+
+    let body = ProgressReader {
+        reader: response.body_mut(),
+        downloaded: 0,
+        total: total_size,
+        on_progress,
+        last_reported: Instant::now(),
+    };
 
     if let Err(err) = extract_to_staging(body, digest, url, &staging_path, asset_kind).await {
         cleanup_staging_path(&staging_path, asset_kind).await;
@@ -79,6 +149,25 @@ pub async fn download_server_raw_binary(
     destination_path: &Path,
     binary_file_name: &str,
 ) -> Result<(), anyhow::Error> {
+    download_server_raw_binary_with_progress(
+        http_client,
+        url,
+        digest,
+        destination_path,
+        binary_file_name,
+        None,
+    )
+    .await
+}
+
+pub async fn download_server_raw_binary_with_progress(
+    http_client: &dyn HttpClient,
+    url: &str,
+    digest: Option<&str>,
+    destination_path: &Path,
+    binary_file_name: &str,
+    on_progress: Option<ProgressCallback>,
+) -> Result<(), anyhow::Error> {
     log::info!("downloading raw binary from {url}");
     let Some(destination_parent) = destination_path.parent() else {
         anyhow::bail!("destination path has no parent: {destination_path:?}");
@@ -91,6 +180,12 @@ pub async fn download_server_raw_binary(
             .await
             .with_context(|| format!("downloading release from {url}"))?;
 
+        let total_size = response
+            .headers()
+            .get(http::header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok());
+
         let binary_path = staging_path.join(binary_file_name);
         let mut writer = HashingWriter {
             writer: async_fs::File::create(&binary_path)
@@ -98,7 +193,16 @@ pub async fn download_server_raw_binary(
                 .with_context(|| format!("creating a file {binary_path:?} for {url}"))?,
             hasher: Sha256::new(),
         };
-        futures::io::copy(&mut BufReader::new(response.body_mut()), &mut writer)
+
+        let mut progress_body = ProgressReader {
+            reader: response.body_mut(),
+            downloaded: 0,
+            total: total_size,
+            on_progress,
+            last_reported: Instant::now(),
+        };
+
+        futures::io::copy(&mut BufReader::new(&mut progress_body), &mut writer)
             .await
             .with_context(|| format!("saving binary contents from {url}"))?;
         let asset_sha_256 = writer

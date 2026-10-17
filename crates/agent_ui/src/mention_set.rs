@@ -337,10 +337,10 @@ impl MentionSet {
                 debug_panic!("unexpected selection URI");
                 Task::ready(Err(anyhow!("unexpected selection URI")))
             }
-            MentionUri::TerminalSelection { .. } => {
-                debug_panic!("unexpected terminal URI");
-                Task::ready(Err(anyhow!("unexpected terminal URI")))
-            }
+            MentionUri::TerminalSelection { line_count } => Task::ready(Ok(Mention::Text {
+                content: format!("Terminal output ({} lines)", line_count),
+                tracked_buffers: Vec::new(),
+            })),
             MentionUri::GitDiff { base_ref } => {
                 self.confirm_mention_for_git_diff(base_ref.into(), cx)
             }
@@ -685,9 +685,84 @@ impl MentionSet {
             return Task::ready(Err(anyhow!("no active repository")));
         };
 
+        if base_ref == "staged" {
+            let diff_receiver = repo.update(cx, |repo, cx| {
+                repo.diff(git::repository::DiffType::HeadToIndex, cx)
+            });
+            return cx.spawn(async move |_, _| {
+                let diff_text = diff_receiver.await??;
+                let content = if diff_text.trim().is_empty() {
+                    "No staged changes found in git repository.".to_string()
+                } else {
+                    format!("### Staged Changes\n```diff\n{}\n```", diff_text.trim())
+                };
+                Ok(Mention::Text {
+                    content,
+                    tracked_buffers: Vec::new(),
+                })
+            });
+        }
+
+        if base_ref == "unstaged" || base_ref == "worktree" {
+            let diff_receiver = repo.update(cx, |repo, cx| {
+                repo.diff(git::repository::DiffType::HeadToWorktree, cx)
+            });
+            return cx.spawn(async move |_, _| {
+                let diff_text = diff_receiver.await??;
+                let content = if diff_text.trim().is_empty() {
+                    "No unstaged changes found in git repository.".to_string()
+                } else {
+                    format!("### Unstaged Changes\n```diff\n{}\n```", diff_text.trim())
+                };
+                Ok(Mention::Text {
+                    content,
+                    tracked_buffers: Vec::new(),
+                })
+            });
+        }
+
+        if base_ref == "uncommitted" || base_ref == "HEAD" {
+            let staged_receiver = repo.update(cx, |repo, cx| {
+                repo.diff(git::repository::DiffType::HeadToIndex, cx)
+            });
+            let unstaged_receiver = repo.update(cx, |repo, cx| {
+                repo.diff(git::repository::DiffType::HeadToWorktree, cx)
+            });
+            return cx.spawn(async move |_, _| {
+                let (staged_res, unstaged_res) =
+                    futures::future::join(staged_receiver, unstaged_receiver).await;
+                let staged = staged_res
+                    .ok()
+                    .and_then(|r| r.ok())
+                    .unwrap_or_default();
+                let unstaged = unstaged_res
+                    .ok()
+                    .and_then(|r| r.ok())
+                    .unwrap_or_default();
+                let mut content = String::new();
+                if !staged.trim().is_empty() {
+                    content.push_str("### Staged Changes\n```diff\n");
+                    content.push_str(staged.trim());
+                    content.push_str("\n```\n\n");
+                }
+                if !unstaged.trim().is_empty() {
+                    content.push_str("### Unstaged Changes\n```diff\n");
+                    content.push_str(unstaged.trim());
+                    content.push_str("\n```\n");
+                }
+                if content.trim().is_empty() {
+                    content = "No uncommitted changes found in git repository.".to_string();
+                }
+                Ok(Mention::Text {
+                    content,
+                    tracked_buffers: Vec::new(),
+                })
+            });
+        }
+
         let diff_receiver = repo.update(cx, |repo, cx| {
             repo.diff(
-                git::repository::DiffType::MergeBase { base_ref: base_ref },
+                git::repository::DiffType::MergeBase { base_ref: base_ref.clone() },
                 cx,
             )
         });
@@ -696,12 +771,12 @@ impl MentionSet {
             let diff_text = diff_receiver.await??;
             if diff_text.is_empty() {
                 Ok(Mention::Text {
-                    content: "No changes found in branch diff.".into(),
+                    content: format!("No changes found in branch diff against {}.", base_ref),
                     tracked_buffers: Vec::new(),
                 })
             } else {
                 Ok(Mention::Text {
-                    content: diff_text,
+                    content: format!("### Branch Diff against {}\n```diff\n{}\n```", base_ref, diff_text.trim()),
                     tracked_buffers: Vec::new(),
                 })
             }

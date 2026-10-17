@@ -21,7 +21,7 @@ use gpui::{
 use language::{Buffer, Capability, OffsetRangeExt, Point};
 use multi_buffer::PathKey;
 use project::{Project, ProjectItem, ProjectPath};
-use settings::{Settings, SettingsStore};
+use settings::{Settings, SettingsStore, translate_ui};
 use std::{
     any::{Any, TypeId},
     collections::hash_map::Entry,
@@ -1118,7 +1118,7 @@ impl Render for AgentDiffToolbar {
                                 IconButton::new("hunk-up", IconName::ArrowUp)
                                     .icon_size(IconSize::Small)
                                     .tooltip(Tooltip::for_action_title_in(
-                                        "Previous Hunk",
+                                        translate_ui("Previous Hunk", cx),
                                         &GoToPreviousHunk,
                                         &editor_focus_handle,
                                     ))
@@ -1137,7 +1137,7 @@ impl Render for AgentDiffToolbar {
                                 IconButton::new("hunk-down", IconName::ArrowDown)
                                     .icon_size(IconSize::Small)
                                     .tooltip(Tooltip::for_action_title_in(
-                                        "Next Hunk",
+                                        translate_ui("Next Hunk", cx),
                                         &GoToHunk,
                                         &editor_focus_handle,
                                     ))
@@ -1154,7 +1154,7 @@ impl Render for AgentDiffToolbar {
                         h_flex()
                             .gap_0p5()
                             .child(
-                                Button::new("reject-all", "Reject All")
+                                Button::new("reject-all", translate_ui("Reject All", cx))
                                     .key_binding({
                                         KeyBinding::for_action_in(
                                             &RejectAll,
@@ -1168,7 +1168,7 @@ impl Render for AgentDiffToolbar {
                                     })),
                             )
                             .child(
-                                Button::new("keep-all", "Keep All")
+                                Button::new("keep-all", translate_ui("Keep All", cx))
                                     .key_binding({
                                         KeyBinding::for_action_in(
                                             &KeepAll,
@@ -1198,7 +1198,7 @@ impl Render for AgentDiffToolbar {
                             IconButton::new("review", IconName::ListTodo)
                                 .icon_size(IconSize::Small)
                                 .tooltip(Tooltip::for_action_title_in(
-                                    "Review All Files",
+                                    translate_ui("Review All Files", cx),
                                     &OpenAgentDiff,
                                     &editor_focus_handle,
                                 ))
@@ -1250,7 +1250,7 @@ impl Render for AgentDiffToolbar {
                     .child(
                         h_group_sm()
                             .child(
-                                Button::new("reject-all", "Reject All")
+                                Button::new("reject-all", translate_ui("Reject All", cx))
                                     .key_binding({
                                         KeyBinding::for_action_in(&RejectAll, &focus_handle, cx)
                                             .map(|kb| kb.size(rems_from_px(12.)))
@@ -1260,7 +1260,7 @@ impl Render for AgentDiffToolbar {
                                     })),
                             )
                             .child(
-                                Button::new("keep-all", "Keep All")
+                                Button::new("keep-all", translate_ui("Keep All", cx))
                                     .key_binding({
                                         KeyBinding::for_action_in(&KeepAll, &focus_handle, cx)
                                             .map(|kb| kb.size(rems_from_px(12.)))

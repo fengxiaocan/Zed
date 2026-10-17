@@ -1,7 +1,7 @@
 use crate::DEFAULT_THREAD_TITLE;
 use crate::SendImmediately;
 use crate::{
-    ChatWithFollow,
+    ChatWithFollow, NextPrompt, PreviousPrompt,
     completion_provider::{
         AgentContextSelection, AvailableCommand, AvailableSkill, PromptCompletionProvider,
         PromptCompletionProviderDelegate, PromptContextAction, PromptContextType,
@@ -16,7 +16,7 @@ use anyhow::{Result, anyhow};
 use base64::Engine as _;
 use editor::{
     Addon, AnchorRangeExt, ContextMenuOptions, Editor, EditorElement, EditorEvent, EditorMode,
-    EditorStyle, Inlay, MultiBuffer, MultiBufferOffset, MultiBufferSnapshot, ToOffset,
+    EditorStyle, Inlay, MultiBuffer, MultiBufferOffset, MultiBufferSnapshot, ToOffset, ToPoint,
     actions::{Copy, Cut, Paste},
     code_context_menus::CodeContextMenu,
     display_map::{CreaseId, CreaseSnapshot},
@@ -44,6 +44,7 @@ use util::paths::PathStyle;
 use util::{ResultExt, debug_panic};
 use workspace::{CollaboratorId, Workspace};
 use zed_actions::agent::{Chat, PasteRaw};
+use zed_actions::editor::{MoveDown, MoveUp};
 
 #[derive(Default)]
 pub struct SessionCapabilities {
@@ -103,6 +104,7 @@ impl SessionCapabilities {
                 PromptContextType::Fetch,
                 PromptContextType::Skill,
                 PromptContextType::BranchDiff,
+                PromptContextType::Terminal,
             ]);
         }
         supported
@@ -209,6 +211,9 @@ pub struct MessageEditor {
     thread_store: Option<Entity<ThreadStore>>,
     _subscriptions: Vec<Subscription>,
     _parse_slash_command_task: Task<()>,
+    prompt_history: Vec<String>,
+    prompt_history_ix: Option<usize>,
+    pending_prompt: String,
 }
 
 #[derive(Clone, Debug)]
@@ -558,6 +563,15 @@ impl MessageEditor {
                 if let EditorEvent::Edited { .. } = event
                     && !editor.read(cx).read_only(cx)
                 {
+                    let prompt = this.text(cx);
+                    if this
+                        .prompt_history_ix
+                        .is_some_and(|ix| this.prompt_history.get(ix).map_or(true, |h| h != &prompt))
+                    {
+                        this.prompt_history_ix = None;
+                        this.pending_prompt = prompt;
+                    }
+
                     cx.emit(MessageEditorEvent::Edited);
                     editor.update(cx, |editor, cx| {
                         let snapshot = editor.snapshot(window, cx);
@@ -611,6 +625,9 @@ impl MessageEditor {
             thread_store,
             _subscriptions: subscriptions,
             _parse_slash_command_task: Task::ready(()),
+            prompt_history: Vec::new(),
+            prompt_history_ix: None,
+            pending_prompt: String::new(),
         }
     }
 
@@ -785,9 +802,14 @@ impl MessageEditor {
                 //    branch, every autocomplete pick of a same-named
                 //    skill would be rejected as "not supported"
                 //    before reaching the resolver.
-                let direct_match = available_commands
-                    .iter()
-                    .any(|available_command| available_command.name == command_name)
+                let is_builtin_slash = matches!(
+                    command_name.as_str(),
+                    "clear" | "agent" | "cwd" | "pwd" | "cd" | "help" | "login" | "logout"
+                );
+                let direct_match = is_builtin_slash
+                    || available_commands
+                        .iter()
+                        .any(|available_command| available_command.name == command_name)
                     || available_skills
                         .iter()
                         .any(|skill| skill.name.as_ref() == command_name);
@@ -943,6 +965,8 @@ impl MessageEditor {
 
     pub fn send(&mut self, cx: &mut Context<Self>) {
         if !self.is_empty(cx) {
+            let prompt = self.text(cx);
+            self.push_history(prompt);
             self.editor.update(cx, |editor, cx| {
                 editor.clear_inlay_hints(cx);
             });
@@ -1009,6 +1033,9 @@ impl MessageEditor {
             return;
         }
 
+        let prompt = self.text(cx);
+        self.push_history(prompt);
+
         self.editor.update(cx, |editor, cx| {
             editor.clear_inlay_hints(cx);
         });
@@ -1033,6 +1060,98 @@ impl MessageEditor {
 
     fn cancel(&mut self, _: &editor::actions::Cancel, _: &mut Window, cx: &mut Context<Self>) {
         cx.emit(MessageEditorEvent::Cancel)
+    }
+
+    pub fn push_history(&mut self, text: String) {
+        let text = text.trim();
+        if text.is_empty() {
+            return;
+        }
+        if self.prompt_history.last().map(|s| s.as_str()) != Some(text) {
+            self.prompt_history.push(text.to_string());
+        }
+        self.prompt_history_ix = None;
+        self.pending_prompt.clear();
+    }
+
+    pub fn set_history(&mut self, history: Vec<String>) {
+        self.prompt_history = history;
+        self.prompt_history_ix = None;
+        self.pending_prompt.clear();
+    }
+
+    pub fn previous_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.prompt_history.is_empty() {
+            return;
+        }
+        if let Some(ix) = self.prompt_history_ix {
+            if ix > 0 {
+                self.prompt_history_ix = Some(ix - 1);
+                let prompt = self.prompt_history[ix - 1].clone();
+                self.set_text(&prompt, window, cx);
+            }
+        } else {
+            self.pending_prompt = self.text(cx);
+            let ix = self.prompt_history.len() - 1;
+            self.prompt_history_ix = Some(ix);
+            let prompt = self.prompt_history[ix].clone();
+            self.set_text(&prompt, window, cx);
+        }
+    }
+
+    pub fn next_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(ix) = self.prompt_history_ix {
+            if ix + 1 < self.prompt_history.len() {
+                self.prompt_history_ix = Some(ix + 1);
+                let prompt = self.prompt_history[ix + 1].clone();
+                self.set_text(&prompt, window, cx);
+            } else {
+                self.prompt_history_ix = None;
+                let draft = self.pending_prompt.clone();
+                self.set_text(&draft, window, cx);
+            }
+        }
+    }
+
+    fn on_previous_prompt(&mut self, _: &PreviousPrompt, window: &mut Window, cx: &mut Context<Self>) {
+        self.previous_prompt(window, cx);
+    }
+
+    fn on_next_prompt(&mut self, _: &NextPrompt, window: &mut Window, cx: &mut Context<Self>) {
+        self.next_prompt(window, cx);
+    }
+
+    fn move_up(&mut self, _: &MoveUp, window: &mut Window, cx: &mut Context<Self>) {
+        let is_empty = self.is_empty(cx);
+        let cursor_at_first_line = {
+            let editor = self.editor.read(cx);
+            let snapshot = editor.buffer().read(cx).snapshot(cx);
+            let cursor = editor.selections.newest_anchor().head().to_point(&snapshot);
+            cursor.row == 0
+        };
+
+        if (is_empty || (self.prompt_history_ix.is_some() && cursor_at_first_line))
+            && !self.prompt_history.is_empty()
+        {
+            cx.stop_propagation();
+            self.previous_prompt(window, cx);
+        }
+    }
+
+    fn move_down(&mut self, _: &MoveDown, window: &mut Window, cx: &mut Context<Self>) {
+        if self.prompt_history_ix.is_some() {
+            let cursor_at_last_line = {
+                let editor = self.editor.read(cx);
+                let snapshot = editor.buffer().read(cx).snapshot(cx);
+                let cursor = editor.selections.newest_anchor().head().to_point(&snapshot);
+                cursor.row >= snapshot.max_point().row
+            };
+
+            if cursor_at_last_line {
+                cx.stop_propagation();
+                self.next_prompt(window, cx);
+            }
+        }
     }
 
     pub fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
@@ -1601,6 +1720,7 @@ impl MessageEditor {
                 self.mention_set.downgrade(),
                 self.workspace.clone(),
                 Some(selection),
+                settings::is_simplified_chinese(cx),
             )
         else {
             return;
@@ -1902,10 +2022,10 @@ impl MessageEditor {
         });
     }
 
-    #[cfg(any(test, feature = "test-support"))]
     pub fn set_text(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.editor.update(cx, |editor, cx| {
             editor.set_text(text, window, cx);
+            editor.move_to_end(&Default::default(), window, cx);
         });
     }
 
@@ -2009,6 +2129,10 @@ impl Render for MessageEditor {
             .on_action(cx.listener(Self::send_immediately))
             .on_action(cx.listener(Self::chat_with_follow))
             .on_action(cx.listener(Self::cancel))
+            .on_action(cx.listener(Self::on_previous_prompt))
+            .on_action(cx.listener(Self::on_next_prompt))
+            .capture_action(cx.listener(Self::move_up))
+            .capture_action(cx.listener(Self::move_down))
             .capture_action(cx.listener(Self::copy))
             .capture_action(cx.listener(Self::cut))
             .on_action(cx.listener(Self::paste_raw))
@@ -3324,7 +3448,8 @@ mod tests {
                     "Files & Directories".into(),
                     "Symbols".into(),
                     "Threads".into(),
-                    "Fetch".into()
+                    "Fetch".into(),
+                    "Git Diff".into(),
                 ]
             );
         });
@@ -5768,5 +5893,57 @@ mod tests {
             text.starts_with("prefix text\n\n"),
             "Expected text to start with 'prefix text\\n\\n', got: {text:?}"
         );
+    }
+
+    #[gpui::test]
+    async fn test_prompt_history(cx: &mut TestAppContext) {
+        init_test(cx);
+
+        let fs = FakeFs::new(cx.executor());
+        let project = Project::test(fs, [Path::new(path!("/project"))], cx).await;
+        let (multi_workspace, cx) =
+            cx.add_window_view(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+        let workspace = multi_workspace.read_with(cx, |mw, _| mw.workspace().clone());
+
+        let message_editor = cx.update(|window, cx| {
+            cx.new(|cx| {
+                MessageEditor::new(
+                    workspace.downgrade(),
+                    project.downgrade(),
+                    None,
+                    Default::default(),
+                    "Test Agent".into(),
+                    "Test",
+                    EditorMode::AutoHeight {
+                        min_lines: 1,
+                        max_lines: None,
+                    },
+                    window,
+                    cx,
+                )
+            })
+        });
+
+        cx.run_until_parked();
+
+        message_editor.update_in(cx, |editor, window, cx| {
+            editor.set_history(vec!["first command".to_string(), "second command".to_string()]);
+            editor.set_text("drafting something", window, cx);
+
+            editor.previous_prompt(window, cx);
+            assert_eq!(editor.text(cx), "second command");
+
+            editor.previous_prompt(window, cx);
+            assert_eq!(editor.text(cx), "first command");
+
+            editor.previous_prompt(window, cx);
+            assert_eq!(editor.text(cx), "first command");
+
+            editor.next_prompt(window, cx);
+            assert_eq!(editor.text(cx), "second command");
+
+            editor.next_prompt(window, cx);
+            assert_eq!(editor.text(cx), "drafting something");
+        });
     }
 }

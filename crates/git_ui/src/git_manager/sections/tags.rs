@@ -10,7 +10,7 @@ use project::git_store::Repository;
 use settings::translate_ui;
 use ui::{
     Color, ContextMenu, Headline, HeadlineSize, IconButton, IconName, IconSize, Label, LabelSize,
-    PopoverMenu, prelude::*,
+    PopoverMenu, Tooltip, prelude::*,
 };
 use workspace::notifications::DetachAndPromptErr;
 use workspace::{ModalView, Workspace};
@@ -48,16 +48,26 @@ pub(crate) fn render_tag_list(
     has_repo: bool,
     repo: Option<Entity<Repository>>,
     workspace: gpui::WeakEntity<Workspace>,
+    manager: gpui::WeakEntity<crate::git_manager::GitManager>,
     cx: &App,
 ) -> AnyElement {
     if !has_repo {
-        return Label::new(translate_ui("Open a folder with a git repository", cx))
-            .color(Color::Muted)
+        return v_flex()
+            .w_full()
+            .items_center()
+            .py_6()
+            .child(
+                Label::new(translate_ui("Open a folder with a git repository", cx))
+                    .color(Color::Muted),
+            )
             .into_any_element();
     }
     if tags.is_empty() {
-        return Label::new(translate_ui("No tags", cx))
-            .color(Color::Muted)
+        return v_flex()
+            .w_full()
+            .items_center()
+            .py_6()
+            .child(Label::new(translate_ui("No tags", cx)).color(Color::Muted))
             .into_any_element();
     }
 
@@ -68,7 +78,14 @@ pub(crate) fn render_tag_list(
             .enumerate()
             .map(|(offset, tag)| {
                 let index = range.start + offset;
-                render_tag_row(index, tag.clone(), repo.clone(), workspace.clone(), cx)
+                render_tag_row(
+                    index,
+                    tag.clone(),
+                    repo.clone(),
+                    workspace.clone(),
+                    manager.clone(),
+                    cx,
+                )
             })
             .collect()
     })
@@ -77,16 +94,83 @@ pub(crate) fn render_tag_list(
     .into_any_element()
 }
 
+pub(crate) fn push_tag_to_remote(
+    tag_name: String,
+    repo: Entity<Repository>,
+    workspace: gpui::WeakEntity<Workspace>,
+    manager: gpui::WeakEntity<crate::git_manager::GitManager>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let remote_name = repo.read_with(cx, |repo, _| {
+        if repo.remotes.contains_key("origin") {
+            Some("origin".to_string())
+        } else {
+            repo.remotes.keys().next().cloned()
+        }
+    });
+    let Some(remote_name) = remote_name else {
+        window
+            .spawn(cx, async move |_| -> anyhow::Result<()> {
+                anyhow::bail!("No remote configured to push tag to");
+            })
+            .detach_and_prompt_err(
+                translate_ui("Failed to push tag", cx),
+                window,
+                cx,
+                |e, _, _| Some(e.to_string()),
+            );
+        return;
+    };
+    let askpass = crate::git_manager::operations::askpass_delegate(
+        &workspace,
+        format!("git push {remote_name} {tag_name}"),
+        window,
+        cx,
+    );
+    let receiver = repo.update(cx, |repo, cx| {
+        repo.push(
+            format!("refs/tags/{tag_name}").into(),
+            format!("refs/tags/{tag_name}").into(),
+            remote_name.into(),
+            None,
+            askpass,
+            cx,
+        )
+    });
+    let manager_handle = manager;
+    window
+        .spawn(cx, async move |cx| {
+            receiver.await??;
+            if let Some(manager) = manager_handle.upgrade() {
+                manager.update(cx, |this, cx| {
+                    this.reload_tags(cx);
+                });
+            }
+            anyhow::Ok(())
+        })
+        .detach_and_prompt_err(
+            translate_ui("Failed to push tag", cx),
+            window,
+            cx,
+            |e, _, _| Some(e.to_string()),
+        );
+}
+
 fn render_tag_row(
     index: usize,
     tag: TagInfo,
     repo: Option<Entity<Repository>>,
     workspace: gpui::WeakEntity<Workspace>,
+    manager: gpui::WeakEntity<crate::git_manager::GitManager>,
     cx: &App,
 ) -> AnyElement {
     let id = SharedString::from(format!("gm-tag-row-{index}"));
     let short_sha: String = tag.target.chars().take(8).collect();
     let tag_for_menu = tag.clone();
+    let tag_for_click = tag.clone();
+    let repo_for_click = repo.clone();
+    let workspace_for_click = workspace.clone();
 
     h_flex()
         .id(ElementId::Name(id))
@@ -94,7 +178,32 @@ fn render_tag_row(
         .px_2()
         .py_1()
         .gap_2()
+        .cursor_pointer()
         .hover(|s| s.bg(cx.theme().colors().element_hover))
+        .on_click({
+            let tag_name = tag_for_click.name;
+            let repo = repo_for_click;
+            let workspace = workspace_for_click;
+            move |_, window, cx| {
+                let Some(repo) = repo.clone() else {
+                    return;
+                };
+                let tag_name = tag_name.clone();
+                if let Some(workspace) = workspace.upgrade() {
+                    workspace.update(cx, |workspace, cx| {
+                        let project = workspace.project().clone();
+                        crate::branch_diff::BranchDiff::deploy_branch_diff_with_base_ref(
+                            workspace,
+                            project,
+                            repo,
+                            tag_name,
+                            window,
+                            cx,
+                        );
+                    });
+                }
+            }
+        })
         .child(
             v_flex()
                 .flex_1()
@@ -126,6 +235,30 @@ fn render_tag_row(
                 }),
         )
         .child(
+            IconButton::new(format!("gm-push-tag-btn-{index}"), IconName::ArrowUp)
+                .icon_size(IconSize::XSmall)
+                .tooltip(Tooltip::text(translate_ui("Push Tag to Remote", cx)))
+                .on_click({
+                    let name = tag.name;
+                    let repo = repo.clone();
+                    let workspace = workspace.clone();
+                    let manager = manager.clone();
+                    move |_, window, cx| {
+                        let Some(repo) = repo.clone() else {
+                            return;
+                        };
+                        push_tag_to_remote(
+                            name.to_string(),
+                            repo,
+                            workspace.clone(),
+                            manager.clone(),
+                            window,
+                            cx,
+                        );
+                    }
+                }),
+        )
+        .child(
             PopoverMenu::new(format!("gm-tag-menu-{index}"))
                 .trigger(
                     IconButton::new(format!("gm-tag-menu-btn-{index}"), IconName::Ellipsis)
@@ -135,26 +268,37 @@ fn render_tag_row(
                     let tag = tag_for_menu;
                     let repo = repo;
                     let workspace = workspace;
+                    let manager = manager;
                     move |window, cx| {
                         let tag = tag.clone();
                         let name = tag.name.clone();
                         let repo = repo.clone();
                         let workspace = workspace.clone();
+                        let manager = manager.clone();
                         Some(ContextMenu::build(window, cx, move |menu, _, cx| {
                             let checkout_name = name.clone();
                             let checkout_repo = repo.clone();
+                            let checkout_manager = manager.clone();
+                            let compare_name = name.clone();
+                            let compare_repo = repo.clone();
+                            let compare_workspace = workspace.clone();
                             let new_branch_name = name.clone();
                             let new_branch_repo = repo.clone();
                             let new_branch_workspace = workspace.clone();
                             let push_name = name.clone();
                             let push_repo = repo.clone();
                             let push_workspace = workspace.clone();
+                            let push_manager = manager.clone();
                             let copy_name = name.clone();
                             let copy_sha = tag.target.clone();
+                            let delete_name = name;
+                            let delete_repo = repo;
+                            let delete_manager = manager;
 
                             menu.entry(translate_ui("Checkout Tag", cx), None, {
                                 let name = checkout_name;
                                 let repo = checkout_repo;
+                                let manager = checkout_manager;
                                 move |window, cx| {
                                     let Some(repo) = repo.clone() else {
                                         return;
@@ -162,9 +306,15 @@ fn render_tag_row(
                                     let name = name.to_string();
                                     let receiver =
                                         repo.update(cx, |repo, _| repo.change_branch(name));
+                                    let manager_handle = manager.clone();
                                     window
-                                        .spawn(cx, async move |_cx| {
+                                        .spawn(cx, async move |cx| {
                                             receiver.await??;
+                                            if let Some(manager) = manager_handle.upgrade() {
+                                                manager.update(cx, |this, cx| {
+                                                    this.reload_branches(cx);
+                                                });
+                                            }
                                             anyhow::Ok(())
                                         })
                                         .detach_and_prompt_err(
@@ -173,6 +323,41 @@ fn render_tag_row(
                                             cx,
                                             |e, _, _| Some(e.to_string()),
                                         );
+                                }
+                            })
+                            .entry(translate_ui("Compare with Current", cx), None, {
+                                let name = compare_name;
+                                let repo = compare_repo;
+                                let workspace = compare_workspace;
+                                move |window, cx| {
+                                    let Some(repo) = repo.clone() else {
+                                        return;
+                                    };
+                                    let tag_name = name.clone();
+                                    if let Some(workspace) = workspace.upgrade() {
+                                        workspace.update(cx, |workspace, cx| {
+                                            let project = workspace.project().clone();
+                                            crate::branch_diff::BranchDiff::deploy_branch_diff_with_base_ref(
+                                                workspace,
+                                                project,
+                                                repo,
+                                                tag_name,
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                    }
+                                }
+                            })
+                            .entry(translate_ui("Show in Git Graph", cx), None, {
+                                let target_sha = tag.target.to_string();
+                                move |window, cx| {
+                                    window.dispatch_action(
+                                        Box::new(crate::git_graph::OpenAtCommit {
+                                            sha: target_sha.clone(),
+                                        }),
+                                        cx,
+                                    );
                                 }
                             })
                             .entry(translate_ui("New Branch from Tag…", cx), None, {
@@ -209,38 +394,19 @@ fn render_tag_row(
                                 let name = push_name;
                                 let repo = push_repo;
                                 let workspace = push_workspace;
+                                let manager = push_manager;
                                 move |window, cx| {
                                     let Some(repo) = repo.clone() else {
                                         return;
                                     };
-                                    let tag_name = name.to_string();
-                                    let askpass = crate::git_manager::operations::askpass_delegate(
-                                        &workspace,
-                                        format!("git push origin {tag_name}"),
+                                    push_tag_to_remote(
+                                        name.to_string(),
+                                        repo,
+                                        workspace.clone(),
+                                        manager.clone(),
                                         window,
                                         cx,
                                     );
-                                    let receiver = repo.update(cx, |repo, cx| {
-                                        repo.push(
-                                            format!("refs/tags/{tag_name}").into(),
-                                            format!("refs/tags/{tag_name}").into(),
-                                            "origin".into(),
-                                            None,
-                                            askpass,
-                                            cx,
-                                        )
-                                    });
-                                    window
-                                        .spawn(cx, async move |_cx| {
-                                            receiver.await??;
-                                            anyhow::Ok(())
-                                        })
-                                        .detach_and_prompt_err(
-                                            translate_ui("Failed to push tag", cx),
-                                            window,
-                                            cx,
-                                            |e, _, _| Some(e.to_string()),
-                                        );
                                 }
                             })
                             .separator()
@@ -265,8 +431,9 @@ fn render_tag_row(
                                 translate_ui("Delete Tag", cx),
                                 None,
                                 {
-                                    let name = name;
-                                    let repo = repo;
+                                    let name = delete_name;
+                                    let repo = delete_repo;
+                                    let manager = delete_manager;
                                     move |window, cx| {
                                         let Some(repo) = repo.clone() else {
                                             return;
@@ -288,6 +455,7 @@ fn render_tag_row(
                                             &buttons,
                                             cx,
                                         );
+                                        let manager_handle = manager.clone();
                                         window
                                             .spawn(cx, async move |cx| {
                                                 if answer.await != Ok(0) {
@@ -297,6 +465,11 @@ fn render_tag_row(
                                                     repo.delete_tag(name.clone())
                                                 })
                                                 .await??;
+                                                if let Some(manager) = manager_handle.upgrade() {
+                                                    manager.update(cx, |this, cx| {
+                                                        this.reload_tags(cx);
+                                                    });
+                                                }
                                                 anyhow::Ok(())
                                             })
                                             .detach_and_prompt_err(
@@ -319,7 +492,9 @@ fn render_tag_row(
 pub(crate) struct NewTagModal {
     name_editor: Entity<Editor>,
     message_editor: Entity<Editor>,
+    target: Option<String>,
     repo: Entity<Repository>,
+    manager: Option<gpui::WeakEntity<crate::git_manager::GitManager>>,
     _name_subscription: Subscription,
     _message_subscription: Subscription,
 }
@@ -327,6 +502,8 @@ pub(crate) struct NewTagModal {
 impl NewTagModal {
     pub(crate) fn new(
         repo: Entity<Repository>,
+        target: Option<String>,
+        manager: Option<gpui::WeakEntity<crate::git_manager::GitManager>>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -359,7 +536,9 @@ impl NewTagModal {
         Self {
             name_editor,
             message_editor,
+            target,
             repo,
+            manager,
             _name_subscription,
             _message_subscription,
         }
@@ -382,9 +561,16 @@ impl NewTagModal {
         };
 
         let repo = self.repo.clone();
+        let target = self.target.clone();
+        let manager = self.manager.clone();
         cx.spawn(async move |_, cx| {
-            repo.update(cx, |repo, _| repo.create_tag(name, None, message))
+            repo.update(cx, |repo, _| repo.create_tag(name, target, message))
                 .await??;
+            if let Some(manager) = manager.and_then(|m| m.upgrade()) {
+                manager.update(cx, |this, cx| {
+                    this.reload_tags(cx);
+                });
+            }
             anyhow::Ok(())
         })
         .detach_and_prompt_err(
@@ -407,6 +593,15 @@ impl Focusable for NewTagModal {
 
 impl Render for NewTagModal {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let target_label = self.target.as_ref().map(|target| {
+            let short = if target.len() > 12 {
+                &target[..12]
+            } else {
+                target.as_str()
+            };
+            format!("({}: {})", translate_ui("Target", cx), short)
+        });
+
         v_flex()
             .key_context("GitManagerNewTagModal")
             .on_action(cx.listener(Self::cancel))
@@ -421,7 +616,14 @@ impl Render for NewTagModal {
                     .w_full()
                     .gap_1p5()
                     .child(Icon::new(IconName::Hash).size(IconSize::XSmall))
-                    .child(Headline::new(translate_ui("New Tag", cx)).size(HeadlineSize::XSmall)),
+                    .child(Headline::new(translate_ui("New Tag", cx)).size(HeadlineSize::XSmall))
+                    .when_some(target_label, |this, label| {
+                        this.child(
+                            Label::new(label)
+                                .size(LabelSize::XSmall)
+                                .color(Color::Muted),
+                        )
+                    }),
             )
             .child(
                 v_flex()

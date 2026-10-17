@@ -64,6 +64,8 @@ pub struct ThreadItem {
     on_hover: Box<dyn Fn(&bool, &mut Window, &mut App) + 'static>,
     action_slot: Option<AnyElement>,
     base_bg: Option<Hsla>,
+    error_tooltip: Option<SharedString>,
+    waiting_tooltip: Option<SharedString>,
 }
 
 impl ThreadItem {
@@ -99,6 +101,8 @@ impl ThreadItem {
             on_hover: Box::new(|_, _, _| {}),
             action_slot: None,
             base_bg: None,
+            error_tooltip: None,
+            waiting_tooltip: None,
         }
     }
 
@@ -244,6 +248,16 @@ impl ThreadItem {
 
     pub fn base_bg(mut self, color: Hsla) -> Self {
         self.base_bg = Some(color);
+        self
+    }
+
+    pub fn error_tooltip(mut self, text: impl Into<SharedString>) -> Self {
+        self.error_tooltip = Some(text.into());
+        self
+    }
+
+    pub fn waiting_tooltip(mut self, text: impl Into<SharedString>) -> Self {
+        self.waiting_tooltip = Some(text.into());
         self
     }
 }
@@ -608,6 +622,8 @@ impl RenderOnce for ThreadItem {
             })
             .when(show_tooltip, |this| {
                 let status = self.status;
+                let error_tooltip = self.error_tooltip;
+                let waiting_tooltip = self.waiting_tooltip;
                 this.tooltip(Tooltip::element(move |_, _| match status {
                     AgentThreadStatus::Error => h_flex()
                         .gap_1()
@@ -616,7 +632,11 @@ impl RenderOnce for ThreadItem {
                                 .size(IconSize::Small)
                                 .color(Color::Error),
                         )
-                        .child(Label::new("Thread has an Error"))
+                        .child(Label::new(
+                            error_tooltip
+                                .clone()
+                                .unwrap_or_else(|| "Thread has an Error".into()),
+                        ))
                         .into_any_element(),
                     AgentThreadStatus::WaitingForConfirmation => h_flex()
                         .gap_1()
@@ -625,7 +645,11 @@ impl RenderOnce for ThreadItem {
                                 .size(IconSize::Small)
                                 .color(Color::Warning),
                         )
-                        .child(Label::new("Waiting for Confirmation"))
+                        .child(Label::new(
+                            waiting_tooltip
+                                .clone()
+                                .unwrap_or_else(|| "Waiting for Confirmation".into()),
+                        ))
                         .into_any_element(),
                     _ => gpui::Empty.into_any_element(),
                 }))

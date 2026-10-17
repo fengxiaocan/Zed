@@ -1,5 +1,5 @@
-mod operations;
-mod sections;
+pub(crate) mod operations;
+pub(crate) mod sections;
 mod toolbar;
 
 use crate::git_manager_settings::GitManagerSettings;
@@ -73,6 +73,8 @@ pub struct GitManager {
     filtered_branches: Vec<Branch>,
     filter_editor: Entity<Editor>,
     favorite_branches: collections::HashSet<String>,
+    filter_favorites_only: bool,
+    branch_scope: sections::BranchScope,
     remotes: Vec<sections::RemoteEntry>,
     filtered_remotes: Vec<sections::RemoteEntry>,
     remote_filter_editor: Entity<Editor>,
@@ -146,6 +148,8 @@ impl GitManager {
             filtered_branches: Vec::new(),
             filter_editor: filter_editor.clone(),
             favorite_branches: collections::HashSet::default(),
+            filter_favorites_only: false,
+            branch_scope: sections::BranchScope::All,
             remotes: Vec::new(),
             filtered_remotes: Vec::new(),
             remote_filter_editor: remote_filter_editor.clone(),
@@ -170,13 +174,21 @@ impl GitManager {
                         _,
                         RepositoryEvent::BranchListChanged
                         | RepositoryEvent::HeadChanged
-                        | RepositoryEvent::StatusesChanged,
+                        | RepositoryEvent::StatusesChanged
+                        | RepositoryEvent::RemoteListChanged,
                         true,
                     ) => {
                         this.reload_branches(cx);
                         this.reload_remotes(cx);
                         this.reload_tags(cx);
                         this.refresh_in_progress_state(cx);
+                    }
+                    GitStoreEvent::RepositoryUpdated(
+                        _,
+                        RepositoryEvent::TagListChanged,
+                        true,
+                    ) => {
+                        this.reload_tags(cx);
                     }
                     GitStoreEvent::RepositoryUpdated(
                         _,
@@ -210,12 +222,50 @@ impl GitManager {
         }
     }
 
+    pub(crate) fn toggle_filter_favorites_only(&mut self, cx: &mut Context<Self>) {
+        self.filter_favorites_only = !self.filter_favorites_only;
+        self.refresh_filtered_branches(cx);
+    }
+
+    pub(crate) fn set_branch_scope(
+        &mut self,
+        scope: sections::BranchScope,
+        cx: &mut Context<Self>,
+    ) {
+        if self.branch_scope != scope {
+            self.branch_scope = scope;
+            self.refresh_filtered_branches(cx);
+        }
+    }
+
+    pub(crate) fn delete_merged_branches_with_prompt(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(repo) = self.active_repository.clone() else {
+            return;
+        };
+        sections::delete_merged_branches_with_prompt(
+            repo,
+            Some(cx.entity().downgrade()),
+            window,
+            cx,
+        );
+    }
+
     /// Runs Update Project (fetch + rebase/merge) for the active repository.
     pub(crate) fn update_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(repo) = self.active_repository.clone() else {
             return;
         };
-        operations::update_project(&repo, &self.workspace, window, cx);
+        operations::update_project(
+            &repo,
+            &self.workspace,
+            Some(cx.entity().downgrade()),
+            window,
+            cx,
+        );
     }
 
     /// Fetches all remotes for the active repository.
@@ -272,7 +322,7 @@ impl GitManager {
         }
     }
 
-    fn refresh_in_progress_state(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn refresh_in_progress_state(&mut self, cx: &mut Context<Self>) {
         let Some(repo) = self.active_repository.clone() else {
             self.merge_in_progress = false;
             self.rebase_in_progress = false;
@@ -297,7 +347,7 @@ impl GitManager {
         .detach();
     }
 
-    fn reload_branches(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn reload_branches(&mut self, cx: &mut Context<Self>) {
         if let Some(repo) = self.active_repository.as_ref() {
             self.branches = sections::load_branches_from_repo_with_favorites(
                 repo,
@@ -319,7 +369,7 @@ impl GitManager {
         self.reload_branches(cx);
     }
 
-    fn reload_remotes(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn reload_remotes(&mut self, cx: &mut Context<Self>) {
         let Some(repo) = self.active_repository.clone() else {
             self.remotes.clear();
             self.refresh_filtered_remotes(cx);
@@ -352,7 +402,13 @@ impl GitManager {
 
     pub(crate) fn refresh_filtered_branches(&mut self, cx: &mut Context<Self>) {
         let query = sections::filter_query(&self.filter_editor, cx);
-        self.filtered_branches = sections::filter_branches(&self.branches, &query);
+        self.filtered_branches = sections::filter_branches_with_favorites(
+            &self.branches,
+            &query,
+            self.filter_favorites_only,
+            &self.favorite_branches,
+            self.branch_scope,
+        );
         cx.notify();
     }
 
@@ -362,7 +418,7 @@ impl GitManager {
         cx.notify();
     }
 
-    fn reload_tags(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn reload_tags(&mut self, cx: &mut Context<Self>) {
         let Some(repo) = self.active_repository.clone() else {
             self.tags.clear();
             self.refresh_filtered_tags(cx);
@@ -385,7 +441,7 @@ impl GitManager {
         .detach();
     }
 
-    fn reload_shelves(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn reload_shelves(&mut self, cx: &mut Context<Self>) {
         if let Some(repo) = self.active_repository.as_ref() {
             self.shelves = repo.read(cx).stash_entries.entries.to_vec();
         } else {
@@ -416,13 +472,143 @@ impl GitManager {
     }
 
     fn render_branches_section(&self, cx: &mut Context<Self>) -> AnyElement {
+        let favorites_only = self.filter_favorites_only;
+        let has_repo = self.active_repository.is_some();
+        let total_count = self.branches.len();
+        let local_count = self.branches.iter().filter(|b| !b.is_remote()).count();
+        let remote_count = self.branches.iter().filter(|b| b.is_remote()).count();
+        let current_scope = self.branch_scope;
+
         v_flex()
             .id("git-manager-branches-body")
             .flex_1()
             .size_full()
             .p_2()
             .gap_2()
-            .child(sections::render_filter_editor(&self.filter_editor, cx))
+            .child(
+                h_flex()
+                    .w_full()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex_1()
+                            .child(sections::render_filter_editor(&self.filter_editor, cx)),
+                    )
+                    .child(
+                        IconButton::new("gm-filter-favs", IconName::Star)
+                            .icon_size(IconSize::Small)
+                            .when(favorites_only, |b| b.icon_color(Color::Warning))
+                            .when(!favorites_only, |b| b.icon_color(Color::Muted))
+                            .tooltip(Tooltip::text(if favorites_only {
+                                translate_ui("Show All Branches", cx)
+                            } else {
+                                translate_ui("Show Favorites Only", cx)
+                            }))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.toggle_filter_favorites_only(cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("gm-new-branch", translate_ui("New Branch", cx))
+                            .label_size(ui::LabelSize::Small)
+                            .size(ui::ButtonSize::Compact)
+                            .disabled(!has_repo)
+                            .tooltip(Tooltip::text(translate_ui(
+                                "Create a new branch from HEAD",
+                                cx,
+                            )))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                let Some(repo) = this.active_repository.clone() else {
+                                    return;
+                                };
+                                let workspace = this.workspace.clone();
+                                if let Some(workspace) = workspace.upgrade() {
+                                    workspace.update(cx, |workspace, cx| {
+                                        let title = translate_ui("New Branch", cx);
+                                        workspace.toggle_modal(window, cx, |window, cx| {
+                                            crate::NewBranchModal::new(
+                                                title,
+                                                String::new(),
+                                                None,
+                                                repo,
+                                                window,
+                                                cx,
+                                            )
+                                        });
+                                    });
+                                }
+                            })),
+                    )
+                    .child(
+                        Button::new("gm-clean-merged", translate_ui("Clean Merged", cx))
+                            .label_size(ui::LabelSize::Small)
+                            .size(ui::ButtonSize::Compact)
+                            .disabled(!has_repo)
+                            .tooltip(Tooltip::text(translate_ui(
+                                "Delete local branches merged into HEAD",
+                                cx,
+                            )))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.delete_merged_branches_with_prompt(window, cx);
+                            })),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .w_full()
+                    .gap_1()
+                    .child(
+                        Button::new(
+                            "gm-scope-all",
+                            format!("{} ({total_count})", translate_ui("All", cx)),
+                        )
+                        .label_size(ui::LabelSize::XSmall)
+                        .size(ui::ButtonSize::Compact)
+                        .when(current_scope == sections::BranchScope::All, |b| {
+                            b.color(Color::Accent)
+                        })
+                        .when(current_scope != sections::BranchScope::All, |b| {
+                            b.color(Color::Muted)
+                        })
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.set_branch_scope(sections::BranchScope::All, cx);
+                        })),
+                    )
+                    .child(
+                        Button::new(
+                            "gm-scope-local",
+                            format!("{} ({local_count})", translate_ui("Local", cx)),
+                        )
+                        .label_size(ui::LabelSize::XSmall)
+                        .size(ui::ButtonSize::Compact)
+                        .when(current_scope == sections::BranchScope::Local, |b| {
+                            b.color(Color::Accent)
+                        })
+                        .when(current_scope != sections::BranchScope::Local, |b| {
+                            b.color(Color::Muted)
+                        })
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.set_branch_scope(sections::BranchScope::Local, cx);
+                        })),
+                    )
+                    .child(
+                        Button::new(
+                            "gm-scope-remote",
+                            format!("{} ({remote_count})", translate_ui("Remote", cx)),
+                        )
+                        .label_size(ui::LabelSize::XSmall)
+                        .size(ui::ButtonSize::Compact)
+                        .when(current_scope == sections::BranchScope::Remote, |b| {
+                            b.color(Color::Accent)
+                        })
+                        .when(current_scope != sections::BranchScope::Remote, |b| {
+                            b.color(Color::Muted)
+                        })
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.set_branch_scope(sections::BranchScope::Remote, cx);
+                        })),
+                    ),
+            )
             .child(sections::render_branch_list(
                 self.filtered_branches.clone(),
                 self.active_repository.is_some(),
@@ -452,6 +638,16 @@ impl GitManager {
                         cx,
                     )))
                     .child(
+                        Button::new("gm-fetch-all-remotes", translate_ui("Fetch All", cx))
+                            .label_size(ui::LabelSize::Small)
+                            .size(ui::ButtonSize::Compact)
+                            .disabled(add_disabled)
+                            .tooltip(Tooltip::text(translate_ui("Fetch all remotes", cx)))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.fetch_all_remotes(window, cx);
+                            })),
+                    )
+                    .child(
                         Button::new("gm-add-remote", translate_ui("Add Remote", cx))
                             .label_size(ui::LabelSize::Small)
                             .size(ui::ButtonSize::Compact)
@@ -461,10 +657,16 @@ impl GitManager {
                                     return;
                                 };
                                 let workspace = this.workspace.clone();
+                                let manager = cx.entity().downgrade();
                                 if let Some(workspace) = workspace.upgrade() {
                                     workspace.update(cx, |workspace, cx| {
                                         workspace.toggle_modal(window, cx, |window, cx| {
-                                            sections::RemoteModal::new_add(repo, window, cx)
+                                            sections::RemoteModal::new_add(
+                                                repo,
+                                                Some(manager),
+                                                window,
+                                                cx,
+                                            )
                                         });
                                     });
                                 }
@@ -476,6 +678,7 @@ impl GitManager {
                 self.active_repository.is_some(),
                 self.active_repository.clone(),
                 self.workspace.clone(),
+                cx.entity().downgrade(),
                 cx,
             ))
             .into_any_element()
@@ -507,10 +710,17 @@ impl GitManager {
                                     return;
                                 };
                                 let workspace = this.workspace.clone();
+                                let manager = cx.entity().downgrade();
                                 if let Some(workspace) = workspace.upgrade() {
                                     workspace.update(cx, |workspace, cx| {
                                         workspace.toggle_modal(window, cx, |window, cx| {
-                                            sections::NewTagModal::new(repo, window, cx)
+                                            sections::NewTagModal::new(
+                                                repo,
+                                                None,
+                                                Some(manager),
+                                                window,
+                                                cx,
+                                            )
                                         });
                                     });
                                 }
@@ -522,6 +732,7 @@ impl GitManager {
                 self.active_repository.is_some(),
                 self.active_repository.clone(),
                 self.workspace.clone(),
+                cx.entity().downgrade(),
                 cx,
             ))
             .into_any_element()
@@ -553,8 +764,14 @@ impl GitManager {
                                 let Some(repo) = this.active_repository.clone() else {
                                     return;
                                 };
+                                let manager = cx.entity().downgrade();
                                 cx.spawn(async move |_, cx| {
                                     repo.update(cx, |repo, cx| repo.stash_all(cx)).await?;
+                                    if let Some(manager) = manager.upgrade() {
+                                        manager.update(cx, |this, cx| {
+                                            this.reload_shelves(cx);
+                                        });
+                                    }
                                     anyhow::Ok(())
                                 })
                                 .detach_and_prompt_err(
@@ -574,7 +791,12 @@ impl GitManager {
                                 let Some(repo) = this.active_repository.clone() else {
                                     return;
                                 };
-                                sections::drop_all_shelves_with_prompt(repo, window, cx);
+                                sections::drop_all_shelves_with_prompt(
+                                    repo,
+                                    Some(cx.entity().downgrade()),
+                                    window,
+                                    cx,
+                                );
                             })),
                     ),
             )
@@ -583,6 +805,7 @@ impl GitManager {
                 self.active_repository.is_some(),
                 self.active_repository.clone(),
                 self.workspace.clone(),
+                cx.entity().downgrade(),
                 cx,
             ))
             .into_any_element()
@@ -743,6 +966,7 @@ impl Render for GitManager {
                     .child(
                         IconButton::new("gm-refresh-btn", IconName::ArrowCircle)
                             .icon_size(IconSize::Small)
+                            .disabled(self.active_repository.is_none())
                             .tooltip(Tooltip::text(translate_ui("Refresh", cx)))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.reload_all(cx);
@@ -751,6 +975,7 @@ impl Render for GitManager {
             )
             .child(toolbar::GitManagerToolbar::new(
                 self.focus_handle.clone(),
+                self.active_repository.is_some(),
                 cx.entity().downgrade(),
             ))
             .child(toolbar::render_tab_bar(
@@ -773,7 +998,8 @@ impl GitManager {
         };
 
         if self.merge_in_progress {
-            let repo_abort = repo;
+            let repo_abort = repo.clone();
+            let repo_conflicts = repo;
             return Some(
                 h_flex()
                     .w_full()
@@ -787,12 +1013,35 @@ impl GitManager {
                     )
                     .child(div().flex_1())
                     .child(
-                        Button::new("gm-abort-merge", translate_ui("Abort Merge", cx))
+                        Button::new("gm-resolve-conflicts", translate_ui("Resolve Conflicts…", cx))
                             .label_size(ui::LabelSize::Small)
                             .size(ui::ButtonSize::Compact)
                             .on_click(cx.listener(move |this, _, window, cx| {
-                                operations::merge_abort(&repo_abort, window, cx);
-                                this.refresh_in_progress_state(cx);
+                                let repo = repo_conflicts.clone();
+                                if let Some(workspace) = this.workspace.upgrade() {
+                                    workspace.update(cx, |workspace, cx| {
+                                        crate::conflict_modal::GitConflictModal::open(
+                                            workspace,
+                                            repo,
+                                            false,
+                                            window,
+                                            cx,
+                                        );
+                                    });
+                                }
+                            })),
+                    )
+                    .child(
+                        Button::new("gm-abort-merge", translate_ui("Abort Merge", cx))
+                            .label_size(ui::LabelSize::Small)
+                            .size(ui::ButtonSize::Compact)
+                            .on_click(cx.listener(move |_, _, window, cx| {
+                                operations::merge_abort(
+                                    &repo_abort,
+                                    Some(cx.entity().downgrade()),
+                                    window,
+                                    cx,
+                                );
                             })),
                     )
                     .into_any_element(),
@@ -802,7 +1051,8 @@ impl GitManager {
         if self.rebase_in_progress {
             let repo_continue = repo.clone();
             let repo_skip = repo.clone();
-            let repo_abort = repo;
+            let repo_abort = repo.clone();
+            let repo_conflicts = repo;
             return Some(
                 h_flex()
                     .w_full()
@@ -816,30 +1066,61 @@ impl GitManager {
                     )
                     .child(div().flex_1())
                     .child(
-                        Button::new("gm-continue-rebase", translate_ui("Continue Rebase", cx))
+                        Button::new("gm-rebase-resolve-conflicts", translate_ui("Resolve Conflicts…", cx))
                             .label_size(ui::LabelSize::Small)
                             .size(ui::ButtonSize::Compact)
                             .on_click(cx.listener(move |this, _, window, cx| {
-                                operations::rebase_continue(&repo_continue, window, cx);
-                                this.refresh_in_progress_state(cx);
+                                let repo = repo_conflicts.clone();
+                                if let Some(workspace) = this.workspace.upgrade() {
+                                    workspace.update(cx, |workspace, cx| {
+                                        crate::conflict_modal::GitConflictModal::open(
+                                            workspace,
+                                            repo,
+                                            true,
+                                            window,
+                                            cx,
+                                        );
+                                    });
+                                }
+                            })),
+                    )
+                    .child(
+                        Button::new("gm-continue-rebase", translate_ui("Continue Rebase", cx))
+                            .label_size(ui::LabelSize::Small)
+                            .size(ui::ButtonSize::Compact)
+                            .on_click(cx.listener(move |_, _, window, cx| {
+                                operations::rebase_continue(
+                                    &repo_continue,
+                                    Some(cx.entity().downgrade()),
+                                    window,
+                                    cx,
+                                );
                             })),
                     )
                     .child(
                         Button::new("gm-skip-rebase", translate_ui("Skip Commit", cx))
                             .label_size(ui::LabelSize::Small)
                             .size(ui::ButtonSize::Compact)
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                operations::rebase_skip(&repo_skip, window, cx);
-                                this.refresh_in_progress_state(cx);
+                            .on_click(cx.listener(move |_, _, window, cx| {
+                                operations::rebase_skip(
+                                    &repo_skip,
+                                    Some(cx.entity().downgrade()),
+                                    window,
+                                    cx,
+                                );
                             })),
                     )
                     .child(
                         Button::new("gm-abort-rebase", translate_ui("Abort Rebase", cx))
                             .label_size(ui::LabelSize::Small)
                             .size(ui::ButtonSize::Compact)
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                operations::rebase_abort(&repo_abort, window, cx);
-                                this.refresh_in_progress_state(cx);
+                            .on_click(cx.listener(move |_, _, window, cx| {
+                                operations::rebase_abort(
+                                    &repo_abort,
+                                    Some(cx.entity().downgrade()),
+                                    window,
+                                    cx,
+                                );
                             })),
                     )
                     .into_any_element(),

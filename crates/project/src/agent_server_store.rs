@@ -431,6 +431,7 @@ impl AgentServerStore {
                                         distribution_env: agent.env.clone(),
                                         settings_env: env.clone(),
                                         new_version_available_tx: None,
+                                        loading_status_tx: None,
                                     })
                                         as Box<dyn ExternalAgentServer>,
                                     ExternalAgentSource::Registry,
@@ -1079,11 +1080,14 @@ async fn remove_stale_versioned_archive_cache_dirs(
             continue;
         };
 
-        if entry_name == current_dir_name
-            || !entry_name
-                .to_string_lossy()
-                .starts_with(VERSIONED_ARCHIVE_CACHE_DIR_PREFIX)
-        {
+        let is_stale_tmp = entry_name
+            .to_string_lossy()
+            .starts_with(".tmp-github-download-");
+        let is_versioned = entry_name
+            .to_string_lossy()
+            .starts_with(VERSIONED_ARCHIVE_CACHE_DIR_PREFIX);
+
+        if entry_name == current_dir_name || (!is_stale_tmp && !is_versioned) {
             continue;
         }
 
@@ -1096,7 +1100,7 @@ async fn remove_stale_versioned_archive_cache_dirs(
         // Only remove directories that predate the current version's directory.
         // This avoids racing with a concurrent extraction of a different version
         // that finished after we cached the current version's mtime.
-        if !current_mtime.bad_is_greater_than(entry_metadata.mtime) {
+        if !is_stale_tmp && !current_mtime.bad_is_greater_than(entry_metadata.mtime) {
             continue;
         }
 
@@ -1219,8 +1223,8 @@ impl ExternalAgentServer for LocalRegistryArchiveAgent {
             );
 
             if !fs.is_dir(&version_dir).await {
-                let mut loading_status_tx = loading_status_tx;
-                if let Some(tx) = loading_status_tx.as_mut() {
+                let loading_status_tx = Arc::new(parking_lot::Mutex::new(loading_status_tx));
+                if let Some(tx) = loading_status_tx.lock().as_mut() {
                     tx.send(Some(format!("Installing {}…", version.as_ref())))
                         .ok();
                 }
@@ -1255,27 +1259,55 @@ impl ExternalAgentServer for LocalRegistryArchiveAgent {
                     None
                 };
 
+                let progress_callback = {
+                    let tx = loading_status_tx.clone();
+                    let version = version.clone();
+                    Arc::new(move |downloaded: u64, total: Option<u64>| {
+                        if let Some(tx) = tx.lock().as_mut() {
+                            let msg = if let Some(total) = total {
+                                let downloaded_mb = downloaded as f64 / 1_048_576.0;
+                                let total_mb = total as f64 / 1_048_576.0;
+                                let pct = (downloaded as f64 / total as f64 * 100.0).clamp(0.0, 100.0);
+                                format!(
+                                    "Downloading {} ({:.1} MB / {:.1} MB, {:.0}%)…",
+                                    version, downloaded_mb, total_mb, pct
+                                )
+                            } else {
+                                let downloaded_mb = downloaded as f64 / 1_048_576.0;
+                                format!("Downloading {} ({:.1} MB)…", version, downloaded_mb)
+                            };
+                            tx.send(Some(msg)).ok();
+                        }
+                    })
+                };
+
                 match registry_archive_kind_for_url(archive_url)? {
                     RegistryArchiveKind::Archive(asset_kind) => {
-                        ::http_client::github_download::download_server_binary(
+                        ::http_client::github_download::download_server_binary_with_progress(
                             &*http_client,
                             archive_url,
                             sha256.as_deref(),
                             &version_dir,
                             asset_kind,
+                            Some(progress_callback),
                         )
                         .await?;
                     }
                     RegistryArchiveKind::RawBinary { file_name } => {
-                        ::http_client::github_download::download_server_raw_binary(
+                        ::http_client::github_download::download_server_raw_binary_with_progress(
                             &*http_client,
                             archive_url,
                             sha256.as_deref(),
                             &version_dir,
                             &file_name,
+                            Some(progress_callback),
                         )
                         .await?;
                     }
+                }
+
+                if let Some(tx) = loading_status_tx.lock().as_mut() {
+                    tx.send(None).ok();
                 }
             }
 
@@ -1346,6 +1378,7 @@ struct LocalRegistryNpxAgent {
     distribution_env: HashMap<String, String>,
     settings_env: HashMap<String, String>,
     new_version_available_tx: Option<watch::Sender<Option<String>>>,
+    loading_status_tx: Option<watch::Sender<Option<String>>>,
 }
 
 impl ExternalAgentServer for LocalRegistryNpxAgent {
@@ -1361,6 +1394,14 @@ impl ExternalAgentServer for LocalRegistryNpxAgent {
         self.new_version_available_tx = Some(tx);
     }
 
+    fn take_loading_status_tx(&mut self) -> Option<watch::Sender<Option<String>>> {
+        self.loading_status_tx.take()
+    }
+
+    fn set_loading_status_tx(&mut self, tx: watch::Sender<Option<String>>) {
+        self.loading_status_tx = Some(tx);
+    }
+
     fn get_command(
         &mut self,
         extra_args: Vec<String>,
@@ -1371,10 +1412,12 @@ impl ExternalAgentServer for LocalRegistryNpxAgent {
         let node_runtime = self.node_runtime.clone();
         let project_environment = self.project_environment.downgrade();
         let registry_id = self.registry_id.clone();
+        let version = self.version.clone();
         let package = self.package.clone();
         let args = self.args.clone();
         let distribution_env = self.distribution_env.clone();
         let settings_env = self.settings_env.clone();
+        let loading_status_tx = self.loading_status_tx.take();
 
         cx.spawn(async move |cx| {
             let mut env = project_environment
@@ -1391,18 +1434,46 @@ impl ExternalAgentServer for LocalRegistryNpxAgent {
             fs.create_dir(&install_dir).await?;
 
             let (package_name, package_spec) = bounded_npm_package_spec(&package);
-            node_runtime
-                .run_npm_subcommand(
-                    Some(&install_dir),
-                    "install",
-                    &[package_spec.as_str(), "--save-exact"],
+            let modules_dir = install_dir.join("node_modules");
+
+            let is_installed = if let Ok(Some(installed_version)) =
+                node_runtime::read_package_installed_version(modules_dir.clone(), package_name).await
+            {
+                if let Ok(expected_version) = Version::parse(version.as_ref()) {
+                    installed_version >= expected_version
+                } else {
+                    installed_version.to_string() == version.as_ref()
+                }
+            } else {
+                false
+            };
+
+            let executable = if is_installed
+                && let Ok(executable) = node_runtime::read_package_executable(
+                    modules_dir.clone(),
+                    package_name,
+                ).await
+                && fs.is_file(&executable).await
+            {
+                executable
+            } else {
+                let mut loading_status_tx = loading_status_tx;
+                if let Some(tx) = loading_status_tx.as_mut() {
+                    tx.send(Some(format!("Installing {}…", version.as_ref()))).ok();
+                }
+                node_runtime
+                    .run_npm_subcommand(
+                        Some(&install_dir),
+                        "install",
+                        &[package_spec.as_str(), "--save-exact"],
+                    )
+                    .await?;
+                node_runtime::read_package_executable(
+                    install_dir.join("node_modules"),
+                    package_name,
                 )
-                .await?;
-            let executable = node_runtime::read_package_executable(
-                install_dir.join("node_modules"),
-                package_name,
-            )
-            .await?;
+                .await?
+            };
 
             let node_binary = node_runtime.binary_path().await?;
             env.extend(node_runtime::npm_command_env(&node_binary));

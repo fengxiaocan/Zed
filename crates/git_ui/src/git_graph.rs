@@ -49,6 +49,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use settings::translate_ui;
 use theme::AccentColors;
 use time::{OffsetDateTime, UtcOffset, format_description::BorrowedFormatItem};
 use ui::{
@@ -592,6 +593,8 @@ actions!(
         ScrollDown,
         /// Toggles the selected commit's changed files between flat and tree views.
         ToggleChangedFilesView,
+        /// Jumps to the current HEAD commit.
+        JumpToHead,
     ]
 );
 
@@ -610,17 +613,26 @@ fn timestamp_format() -> &'static [BorrowedFormatItem<'static>] {
     })
 }
 
-fn format_timestamp(timestamp: i64) -> String {
+fn format_timestamp(timestamp: i64, cx: &App) -> String {
     let Ok(datetime) = OffsetDateTime::from_unix_timestamp(timestamp) else {
-        return "Unknown".to_string();
+        return translate_ui("Unknown", cx).to_string();
     };
 
     let local_offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
     let local_datetime = datetime.to_offset(local_offset);
 
-    local_datetime
-        .format(timestamp_format())
-        .unwrap_or_default()
+    if settings::is_simplified_chinese(cx) {
+        format!(
+            "{:04}年{:02}月{:02}日",
+            local_datetime.year(),
+            u8::from(local_datetime.month()),
+            local_datetime.day()
+        )
+    } else {
+        local_datetime
+            .format(timestamp_format())
+            .unwrap_or_default()
+    }
 }
 
 fn accent_colors_count(accents: &AccentColors) -> usize {
@@ -1472,7 +1484,7 @@ impl GitGraph {
 
         let search_editor = cx.new(|cx| {
             let mut editor = Editor::single_line(window, cx);
-            editor.set_placeholder_text("Search commits…", window, cx);
+            editor.set_placeholder_text(translate_ui("Search commits…", cx), window, cx);
             editor
         });
 
@@ -1829,9 +1841,9 @@ impl GitGraph {
                 if let CommitDataState::Loaded(ref data) = data {
                     subject = data.subject.clone();
                     author_name = data.author_name.clone();
-                    formatted_time = format_timestamp(data.commit_timestamp);
+                    formatted_time = format_timestamp(data.commit_timestamp, cx);
                 } else {
-                    subject = "Loading…".into();
+                    subject = translate_ui("Loading…", cx).into();
                     author_name = "".into();
                 }
 
@@ -2316,6 +2328,26 @@ impl GitGraph {
         }
     }
 
+    pub fn select_head(&mut self, cx: &mut Context<Self>) {
+        let Some(selected_repository) = self.get_repository(cx) else {
+            return;
+        };
+
+        let head_sha = selected_repository
+            .read(cx)
+            .branch_list
+            .iter()
+            .find(|b| b.is_head)
+            .and_then(|b| b.most_recent_commit.as_ref())
+            .map(|c| c.sha.to_string());
+
+        if let Some(sha) = head_sha {
+            self.select_commit_by_sha(sha.as_str(), cx);
+        } else if !self.graph_data.commits.is_empty() {
+            self.select_entry(0, ScrollStrategy::Center, cx);
+        }
+    }
+
     fn open_selected_commit_view(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(selected_entry_index) = self.selected_entry_idx else {
             return;
@@ -2492,7 +2524,7 @@ impl GitGraph {
         cx: &mut Context<Self>,
     ) {
         let is_path_history = matches!(self.log_source, LogSource::Path(_));
-        let columns: &[&str] = if is_path_history {
+        let columns: &[&'static str] = if is_path_history {
             &["Description", "Date", "Author", "Commit"]
         } else {
             &["Graph", "Description", "Date", "Author", "Commit"]
@@ -2507,15 +2539,15 @@ impl GitGraph {
 
         let focus_handle = self.focus_handle.clone();
         let git_graph = cx.entity();
-        let context_menu = ContextMenu::build(window, cx, |mut context_menu, _window, _cx| {
-            context_menu = context_menu.context(focus_handle).header("Columns");
+        let context_menu = ContextMenu::build(window, cx, |mut context_menu, _window, cx| {
+            context_menu = context_menu.context(focus_handle).header(translate_ui("Columns", cx));
             for (col_idx, label) in columns.iter().enumerate() {
                 let is_visible = !filter.get(col_idx).copied().unwrap_or(false);
                 // Disable hiding the last remaining visible column.
                 let can_toggle = !is_visible || visible_count > 1;
                 let git_graph = git_graph.clone();
                 context_menu = context_menu.toggleable_entry_disabled_when(
-                    label.to_string(),
+                    translate_ui(label, cx).to_string(),
                     is_visible,
                     !can_toggle,
                     IconPosition::End,
@@ -2663,6 +2695,15 @@ impl GitGraph {
                                     )
                                 },
                             ),
+                    )
+                    .child(
+                        IconButton::new("git-graph-jump-to-head", IconName::Crosshair)
+                            .shape(ui::IconButtonShape::Square)
+                            .icon_size(IconSize::Small)
+                            .tooltip(Tooltip::text(translate_ui("Jump to HEAD", cx)))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.select_head(cx);
+                            })),
                     ),
             )
     }
@@ -2722,7 +2763,7 @@ impl GitGraph {
                 data.author_email.clone(),
                 Some(data.commit_timestamp),
             ),
-            CommitDataState::Loading(_) => ("Loading…".into(), "".into(), None),
+            CommitDataState::Loading(_) => (translate_ui("Loading…", cx).into(), "".into(), None),
         };
 
         let date_string = commit_timestamp
@@ -2730,11 +2771,20 @@ impl GitGraph {
             .map(|datetime| {
                 let local_offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
                 let local_datetime = datetime.to_offset(local_offset);
-                let format =
-                    time::format_description::parse("[month repr:short] [day], [year]").ok();
-                format
-                    .and_then(|f| local_datetime.format(&f).ok())
-                    .unwrap_or_default()
+                if settings::is_simplified_chinese(cx) {
+                    format!(
+                        "{:04}年{:02}月{:02}日",
+                        local_datetime.year(),
+                        u8::from(local_datetime.month()),
+                        local_datetime.day()
+                    )
+                } else {
+                    let format =
+                        time::format_description::parse("[month repr:short] [day], [year]").ok();
+                    format
+                        .and_then(|f| local_datetime.format(&f).ok())
+                        .unwrap_or_default()
+                }
             })
             .unwrap_or_default();
 
@@ -3143,7 +3193,7 @@ impl GitGraph {
             .child(Divider::horizontal())
             .child(
                 h_flex().p_1p5().w_full().child(
-                    Button::new("view-commit", "View Commit")
+                    Button::new("view-commit", translate_ui("View Commit", cx))
                         .full_width()
                         .start_icon(
                             Icon::new(IconName::GitCommit)
@@ -3716,11 +3766,11 @@ impl Render for GitGraph {
 
         let content = if commit_count == 0 {
             let message = if let Some(error) = &error {
-                format!("Error loading: {}", error)
+                format!("{}: {}", translate_ui("Error loading", cx), error)
             } else if is_loading {
-                "Loading".to_string()
+                translate_ui("Loading", cx).to_string()
             } else {
-                "No commits found".to_string()
+                translate_ui("No commits found", cx).to_string()
             };
             let label = Label::new(message)
                 .color(Color::Muted)
@@ -3795,20 +3845,20 @@ impl Render for GitGraph {
                                     if !is_path_history {
                                         TableRow::from_vec(
                                             vec![
-                                                Label::new("Graph")
+                                                Label::new(translate_ui("Graph", cx))
                                                     .color(Color::Muted)
                                                     .truncate()
                                                     .into_any_element(),
-                                                Label::new("Description")
+                                                Label::new(translate_ui("Description", cx))
                                                     .color(Color::Muted)
                                                     .into_any_element(),
-                                                Label::new("Date")
+                                                Label::new(translate_ui("Date", cx))
                                                     .color(Color::Muted)
                                                     .into_any_element(),
-                                                Label::new("Author")
+                                                Label::new(translate_ui("Author", cx))
                                                     .color(Color::Muted)
                                                     .into_any_element(),
-                                                Label::new("Commit")
+                                                Label::new(translate_ui("Commit", cx))
                                                     .color(Color::Muted)
                                                     .into_any_element(),
                                             ],
@@ -3817,16 +3867,16 @@ impl Render for GitGraph {
                                     } else {
                                         TableRow::from_vec(
                                             vec![
-                                                Label::new("Description")
+                                                Label::new(translate_ui("Description", cx))
                                                     .color(Color::Muted)
                                                     .into_any_element(),
-                                                Label::new("Date")
+                                                Label::new(translate_ui("Date", cx))
                                                     .color(Color::Muted)
                                                     .into_any_element(),
-                                                Label::new("Author")
+                                                Label::new(translate_ui("Author", cx))
                                                     .color(Color::Muted)
                                                     .into_any_element(),
-                                                Label::new("Commit")
+                                                Label::new(translate_ui("Commit", cx))
                                                     .color(Color::Muted)
                                                     .into_any_element(),
                                             ],
@@ -4057,6 +4107,9 @@ impl Render for GitGraph {
             .on_action(cx.listener(Self::scroll_down))
             .on_action(cx.listener(Self::confirm))
             .on_action(cx.listener(Self::toggle_changed_files_view))
+            .on_action(cx.listener(|this, _: &JumpToHead, _window, cx| {
+                this.select_head(cx);
+            }))
             .on_action(cx.listener(Self::focus_next_tab_stop))
             .on_action(cx.listener(Self::focus_previous_tab_stop))
             .on_action(cx.listener(|this, _: &SelectNextMatch, _window, cx| {

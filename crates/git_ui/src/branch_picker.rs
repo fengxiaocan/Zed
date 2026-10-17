@@ -1633,17 +1633,19 @@ impl PickerDelegate for BranchListDelegate {
                         .unwrap_or_else(|_| OffsetDateTime::now_utc());
                     let local_offset =
                         time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
-                    let formatted_time = time_format::format_localized_timestamp(
+                    let formatted_time = crate::format_git_commit_date(
                         commit_time,
                         OffsetDateTime::now_utc(),
                         local_offset,
                         time_format::TimestampFormat::Relative,
+                        cx,
                     );
-                    let absolute_time = time_format::format_localized_timestamp(
+                    let absolute_time = crate::format_git_commit_date(
                         commit_time,
                         OffsetDateTime::now_utc(),
                         local_offset,
                         time_format::TimestampFormat::EnhancedAbsolute,
+                        cx,
                     );
                     let author = commit.author_name.clone();
                     (

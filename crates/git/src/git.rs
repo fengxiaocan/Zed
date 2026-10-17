@@ -130,6 +130,8 @@ actions!(
         AddToGitInfoExclude,
         /// Copies the current branch name to the clipboard.
         CopyBranchName,
+        /// Opens the conflict resolution dialog.
+        ResolveConflicts,
     ]
 );
 

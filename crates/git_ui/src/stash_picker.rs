@@ -8,7 +8,7 @@ use gpui::{
 };
 use picker::{Picker, PickerDelegate};
 use project::git_store::{Repository, RepositoryEvent};
-use settings::translate_ui;
+use settings::{is_simplified_chinese, translate_ui};
 use std::sync::Arc;
 use time::{OffsetDateTime, UtcOffset};
 use time_format;
@@ -274,26 +274,46 @@ impl StashListDelegate {
         format!("#{}: {}", ix, message)
     }
 
-    fn format_timestamp(timestamp: i64, timezone: UtcOffset) -> String {
+    fn format_timestamp(timestamp: i64, timezone: UtcOffset, is_chinese: bool) -> String {
         let timestamp =
             OffsetDateTime::from_unix_timestamp(timestamp).unwrap_or(OffsetDateTime::now_utc());
-        time_format::format_localized_timestamp(
-            timestamp,
-            OffsetDateTime::now_utc(),
-            timezone,
-            time_format::TimestampFormat::Relative,
-        )
+        if is_chinese {
+            let local_dt = timestamp.to_offset(timezone);
+            format!(
+                "{:04}年{:02}月{:02}日",
+                local_dt.year(),
+                u8::from(local_dt.month()),
+                local_dt.day()
+            )
+        } else {
+            time_format::format_localized_timestamp(
+                timestamp,
+                OffsetDateTime::now_utc(),
+                timezone,
+                time_format::TimestampFormat::Relative,
+            )
+        }
     }
 
-    fn format_absolute_timestamp(timestamp: i64, timezone: UtcOffset) -> String {
+    fn format_absolute_timestamp(timestamp: i64, timezone: UtcOffset, is_chinese: bool) -> String {
         let timestamp =
             OffsetDateTime::from_unix_timestamp(timestamp).unwrap_or(OffsetDateTime::now_utc());
-        time_format::format_localized_timestamp(
-            timestamp,
-            OffsetDateTime::now_utc(),
-            timezone,
-            time_format::TimestampFormat::EnhancedAbsolute,
-        )
+        if is_chinese {
+            let local_dt = timestamp.to_offset(timezone);
+            format!(
+                "{:04}年{:02}月{:02}日",
+                local_dt.year(),
+                u8::from(local_dt.month()),
+                local_dt.day()
+            )
+        } else {
+            time_format::format_localized_timestamp(
+                timestamp,
+                OffsetDateTime::now_utc(),
+                timezone,
+                time_format::TimestampFormat::EnhancedAbsolute,
+            )
+        }
     }
 
     fn drop_stash_at(&self, ix: usize, window: &mut Window, cx: &mut Context<Picker<Self>>) {
@@ -410,15 +430,17 @@ impl PickerDelegate for StashListDelegate {
         };
 
         let timezone = self.timezone;
+        let is_chinese = is_simplified_chinese(cx);
 
         cx.spawn_in(window, async move |picker, cx| {
             let matches: Vec<StashEntryMatch> = if query.is_empty() {
                 all_stash_entries
                     .into_iter()
                     .map(|entry| {
-                        let formatted_timestamp = Self::format_timestamp(entry.timestamp, timezone);
+                        let formatted_timestamp =
+                            Self::format_timestamp(entry.timestamp, timezone, is_chinese);
                         let formatted_absolute_timestamp =
-                            Self::format_absolute_timestamp(entry.timestamp, timezone);
+                            Self::format_absolute_timestamp(entry.timestamp, timezone, is_chinese);
 
                         StashEntryMatch {
                             entry,
@@ -452,9 +474,10 @@ impl PickerDelegate for StashListDelegate {
                 .into_iter()
                 .map(|candidate| {
                     let entry = all_stash_entries[candidate.candidate_id].clone();
-                    let formatted_timestamp = Self::format_timestamp(entry.timestamp, timezone);
+                    let formatted_timestamp =
+                        Self::format_timestamp(entry.timestamp, timezone, is_chinese);
                     let formatted_absolute_timestamp =
-                        Self::format_absolute_timestamp(entry.timestamp, timezone);
+                        Self::format_absolute_timestamp(entry.timestamp, timezone, is_chinese);
 
                     StashEntryMatch {
                         entry,

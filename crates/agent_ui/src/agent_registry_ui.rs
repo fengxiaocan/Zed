@@ -11,7 +11,7 @@ use gpui::{
 };
 use project::agent_server_store::{AllAgentServersSettings, CustomAgentServerSettings};
 use project::{AgentRegistryStore, RegistryAgent};
-use settings::{Settings, SettingsStore, update_settings_file};
+use settings::{Settings, SettingsStore, translate_ui, update_settings_file};
 use theme_settings::ThemeSettings;
 use ui::{
     ButtonStyle, ScrollableHandle, ToggleButtonGroup, ToggleButtonGroupSize,
@@ -94,7 +94,7 @@ impl AgentRegistryPage {
             let registry_store = AgentRegistryStore::global(cx);
             let query_editor = cx.new(|cx| {
                 let mut input = Editor::single_line(window, cx);
-                input.set_placeholder_text("Search agents...", window, cx);
+                input.set_placeholder_text(&translate_ui("Search agents...", cx), window, cx);
                 input
             });
             cx.subscribe(&query_editor, Self::on_query_change).detach();
@@ -548,14 +548,7 @@ impl AgentRegistryPage {
                             let Some(agent_servers) = settings.agent_servers.as_mut() else {
                                 return;
                             };
-                            if let Some(entry) = agent_servers.get(agent_id.as_str())
-                                && matches!(
-                                    entry,
-                                    settings::CustomAgentServerSettings::Registry { .. }
-                                )
-                            {
-                                agent_servers.remove(agent_id.as_str());
-                            }
+                            agent_servers.remove(agent_id.as_str());
                         });
                     })
             }

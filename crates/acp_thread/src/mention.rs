@@ -351,7 +351,15 @@ impl MentionUri {
                     format!("Terminal ({} lines)", line_count)
                 }
             }
-            MentionUri::GitDiff { base_ref } => format!("Branch Diff ({})", base_ref),
+            MentionUri::GitDiff { base_ref } => {
+                if base_ref == "uncommitted" || base_ref == "HEAD" {
+                    "Git Diff (Uncommitted)".to_string()
+                } else if base_ref == "staged" {
+                    "Git Diff (Staged)".to_string()
+                } else {
+                    format!("Branch Diff ({})", base_ref)
+                }
+            }
             MentionUri::MergeConflict { file_path } => {
                 let name = Path::new(file_path)
                     .file_name()
@@ -429,6 +437,18 @@ impl MentionUri {
             MentionUri::Skill {
                 skill_file_path, ..
             } => Some(skill_file_path.to_string_lossy().into_owned().into()),
+            MentionUri::GitDiff { base_ref } => {
+                if base_ref == "uncommitted" || base_ref == "HEAD" {
+                    Some("Uncommitted git changes (working tree & staged)".into())
+                } else if base_ref == "staged" {
+                    Some("Staged git changes".into())
+                } else {
+                    Some(format!("Git diff against branch '{}'", base_ref).into())
+                }
+            }
+            MentionUri::TerminalSelection { line_count } => {
+                Some(format!("Recent {} lines from active terminal", line_count).into())
+            }
             _ => None,
         }
     }

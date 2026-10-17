@@ -200,7 +200,7 @@ impl GitPicker {
                 "git-picker-tabs",
                 [
                     ToggleButtonSimple::new(
-                        GitPickerTab::Branches.to_string(),
+                        translate_ui("Branches", cx),
                         cx.listener(|this, _, window, cx| {
                             this.tab = GitPickerTab::Branches;
                             this.ensure_active_picker(window, cx);
@@ -217,7 +217,7 @@ impl GitPicker {
                         )
                     }),
                     ToggleButtonSimple::new(
-                        GitPickerTab::Stashes.to_string(),
+                        translate_ui("Stashes", cx),
                         cx.listener(|this, _, window, cx| {
                             this.tab = GitPickerTab::Stashes;
                             this.ensure_active_picker(window, cx);

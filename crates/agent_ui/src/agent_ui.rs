@@ -229,6 +229,16 @@ actions!(
         ArchiveSelectedThread,
         /// Removes the currently selected thread.
         RemoveSelectedThread,
+        /// Closes the currently active thread.
+        CloseActiveThread,
+        /// Stops active generation on the current thread.
+        StopActiveGeneration,
+        /// Recalls the previous prompt from history.
+        PreviousPrompt,
+        /// Recalls the next prompt from history.
+        NextPrompt,
+        /// Clears the current thread and starts a fresh draft.
+        ClearActiveThread,
         /// Renames the currently selected thread.
         RenameSelectedThread,
         /// Starts a chat conversation with follow-up enabled.
@@ -247,6 +257,8 @@ actions!(
         FocusRight,
         /// Opens the active thread as a markdown file.
         OpenActiveThreadAsMarkdown,
+        /// Copies the active thread to the clipboard as Markdown.
+        CopyActiveThreadAsMarkdown,
         /// Opens the agent diff view to review changes.
         OpenAgentDiff,
         /// Copies the current thread to the clipboard as JSON for debugging.

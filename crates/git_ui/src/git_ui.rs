@@ -41,7 +41,9 @@ mod commit_context_menu;
 mod commit_modal;
 pub mod commit_tooltip;
 pub mod commit_view;
+pub mod conflict_modal;
 mod conflict_view;
+pub mod three_way_diff;
 pub mod created_worktrees;
 mod diff_multibuffer;
 pub mod file_diff_view;
@@ -83,6 +85,38 @@ pub fn get_provider_icon(name: &str) -> IconName {
         "SourceHut" => IconName::Sourcehut,
         _ => IconName::Link,
     }
+}
+
+pub fn format_git_commit_date(
+    datetime: OffsetDateTime,
+    reference: OffsetDateTime,
+    local_offset: time::UtcOffset,
+    fallback_format: time_format::TimestampFormat,
+    cx: &gpui::App,
+) -> String {
+    if settings::is_simplified_chinese(cx) {
+        let local_dt = datetime.to_offset(local_offset);
+        format!(
+            "{:04}年{:02}月{:02}日",
+            local_dt.year(),
+            u8::from(local_dt.month()),
+            local_dt.day()
+        )
+    } else {
+        time_format::format_localized_timestamp(datetime, reference, local_offset, fallback_format)
+    }
+}
+
+pub fn format_git_commit_timestamp(
+    timestamp: i64,
+    reference: OffsetDateTime,
+    local_offset: time::UtcOffset,
+    fallback_format: time_format::TimestampFormat,
+    cx: &gpui::App,
+) -> Option<String> {
+    OffsetDateTime::from_unix_timestamp(timestamp).ok().map(|dt| {
+        format_git_commit_date(dt, reference, local_offset, fallback_format, cx)
+    })
 }
 
 pub fn init(cx: &mut App) {
@@ -791,11 +825,12 @@ impl Render for RefPickerModal {
                 .unwrap_or_else(|_| OffsetDateTime::now_utc());
             let local_offset =
                 time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
-            let formatted_time = time_format::format_localized_timestamp(
+            let formatted_time = format_git_commit_date(
                 commit_time,
                 OffsetDateTime::now_utc(),
                 local_offset,
                 time_format::TimestampFormat::Relative,
+                cx,
             );
 
             let subject = details.message.lines().next().unwrap_or("").to_string();
@@ -1525,5 +1560,30 @@ mod view_commit_tests {
 
         assert!(!initial_modal_state);
         assert!(final_modal_state);
+    }
+
+    #[gpui::test]
+    async fn test_format_git_commit_date_chinese(cx: &mut TestAppContext) {
+        init_test(cx);
+        cx.update(|cx| {
+            cx.update_global::<SettingsStore, _>(|store, cx| {
+                store.update_user_settings(cx, |settings| {
+                    settings.ui_language = Some(settings::UiLanguage::SimplifiedChinese);
+                });
+            });
+
+            let dt = time::Date::from_calendar_date(2026, time::Month::October, 15)
+                .unwrap()
+                .with_time(time::Time::MIDNIGHT)
+                .assume_utc();
+            let formatted = format_git_commit_date(
+                dt,
+                dt,
+                time::UtcOffset::UTC,
+                time_format::TimestampFormat::Relative,
+                cx,
+            );
+            assert_eq!(formatted, "2026年10月15日");
+        });
     }
 }

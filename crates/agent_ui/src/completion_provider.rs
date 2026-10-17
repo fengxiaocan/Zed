@@ -38,6 +38,7 @@ use util::rel_path::RelPath;
 use util::truncate_and_remove_front;
 use workspace::Workspace;
 
+use settings::is_simplified_chinese;
 use crate::AgentPanel;
 use crate::mention_set::MentionSet;
 
@@ -152,6 +153,20 @@ impl PromptContextEntry {
             Self::Action(action) => action.keyword(),
         }
     }
+
+    pub fn localized_label(&self, is_chinese: bool) -> &'static str {
+        match self {
+            Self::Mode(mode) => mode.localized_label(is_chinese),
+            Self::Action(action) => action.localized_label(is_chinese),
+        }
+    }
+
+    pub fn aliases(&self) -> &'static [&'static str] {
+        match self {
+            Self::Mode(mode) => mode.aliases(),
+            Self::Action(action) => action.aliases(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -163,6 +178,7 @@ pub(crate) enum PromptContextType {
     Skill,
     Diagnostics,
     BranchDiff,
+    Terminal,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -183,6 +199,22 @@ impl PromptContextAction {
         }
     }
 
+    pub fn localized_label(&self, is_chinese: bool) -> &'static str {
+        if is_chinese {
+            match self {
+                Self::AddSelections => "当前选区 (Selection)",
+            }
+        } else {
+            self.label()
+        }
+    }
+
+    pub fn aliases(&self) -> &'static [&'static str] {
+        match self {
+            Self::AddSelections => &["选区", "选择"],
+        }
+    }
+
     pub fn icon(&self) -> IconName {
         match self {
             Self::AddSelections => IconName::Reader,
@@ -199,6 +231,11 @@ impl PromptContextAction {
 pub enum PromptLocalCommand {
     ThumbsUp,
     ThumbsDown,
+    Clear,
+    Agent,
+    WorkingDir,
+    Help,
+    Export,
 }
 
 impl PromptLocalCommand {
@@ -206,6 +243,11 @@ impl PromptLocalCommand {
         match self {
             Self::ThumbsUp => "helpful",
             Self::ThumbsDown => "not-helpful",
+            Self::Clear => "clear",
+            Self::Agent => "agent",
+            Self::WorkingDir => "cwd",
+            Self::Help => "help",
+            Self::Export => "export",
         }
     }
 
@@ -213,6 +255,11 @@ impl PromptLocalCommand {
         match self {
             Self::ThumbsUp => "Positive Feedback",
             Self::ThumbsDown => "Negative Feedback",
+            Self::Clear => "清空会话 (Clear Thread)",
+            Self::Agent => "切换 Agent (Switch Agent)",
+            Self::WorkingDir => "工作目录 (Working Directory)",
+            Self::Help => "命令帮助 (Command Help)",
+            Self::Export => "导出为 Markdown (Export Markdown)",
         }
     }
 
@@ -224,6 +271,11 @@ impl PromptLocalCommand {
             Self::ThumbsDown => {
                 "Rate this response as not helpful. Sends the current conversation to the Zed team."
             }
+            Self::Clear => "清空当前消息与会话上下文，开始全新线程对话。",
+            Self::Agent => "切换当前线程绑定的底层 CLI Agent（如 Claude Code, Gemini CLI, Aider 等）。",
+            Self::WorkingDir => "查看或切换当前线程绑定的工作目录。",
+            Self::Help => "查看支持的快捷斜杠命令与 @ 引用说明。",
+            Self::Export => "将当前线程会话以 Markdown 格式在编辑器中打开。",
         }
     }
 
@@ -231,6 +283,11 @@ impl PromptLocalCommand {
         match self {
             Self::ThumbsUp => IconName::ThumbsUp,
             Self::ThumbsDown => IconName::ThumbsDown,
+            Self::Clear => IconName::RotateCcw,
+            Self::Agent => IconName::ZedAgent,
+            Self::WorkingDir => IconName::Folder,
+            Self::Help => IconName::Info,
+            Self::Export => IconName::FileDoc,
         }
     }
 }
@@ -240,13 +297,14 @@ impl TryFrom<&str> for PromptContextType {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
-            "file" => Ok(Self::File),
-            "symbol" => Ok(Self::Symbol),
-            "fetch" => Ok(Self::Fetch),
-            "thread" => Ok(Self::Thread),
-            "skill" => Ok(Self::Skill),
-            "diagnostics" => Ok(Self::Diagnostics),
-            "diff" => Ok(Self::BranchDiff),
+            "file" | "文件" => Ok(Self::File),
+            "symbol" | "符号" => Ok(Self::Symbol),
+            "fetch" | "抓取" => Ok(Self::Fetch),
+            "thread" | "会话" => Ok(Self::Thread),
+            "skill" | "技能" => Ok(Self::Skill),
+            "diagnostics" | "诊断" | "错误" => Ok(Self::Diagnostics),
+            "diff" | "git-diff" | "git" | "差异" => Ok(Self::BranchDiff),
+            "terminal" | "term" | "终端" => Ok(Self::Terminal),
             _ => Err(format!("Invalid context picker mode: {}", value)),
         }
     }
@@ -261,7 +319,8 @@ impl PromptContextType {
             Self::Thread => "thread",
             Self::Skill => "skill",
             Self::Diagnostics => "diagnostics",
-            Self::BranchDiff => "branch diff",
+            Self::BranchDiff => "diff",
+            Self::Terminal => "terminal",
         }
     }
 
@@ -273,7 +332,38 @@ impl PromptContextType {
             Self::Thread => "Threads",
             Self::Skill => "Skills",
             Self::Diagnostics => "Diagnostics",
-            Self::BranchDiff => "Branch Diff",
+            Self::BranchDiff => "Git Diff",
+            Self::Terminal => "Terminal Output",
+        }
+    }
+
+    pub fn localized_label(&self, is_chinese: bool) -> &'static str {
+        if is_chinese {
+            match self {
+                Self::File => "文件与目录 (Files & Directories)",
+                Self::Symbol => "代码符号 (Symbols)",
+                Self::Fetch => "网页抓取 (Fetch URL)",
+                Self::Thread => "历史会话 (Threads)",
+                Self::Skill => "代理技能 (Skills)",
+                Self::Diagnostics => "诊断信息 (Diagnostics)",
+                Self::BranchDiff => "Git 差异 (Git Diff)",
+                Self::Terminal => "终端输出 (Terminal Output)",
+            }
+        } else {
+            self.label()
+        }
+    }
+
+    pub fn aliases(&self) -> &'static [&'static str] {
+        match self {
+            Self::File => &["文件", "目录"],
+            Self::Symbol => &["符号", "函数"],
+            Self::Fetch => &["抓取", "网络"],
+            Self::Thread => &["会话", "线程"],
+            Self::Skill => &["技能", "skill"],
+            Self::Diagnostics => &["诊断", "错误", "警告"],
+            Self::BranchDiff => &["差异", "分支差异", "git"],
+            Self::Terminal => &["终端", "控制台"],
         }
     }
 
@@ -286,6 +376,7 @@ impl PromptContextType {
             Self::Skill => IconName::Sparkle,
             Self::Diagnostics => IconName::Warning,
             Self::BranchDiff => IconName::GitBranch,
+            Self::Terminal => IconName::Terminal,
         }
     }
 }
@@ -299,11 +390,19 @@ pub(crate) enum Match {
     Skill(AvailableSkill),
     Entry(EntryMatch),
     BranchDiff(BranchDiffMatch),
+    Terminal(TerminalMatch),
 }
 
 #[derive(Debug, Clone)]
 pub struct BranchDiffMatch {
     pub base_ref: SharedString,
+    pub title: SharedString,
+}
+
+#[derive(Debug, Clone)]
+pub struct TerminalMatch {
+    pub content: String,
+    pub label: SharedString,
 }
 
 impl Match {
@@ -317,6 +416,7 @@ impl Match {
             Match::Skill(_) => 1.,
             Match::Fetch(_) => 1.,
             Match::BranchDiff(_) => 1.,
+            Match::Terminal(_) => 1.,
         }
     }
 }
@@ -505,11 +605,12 @@ impl<T: PromptCompletionProviderDelegate> PromptCompletionProvider<T> {
         workspace: &Entity<Workspace>,
         cx: &mut App,
     ) -> Option<Completion> {
+        let is_chinese = is_simplified_chinese(cx);
         match entry {
             PromptContextEntry::Mode(mode) => Some(Completion {
                 replace_range: source_range,
                 new_text: format!("@{} ", mode.keyword()),
-                label: CodeLabel::plain(mode.label().to_string(), None),
+                label: CodeLabel::plain(entry.localized_label(is_chinese).to_string(), None),
                 icon_path: Some(mode.icon().path().into()),
                 icon_color: None,
                 documentation: None,
@@ -535,6 +636,7 @@ impl<T: PromptCompletionProviderDelegate> PromptCompletionProvider<T> {
                     mention_set,
                     workspace.downgrade(),
                     selection,
+                    is_chinese,
                 )
             }
         }
@@ -824,6 +926,7 @@ impl<T: PromptCompletionProviderDelegate> PromptCompletionProvider<T> {
         mention_set: WeakEntity<MentionSet>,
         workspace: WeakEntity<Workspace>,
         selection: Option<AgentContextSelection>,
+        is_chinese: bool,
     ) -> Option<Completion> {
         let (new_text, on_action) = match action {
             PromptContextAction::AddSelections => match selection? {
@@ -850,7 +953,7 @@ impl<T: PromptCompletionProviderDelegate> PromptCompletionProvider<T> {
         Some(Completion {
             replace_range: source_range,
             new_text,
-            label: CodeLabel::plain(action.label().to_string(), None),
+            label: CodeLabel::plain(action.localized_label(is_chinese).to_string(), None),
             icon_path: Some(action.icon().path().into()),
             icon_color: None,
             documentation: None,
@@ -874,6 +977,7 @@ impl<T: PromptCompletionProviderDelegate> PromptCompletionProvider<T> {
         workspace: Entity<Workspace>,
         cx: &mut App,
     ) -> Vec<Completion> {
+        let is_chinese = is_simplified_chinese(cx);
         let summary = workspace
             .read(cx)
             .project()
@@ -903,7 +1007,7 @@ impl<T: PromptCompletionProviderDelegate> PromptCompletionProvider<T> {
         for (condition, include_errors, include_warnings) in cases {
             if condition {
                 completions.push(Self::build_diagnostics_completion(
-                    diagnostics_submenu_label(summary, include_errors, include_warnings),
+                    diagnostics_submenu_label(summary, include_errors, include_warnings, is_chinese),
                     source_range.clone(),
                     source.clone(),
                     editor.clone(),
@@ -913,6 +1017,7 @@ impl<T: PromptCompletionProviderDelegate> PromptCompletionProvider<T> {
                     include_errors,
                     include_warnings,
                     summary,
+                    is_chinese,
                 ));
             }
         }
@@ -931,12 +1036,13 @@ impl<T: PromptCompletionProviderDelegate> PromptCompletionProvider<T> {
         include_errors: bool,
         include_warnings: bool,
         summary: DiagnosticSummary,
+        is_chinese: bool,
     ) -> Completion {
         let uri = MentionUri::Diagnostics {
             include_errors,
             include_warnings,
         };
-        let crease_text = diagnostics_crease_label(summary, include_errors, include_warnings);
+        let crease_text = diagnostics_crease_label(summary, include_errors, include_warnings, is_chinese);
         let display_text = format!("@{}", crease_text);
         let new_text = format!("[{}]({}) ", display_text, uri.to_uri());
         let new_text_len = new_text.len();
@@ -967,6 +1073,7 @@ impl<T: PromptCompletionProviderDelegate> PromptCompletionProvider<T> {
 
     fn build_branch_diff_completion(
         base_ref: SharedString,
+        title: SharedString,
         source_range: Range<Anchor>,
         source: Arc<T>,
         editor: WeakEntity<Editor>,
@@ -977,7 +1084,7 @@ impl<T: PromptCompletionProviderDelegate> PromptCompletionProvider<T> {
         let uri = MentionUri::GitDiff {
             base_ref: base_ref.to_string(),
         };
-        let crease_text: SharedString = format!("Branch Diff (vs {})", base_ref).into();
+        let crease_text: SharedString = title;
         let display_text = format!("@{}", crease_text);
         let new_text = format!("[{}]({}) ", display_text, uri.to_uri());
         let new_text_len = new_text.len();
@@ -1004,6 +1111,38 @@ impl<T: PromptCompletionProviderDelegate> PromptCompletionProvider<T> {
                 mention_set,
                 workspace,
             )),
+            group: None,
+        }
+    }
+
+    fn build_terminal_completion(
+        content: String,
+        label: SharedString,
+        source_range: Range<Anchor>,
+        editor: WeakEntity<Editor>,
+        mention_set: WeakEntity<MentionSet>,
+        _cx: &mut App,
+    ) -> Completion {
+        let (new_text, confirm) = completion_text_for_terminal_selections(
+            source_range.clone(),
+            editor,
+            mention_set,
+            vec![content],
+        );
+        Completion {
+            replace_range: source_range,
+            new_text,
+            label: CodeLabel::plain(label.to_string(), None),
+            documentation: Some(CompletionDocumentation::SingleLine(
+                "Insert latest terminal output and error logs into prompt".into(),
+            )),
+            source: project::CompletionSource::Custom,
+            icon_path: Some(IconName::Terminal.path().into()),
+            icon_color: None,
+            match_start: None,
+            snippet_deduplication_key: None,
+            insert_text_mode: None,
+            confirm: Some(confirm),
             group: None,
         }
     }
@@ -1068,25 +1207,76 @@ impl<T: PromptCompletionProviderDelegate> PromptCompletionProvider<T> {
         })
     }
 
-    fn fetch_branch_diff_match(
+    fn fetch_branch_diff_matches(
         &self,
         workspace: &Entity<Workspace>,
         cx: &mut App,
-    ) -> Option<Task<Option<BranchDiffMatch>>> {
+    ) -> Option<Task<Vec<BranchDiffMatch>>> {
+        let is_chinese = is_simplified_chinese(cx);
         let project = workspace.read(cx).project().clone();
         let repo = project.read(cx).active_repository(cx)?;
 
         let default_branch_receiver = repo.update(cx, |repo, _| repo.default_branch(true));
 
         Some(cx.spawn(async move |_cx| {
-            let base_ref = default_branch_receiver
+            let mut matches = Vec::new();
+
+            matches.push(BranchDiffMatch {
+                base_ref: "uncommitted".into(),
+                title: if is_chinese {
+                    "Git 差异 (未提交变更)".into()
+                } else {
+                    "Git Diff (Uncommitted Changes)".into()
+                },
+            });
+
+            if let Some(base_ref) = default_branch_receiver
                 .await
                 .ok()
                 .and_then(|r| r.ok())
-                .flatten()?;
+                .flatten()
+            {
+                matches.push(BranchDiffMatch {
+                    title: if is_chinese {
+                        format!("分支差异 (对比 {})", base_ref).into()
+                    } else {
+                        format!("Branch Diff (vs {})", base_ref).into()
+                    },
+                    base_ref,
+                });
+            }
 
-            Some(BranchDiffMatch { base_ref })
+            matches.push(BranchDiffMatch {
+                base_ref: "staged".into(),
+                title: if is_chinese {
+                    "Git 差异 (暂存变更)".into()
+                } else {
+                    "Git Diff (Staged Changes)".into()
+                },
+            });
+
+            matches
         }))
+    }
+
+    fn fetch_terminal_match(
+        &self,
+        workspace: &Entity<Workspace>,
+        cx: &mut App,
+    ) -> Option<TerminalMatch> {
+        let is_chinese = is_simplified_chinese(cx);
+        let content = workspace.update(cx, |workspace, cx| {
+            active_terminal_output(workspace, 100, cx)
+        })?;
+        let line_count = content.lines().count();
+        let label: SharedString = if is_chinese {
+            format!("终端 ({} 行)", line_count).into()
+        } else if line_count == 1 {
+            "Terminal (1 line)".into()
+        } else {
+            format!("Terminal ({} lines)", line_count).into()
+        };
+        Some(TerminalMatch { content, label })
     }
 
     fn search_mentions(
@@ -1157,7 +1347,31 @@ impl<T: PromptCompletionProviderDelegate> PromptCompletionProvider<T> {
 
             Some(PromptContextType::Diagnostics) => Task::ready(Vec::new()),
 
-            Some(PromptContextType::BranchDiff) => Task::ready(Vec::new()),
+            Some(PromptContextType::BranchDiff) => {
+                if self
+                    .source
+                    .supports_context(PromptContextType::BranchDiff, cx)
+                {
+                    if let Some(task) = self.fetch_branch_diff_matches(&workspace, cx) {
+                        return cx.spawn(async move |_cx| {
+                            task.await.into_iter().map(Match::BranchDiff).collect()
+                        });
+                    }
+                }
+                Task::ready(Vec::new())
+            }
+
+            Some(PromptContextType::Terminal) => {
+                if self
+                    .source
+                    .supports_context(PromptContextType::Terminal, cx)
+                {
+                    if let Some(mat) = self.fetch_terminal_match(&workspace, cx) {
+                        return Task::ready(vec![Match::Terminal(mat)]);
+                    }
+                }
+                Task::ready(Vec::new())
+            }
 
             None if query.is_empty() => {
                 let recent_task = self.recent_context_picker_entries(&workspace, cx);
@@ -1176,7 +1390,16 @@ impl<T: PromptCompletionProviderDelegate> PromptCompletionProvider<T> {
                     .source
                     .supports_context(PromptContextType::BranchDiff, cx)
                 {
-                    self.fetch_branch_diff_match(&workspace, cx)
+                    self.fetch_branch_diff_matches(&workspace, cx)
+                } else {
+                    None
+                };
+
+                let terminal_match = if self
+                    .source
+                    .supports_context(PromptContextType::Terminal, cx)
+                {
+                    self.fetch_terminal_match(&workspace, cx)
                 } else {
                     None
                 };
@@ -1185,10 +1408,12 @@ impl<T: PromptCompletionProviderDelegate> PromptCompletionProvider<T> {
                     let mut matches = recent_task.await;
                     matches.extend(entries);
 
+                    if let Some(terminal_match) = terminal_match {
+                        matches.push(Match::Terminal(terminal_match));
+                    }
+
                     if let Some(branch_diff_task) = branch_diff_task {
-                        if let Some(branch_diff_match) = branch_diff_task.await {
-                            matches.push(Match::BranchDiff(branch_diff_match));
-                        }
+                        matches.extend(branch_diff_task.await.into_iter().map(Match::BranchDiff));
                     }
 
                     matches
@@ -1201,22 +1426,33 @@ impl<T: PromptCompletionProviderDelegate> PromptCompletionProvider<T> {
                     search_files(query.clone(), cancellation_flag, &workspace, cx);
 
                 let entries = self.available_context_picker_entries(&workspace, cx);
-                let entry_candidates = entries
-                    .iter()
-                    .enumerate()
-                    .map(|(ix, entry)| StringMatchCandidate::new(ix, entry.keyword()))
-                    .collect::<Vec<_>>();
+                let mut entry_candidates = Vec::new();
+                for (ix, entry) in entries.iter().enumerate() {
+                    entry_candidates.push(StringMatchCandidate::new(ix, entry.keyword()));
+                    for alias in entry.aliases() {
+                        entry_candidates.push(StringMatchCandidate::new(ix, alias));
+                    }
+                }
 
                 let branch_diff_task = if self
                     .source
                     .supports_context(PromptContextType::BranchDiff, cx)
                 {
-                    self.fetch_branch_diff_match(&workspace, cx)
+                    self.fetch_branch_diff_matches(&workspace, cx)
                 } else {
                     None
                 };
 
-                cx.spawn(async move |cx| {
+                let terminal_match = if self
+                    .source
+                    .supports_context(PromptContextType::Terminal, cx)
+                {
+                    self.fetch_terminal_match(&workspace, cx)
+                } else {
+                    None
+                };
+
+                cx.spawn(async move |_cx| {
                     let mut matches = search_files_task
                         .await
                         .into_iter()
@@ -1230,34 +1466,65 @@ impl<T: PromptCompletionProviderDelegate> PromptCompletionProvider<T> {
                         true,
                         100,
                         &Arc::new(AtomicBool::default()),
-                        executor,
+                        executor.clone(),
                     )
                     .await;
 
-                    matches.extend(entry_matches.into_iter().map(|mat| {
-                        Match::Entry(EntryMatch {
-                            entry: entries[mat.candidate_id],
-                            mat: Some(mat),
-                        })
-                    }));
+                    let mut seen_entries = std::collections::HashSet::new();
+                    for mat in entry_matches {
+                        if seen_entries.insert(mat.candidate_id) {
+                            matches.push(Match::Entry(EntryMatch {
+                                entry: entries[mat.candidate_id],
+                                mat: Some(mat),
+                            }));
+                        }
+                    }
 
-                    if let Some(branch_diff_task) = branch_diff_task {
-                        let branch_diff_keyword = PromptContextType::BranchDiff.keyword();
-                        let branch_diff_matches = fuzzy::match_strings(
-                            &[StringMatchCandidate::new(0, branch_diff_keyword)],
+                    if let Some(terminal_match) = terminal_match {
+                        let terminal_candidates = [
+                            StringMatchCandidate::new(0, "terminal"),
+                            StringMatchCandidate::new(1, "term"),
+                            StringMatchCandidate::new(2, "terminal output"),
+                            StringMatchCandidate::new(3, "终端"),
+                            StringMatchCandidate::new(4, "终端输出"),
+                        ];
+                        let term_matches = fuzzy::match_strings(
+                            &terminal_candidates,
                             &query,
                             false,
                             true,
                             1,
                             &Arc::new(AtomicBool::default()),
-                            cx.background_executor().clone(),
+                            executor.clone(),
+                        )
+                        .await;
+                        if !term_matches.is_empty() {
+                            matches.push(Match::Terminal(terminal_match));
+                        }
+                    }
+
+                    if let Some(branch_diff_task) = branch_diff_task {
+                        let branch_diff_candidates = [
+                            StringMatchCandidate::new(0, "git-diff"),
+                            StringMatchCandidate::new(1, "diff"),
+                            StringMatchCandidate::new(2, "branch diff"),
+                            StringMatchCandidate::new(3, "git"),
+                            StringMatchCandidate::new(4, "差异"),
+                            StringMatchCandidate::new(5, "分支差异"),
+                        ];
+                        let branch_diff_matches = fuzzy::match_strings(
+                            &branch_diff_candidates,
+                            &query,
+                            false,
+                            true,
+                            1,
+                            &Arc::new(AtomicBool::default()),
+                            executor.clone(),
                         )
                         .await;
 
                         if !branch_diff_matches.is_empty() {
-                            if let Some(branch_diff_match) = branch_diff_task.await {
-                                matches.push(Match::BranchDiff(branch_diff_match));
-                            }
+                            matches.extend(branch_diff_task.await.into_iter().map(Match::BranchDiff));
                         }
                     }
 
@@ -1402,6 +1669,19 @@ impl<T: PromptCompletionProviderDelegate> PromptCompletionProvider<T> {
                 .diagnostic_summary(false, cx);
             if summary.error_count > 0 || summary.warning_count > 0 {
                 entries.push(PromptContextEntry::Mode(PromptContextType::Diagnostics));
+            }
+        }
+
+        if self.source.supports_context(PromptContextType::BranchDiff, cx) {
+            entries.push(PromptContextEntry::Mode(PromptContextType::BranchDiff));
+        }
+
+        if self.source.supports_context(PromptContextType::Terminal, cx) {
+            let has_terminal = workspace.update(cx, |workspace, cx| {
+                active_terminal_output(workspace, 1, cx).is_some()
+            });
+            if has_terminal {
+                entries.push(PromptContextEntry::Mode(PromptContextType::Terminal));
             }
         }
 
@@ -1732,7 +2012,7 @@ impl<T: PromptCompletionProviderDelegate> CompletionProvider for PromptCompletio
                                 is_recent: true, ..
                             })
                             | Match::RecentThread(_) => 0,
-                            Match::Entry(_) | Match::BranchDiff(_) => 1,
+                            Match::Entry(_) | Match::BranchDiff(_) | Match::Terminal(_) => 1,
                             _ => 2,
                         });
                     }
@@ -1750,7 +2030,9 @@ impl<T: PromptCompletionProviderDelegate> CompletionProvider for PromptCompletio
                                             key: "recent".into(),
                                             label: None,
                                         }),
-                                        Match::Entry(_) | Match::BranchDiff(_) => {
+                                        Match::Entry(_)
+                                        | Match::BranchDiff(_)
+                                        | Match::Terminal(_) => {
                                             Some(CompletionGroup {
                                                 key: "context".into(),
                                                 label: None,
@@ -1862,11 +2144,22 @@ impl<T: PromptCompletionProviderDelegate> CompletionProvider for PromptCompletio
                                     Match::BranchDiff(branch_diff) => {
                                         Some(Self::build_branch_diff_completion(
                                             branch_diff.base_ref,
+                                            branch_diff.title,
                                             source_range.clone(),
                                             source.clone(),
                                             editor.clone(),
                                             mention_set.clone(),
                                             workspace.clone(),
+                                            cx,
+                                        ))
+                                    }
+                                    Match::Terminal(terminal_match) => {
+                                        Some(Self::build_terminal_completion(
+                                            terminal_match.content,
+                                            terminal_match.label,
+                                            source_range.clone(),
+                                            editor.clone(),
+                                            mention_set.clone(),
                                             cx,
                                         ))
                                     }
@@ -2163,64 +2456,105 @@ fn diagnostics_label(
     summary: DiagnosticSummary,
     include_errors: bool,
     include_warnings: bool,
+    is_chinese: bool,
 ) -> String {
-    let mut parts = Vec::new();
+    if is_chinese {
+        let mut parts = Vec::new();
 
-    if include_errors && summary.error_count > 0 {
-        parts.push(format!(
-            "{} {}",
-            summary.error_count,
-            pluralize("error", summary.error_count)
-        ));
-    }
+        if include_errors && summary.error_count > 0 {
+            parts.push(format!("{} 个错误", summary.error_count));
+        }
 
-    if include_warnings && summary.warning_count > 0 {
-        parts.push(format!(
-            "{} {}",
-            summary.warning_count,
-            pluralize("warning", summary.warning_count)
-        ));
-    }
+        if include_warnings && summary.warning_count > 0 {
+            parts.push(format!("{} 个警告", summary.warning_count));
+        }
 
-    if parts.is_empty() {
-        return "Diagnostics".into();
-    }
+        if parts.is_empty() {
+            return "诊断信息".into();
+        }
 
-    let body = if parts.len() == 2 {
-        format!("{} and {}", parts[0], parts[1])
+        let body = if parts.len() == 2 {
+            format!("{} 和 {}", parts[0], parts[1])
+        } else {
+            parts
+                .pop()
+                .expect("at least one part present after non-empty check")
+        };
+
+        format!("诊断信息: {body}")
     } else {
-        parts
-            .pop()
-            .expect("at least one part present after non-empty check")
-    };
+        let mut parts = Vec::new();
 
-    format!("Diagnostics: {body}")
+        if include_errors && summary.error_count > 0 {
+            parts.push(format!(
+                "{} {}",
+                summary.error_count,
+                pluralize("error", summary.error_count)
+            ));
+        }
+
+        if include_warnings && summary.warning_count > 0 {
+            parts.push(format!(
+                "{} {}",
+                summary.warning_count,
+                pluralize("warning", summary.warning_count)
+            ));
+        }
+
+        if parts.is_empty() {
+            return "Diagnostics".into();
+        }
+
+        let body = if parts.len() == 2 {
+            format!("{} and {}", parts[0], parts[1])
+        } else {
+            parts
+                .pop()
+                .expect("at least one part present after non-empty check")
+        };
+
+        format!("Diagnostics: {body}")
+    }
 }
 
 fn diagnostics_submenu_label(
     summary: DiagnosticSummary,
     include_errors: bool,
     include_warnings: bool,
+    is_chinese: bool,
 ) -> String {
-    match (include_errors, include_warnings) {
-        (true, true) => format!(
-            "{} {} & {} {}",
-            summary.error_count,
-            pluralize("error", summary.error_count),
-            summary.warning_count,
-            pluralize("warning", summary.warning_count)
-        ),
-        (true, _) => format!(
-            "{} {}",
-            summary.error_count,
-            pluralize("error", summary.error_count)
-        ),
-        (_, true) => format!(
-            "{} {}",
-            summary.warning_count,
-            pluralize("warning", summary.warning_count)
-        ),
-        _ => "Diagnostics".into(),
+    if is_chinese {
+        match (include_errors, include_warnings) {
+            (true, true) => format!(
+                "{} 个错误 & {} 个警告",
+                summary.error_count,
+                summary.warning_count
+            ),
+            (true, _) => format!("{} 个错误", summary.error_count),
+            (_, true) => format!("{} 个警告", summary.warning_count),
+            _ => "诊断信息".into(),
+        }
+    } else {
+        match (include_errors, include_warnings) {
+            (true, true) => format!(
+                "{} {} & {} {}",
+                summary.error_count,
+                pluralize("error", summary.error_count),
+                summary.warning_count,
+                pluralize("warning", summary.warning_count)
+            ),
+            (true, _) => format!(
+                "{} {}",
+                summary.error_count,
+                pluralize("error", summary.error_count)
+            ),
+            (_, true) => format!(
+                "{} {}",
+                summary.warning_count,
+                pluralize("warning", summary.warning_count)
+            ),
+            _ => "Diagnostics".into(),
+        }
     }
 }
 
@@ -2228,8 +2562,9 @@ fn diagnostics_crease_label(
     summary: DiagnosticSummary,
     include_errors: bool,
     include_warnings: bool,
+    is_chinese: bool,
 ) -> SharedString {
-    diagnostics_label(summary, include_errors, include_warnings).into()
+    diagnostics_label(summary, include_errors, include_warnings, is_chinese).into()
 }
 
 pub(crate) fn pluralize(noun: &str, count: usize) -> String {
@@ -2634,6 +2969,36 @@ fn terminal_view_selection(terminal_view: &Entity<TerminalView>, cx: &App) -> Op
         .selection_text
         .clone()
         .filter(|text| !text.is_empty())
+}
+
+pub(crate) fn active_terminal_output(
+    workspace: &Workspace,
+    max_lines: usize,
+    cx: &App,
+) -> Option<String> {
+    if let Some(active_item) = workspace.active_item(cx) {
+        if let Some(terminal_view) = active_item.act_as::<TerminalView>(cx) {
+            let terminal = terminal_view.read(cx).terminal();
+            let terminal_read = terminal.read(cx);
+            if let Some(selection) = &terminal_read.last_content.selection_text {
+                if !selection.trim().is_empty() {
+                    return Some(selection.clone());
+                }
+            }
+            let lines = terminal_read.last_n_non_empty_lines(max_lines);
+            if !lines.is_empty() {
+                return Some(lines.join("\n"));
+            }
+            let content = terminal_read.get_content();
+            if !content.trim().is_empty() {
+                return Some(content);
+            }
+        }
+    }
+    if let Some(panel) = workspace.panel::<TerminalPanel>(cx) {
+        return panel.read(cx).active_terminal_output(max_lines, cx);
+    }
+    None
 }
 
 fn editor_selection_ranges(
@@ -3159,6 +3524,105 @@ mod tests {
             })
         );
 
+        let supported_modes_with_terminal_and_diff = vec![
+            PromptContextType::File,
+            PromptContextType::Symbol,
+            PromptContextType::Diagnostics,
+            PromptContextType::BranchDiff,
+            PromptContextType::Terminal,
+        ];
+
+        assert_eq!(
+            MentionCompletion::try_parse(
+                "Lorem @terminal",
+                0,
+                &supported_modes_with_terminal_and_diff
+            ),
+            Some(MentionCompletion {
+                source_range: 6..15,
+                mode: Some(PromptContextType::Terminal),
+                argument: None,
+            })
+        );
+
+        assert_eq!(
+            MentionCompletion::try_parse(
+                "Lorem @term",
+                0,
+                &supported_modes_with_terminal_and_diff
+            ),
+            Some(MentionCompletion {
+                source_range: 6..11,
+                mode: Some(PromptContextType::Terminal),
+                argument: None,
+            })
+        );
+
+        assert_eq!(
+            MentionCompletion::try_parse(
+                "Lorem @diff",
+                0,
+                &supported_modes_with_terminal_and_diff
+            ),
+            Some(MentionCompletion {
+                source_range: 6..11,
+                mode: Some(PromptContextType::BranchDiff),
+                argument: None,
+            })
+        );
+
+        assert_eq!(
+            MentionCompletion::try_parse(
+                "Lorem @git-diff",
+                0,
+                &supported_modes_with_terminal_and_diff
+            ),
+            Some(MentionCompletion {
+                source_range: 6..15,
+                mode: Some(PromptContextType::BranchDiff),
+                argument: None,
+            })
+        );
+
+        assert_eq!(
+            MentionCompletion::try_parse(
+                "Lorem @诊断",
+                0,
+                &supported_modes_with_diagnostics
+            ),
+            Some(MentionCompletion {
+                source_range: 6..13,
+                mode: Some(PromptContextType::Diagnostics),
+                argument: None,
+            })
+        );
+
+        assert_eq!(
+            MentionCompletion::try_parse(
+                "Lorem @终端",
+                0,
+                &supported_modes_with_terminal_and_diff
+            ),
+            Some(MentionCompletion {
+                source_range: 6..13,
+                mode: Some(PromptContextType::Terminal),
+                argument: None,
+            })
+        );
+
+        assert_eq!(
+            MentionCompletion::try_parse(
+                "Lorem @差异",
+                0,
+                &supported_modes_with_terminal_and_diff
+            ),
+            Some(MentionCompletion {
+                source_range: 6..13,
+                mode: Some(PromptContextType::BranchDiff),
+                argument: None,
+            })
+        );
+
         // Disallowed non-file mentions
         assert_eq!(
             MentionCompletion::try_parse("Lorem @symbol main", 0, &[PromptContextType::File]),
@@ -3430,5 +3894,41 @@ mod tests {
             // fallback is suppressed and read_selection should return None.
             assert!(source.read_selection(workspace, false, cx).is_none());
         });
+    }
+
+    #[test]
+    fn test_diagnostics_labels_localization() {
+        let summary = DiagnosticSummary {
+            error_count: 2,
+            warning_count: 5,
+        };
+
+        // English
+        assert_eq!(
+            diagnostics_label(summary, true, true, false),
+            "Diagnostics: 2 errors and 5 warnings"
+        );
+        assert_eq!(
+            diagnostics_label(summary, true, false, false),
+            "Diagnostics: 2 errors"
+        );
+        assert_eq!(
+            diagnostics_submenu_label(summary, true, true, false),
+            "2 errors & 5 warnings"
+        );
+
+        // Chinese
+        assert_eq!(
+            diagnostics_label(summary, true, true, true),
+            "诊断信息: 2 个错误 和 5 个警告"
+        );
+        assert_eq!(
+            diagnostics_label(summary, true, false, true),
+            "诊断信息: 2 个错误"
+        );
+        assert_eq!(
+            diagnostics_submenu_label(summary, true, true, true),
+            "2 个错误 & 5 个警告"
+        );
     }
 }

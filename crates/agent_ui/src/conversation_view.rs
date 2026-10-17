@@ -48,7 +48,10 @@ use crate::message_editor::SessionCapabilities;
 use crate::{AgentThreadSource, DEFAULT_THREAD_TITLE, resolve_agent_image};
 use lru::LruCache;
 use rope::Point;
-use settings::{NotifyWhenAgentWaiting, Settings as _, SettingsStore};
+use settings::{
+    NotifyWhenAgentWaiting, Settings as _, SettingsStore, UiLanguage, UiLanguageSetting,
+    is_simplified_chinese, translate_ui,
+};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -1534,16 +1537,39 @@ impl ConversationView {
                 .loading_status
                 .clone()
                 .unwrap_or_else(|| "Loading…".into()),
-            ServerState::LoadError { error, .. } => match error {
-                LoadError::Unsupported { .. } => {
-                    format!("Upgrade {}", self.agent.agent_id()).into()
+            ServerState::LoadError { error, .. } => {
+                let is_chinese = is_simplified_chinese(cx);
+                match error {
+                    LoadError::Unsupported { .. } => {
+                        if is_chinese {
+                            format!("升级 {}", self.agent.agent_id()).into()
+                        } else {
+                            format!("Upgrade {}", self.agent.agent_id()).into()
+                        }
+                    }
+                    LoadError::FailedToInstall(_) => {
+                        if is_chinese {
+                            format!("安装 {} 失败", self.agent.agent_id()).into()
+                        } else {
+                            format!("Failed to Install {}", self.agent.agent_id()).into()
+                        }
+                    }
+                    LoadError::Exited { .. } => {
+                        if is_chinese {
+                            format!("{} 已退出", self.agent.agent_id()).into()
+                        } else {
+                            format!("{} Exited", self.agent.agent_id()).into()
+                        }
+                    }
+                    LoadError::Other(_) => {
+                        if is_chinese {
+                            format!("加载 {} 发生错误", self.agent.agent_id()).into()
+                        } else {
+                            format!("Error Loading {}", self.agent.agent_id()).into()
+                        }
+                    }
                 }
-                LoadError::FailedToInstall(_) => {
-                    format!("Failed to Install {}", self.agent.agent_id()).into()
-                }
-                LoadError::Exited { .. } => format!("{} Exited", self.agent.agent_id()).into(),
-                LoadError::Other(_) => format!("Error Loading {}", self.agent.agent_id()).into(),
-            },
+            }
         }
     }
 
@@ -1561,6 +1587,12 @@ impl ConversationView {
 
     pub fn is_loading(&self) -> bool {
         matches!(self.server_state, ServerState::Loading { .. })
+    }
+
+    pub fn is_generating(&self, cx: &App) -> bool {
+        self.active_thread()
+            .map(|t| t.read(cx).thread.read(cx).status() != acp_thread::ThreadStatus::Idle)
+            .unwrap_or(false)
     }
 
     fn handle_thread_event(
@@ -1831,7 +1863,7 @@ impl ConversationView {
                         .unwrap_or_else(|| self.agent.agent_id().0.to_string().into());
 
                     let new_placeholder =
-                        placeholder_text(agent_display_name.as_ref(), has_slash_completions);
+                        placeholder_text(agent_display_name.as_ref(), has_slash_completions, cx);
 
                     thread_view.update(cx, |thread_view, cx| {
                         let mut session_capabilities = thread_view.session_capabilities.write();
@@ -2712,25 +2744,30 @@ impl ConversationView {
                 return self.render_unsupported(path, current_version, minimum_version, window, cx);
             }
             LoadError::FailedToInstall(msg) => (
-                "Failed to Install",
+                translate_ui("Failed to Install", cx),
                 msg.into(),
-                Some(self.create_copy_button(msg.to_string()).into_any_element()),
+                Some(self.create_copy_button(msg.to_string(), cx).into_any_element()),
             ),
             LoadError::Exited { status, stderr } => {
-                let mut message = format!("Server exited with status {status}");
+                let is_chinese = is_simplified_chinese(cx);
+                let mut message = if is_chinese {
+                    format!("代理服务异常退出，状态码：{status}")
+                } else {
+                    format!("Server exited with status {status}")
+                };
                 if let Some(stderr) = stderr {
                     message.push_str("\n");
                     message.push_str(stderr);
                 };
                 let action_slot = stderr
                     .is_some()
-                    .then(|| self.create_copy_button(message.clone()).into_any_element());
-                ("Failed to Launch", message.into(), action_slot)
+                    .then(|| self.create_copy_button(message.clone(), cx).into_any_element());
+                (translate_ui("Failed to Launch", cx), message.into(), action_slot)
             }
             LoadError::Other(msg) => (
-                "Failed to Launch",
+                translate_ui("Failed to Launch", cx),
                 msg.into(),
-                Some(self.create_copy_button(msg.to_string()).into_any_element()),
+                Some(self.create_copy_button(msg.to_string(), cx).into_any_element()),
             ),
         };
 
@@ -2751,20 +2788,38 @@ impl ConversationView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let (heading_label, description_label) = (
-            format!("Upgrade {} to work with Zed", self.agent.agent_id()),
-            if version.is_empty() {
-                format!(
-                    "Currently using {}, which does not report a valid --version",
-                    path,
-                )
-            } else {
-                format!(
-                    "Currently using {}, which is only version {} (need at least {minimum_version})",
-                    path, version
-                )
-            },
-        );
+        let is_chinese = is_simplified_chinese(cx);
+        let (heading_label, description_label) = if is_chinese {
+            (
+                format!("升级 {} 以便在 Zed 中运行", self.agent.agent_id()),
+                if version.is_empty() {
+                    format!(
+                        "当前使用的 {} 未返回有效的 --version 版本信息",
+                        path,
+                    )
+                } else {
+                    format!(
+                        "当前使用的 {} 版本仅为 {}（最低需要版本：{minimum_version}）",
+                        path, version
+                    )
+                },
+            )
+        } else {
+            (
+                format!("Upgrade {} to work with Zed", self.agent.agent_id()),
+                if version.is_empty() {
+                    format!(
+                        "Currently using {}, which does not report a valid --version",
+                        path,
+                    )
+                } else {
+                    format!(
+                        "Currently using {}, which is only version {} (need at least {minimum_version})",
+                        path, version
+                    )
+                },
+            )
+        };
 
         v_flex()
             .w_full()
@@ -3210,10 +3265,11 @@ impl ConversationView {
         }
     }
 
-    fn create_copy_button(&self, message: impl Into<String>) -> impl IntoElement {
+    fn create_copy_button(&self, message: impl Into<String>, cx: &App) -> impl IntoElement {
         let message = message.into();
 
-        CopyButton::new("copy-error-message", message).tooltip_label("Copy Error Message")
+        CopyButton::new("copy-error-message", message)
+            .tooltip_label(translate_ui("Copy Error Message", cx))
     }
 
     pub(crate) fn reauthenticate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -3308,19 +3364,31 @@ fn native_available_skills(
         .collect()
 }
 
-fn placeholder_text(agent_name: &str, has_commands: bool) -> String {
-    if agent_name == agent::ZED_AGENT_ID.as_ref() {
-        format!(
-            "Message the {}, @ to include context, / for commands",
-            agent_name
-        )
-    } else if has_commands {
-        format!(
-            "Message {} — @ to include context, / for commands",
-            agent_name
-        )
-    } else {
-        format!("Message {} — @ to include context", agent_name)
+pub(crate) fn placeholder_text(agent_name: &str, has_commands: bool, cx: &App) -> String {
+    let language = UiLanguageSetting::get_global(cx).0;
+    match language {
+        UiLanguage::SimplifiedChinese => {
+            if has_commands {
+                format!("向 {} 发送消息 — 输入 @ 引入上下文，/ 执行命令", agent_name)
+            } else {
+                format!("向 {} 发送消息 — 输入 @ 引入上下文", agent_name)
+            }
+        }
+        _ => {
+            if agent_name == agent::ZED_AGENT_ID.as_ref() {
+                format!(
+                    "Message the {}, @ to include context, / for commands",
+                    agent_name
+                )
+            } else if has_commands {
+                format!(
+                    "Message {} — @ to include context, / for commands",
+                    agent_name
+                )
+            } else {
+                format!("Message {} — @ to include context", agent_name)
+            }
+        }
     }
 }
 
@@ -3459,6 +3527,7 @@ fn render_agent_markdown(
     let workspace = workspace.clone();
     let worktree_roots = code_span_resolver.worktree_roots(cx);
     let resolver = code_span_resolver.clone();
+    let insert_workspace = workspace.clone();
     MarkdownElement::new(markdown, style)
         .code_block_renderer(markdown::CodeBlockRenderer::Default {
             copy_button_visibility: markdown::CopyButtonVisibility::VisibleOnHover,
@@ -3470,6 +3539,25 @@ fn render_agent_markdown(
             thread_view::open_link(text, &workspace, window, cx);
         })
         .on_code_span_link(move |text, cx| resolver.try_resolve(text, cx))
+        .on_insert_code(move |code, window, cx| {
+            let inserted = insert_workspace
+                .update(cx, |workspace, cx| {
+                    if let Some(active_editor) = workspace.active_item_as::<editor::Editor>(cx) {
+                        active_editor.update(cx, |editor, cx| {
+                            editor.insert(&code, window, cx);
+                        });
+                        active_editor.focus_handle(cx).focus(window, cx);
+                        true
+                    } else {
+                        false
+                    }
+                })
+                .unwrap_or(false);
+
+            if !inserted {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(code));
+            }
+        })
 }
 
 /// Shared, cloneable handle for resolving inline markdown code spans like

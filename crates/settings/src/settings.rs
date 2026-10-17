@@ -51,7 +51,7 @@ pub use settings_store::{
     LocalSettingsKind, LocalSettingsPath, MigrationStatus, Settings, SettingsFile,
     SettingsJsonSchemaParams, SettingsKey, SettingsLocation, SettingsParseResult, SettingsStore,
 };
-pub use ui_language::{UiLanguageSetting, translate_ui};
+pub use ui_language::{UiLanguage, UiLanguageSetting, is_simplified_chinese, translate_ui};
 
 pub use vscode_import::{VsCodeSettings, VsCodeSettingsSource};
 

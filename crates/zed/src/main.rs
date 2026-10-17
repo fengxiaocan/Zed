@@ -1585,11 +1585,27 @@ pub(crate) async fn restore_or_create_workspace(
                     if !matches!(restore_on_startup, workspace::RestoreOnStartupBehavior::Launchpad) {
                         Editor::new_file(workspace, &Default::default(), window, cx);
                     }
+                    let is_zh = settings::is_simplified_chinese(cx);
+                    let title = if is_zh {
+                        "Zed 异常退出"
+                    } else {
+                        "Zed exited unexpectedly"
+                    };
+                    let detail = if is_zh {
+                        "是否恢复退出前打开的项目？"
+                    } else {
+                        "Would you like to restore the projects that were open before Zed exited?"
+                    };
+                    let buttons = if is_zh {
+                        &["恢复", "不恢复", "取消"]
+                    } else {
+                        &["Restore", "Don't Restore", "Cancel"]
+                    };
                     let rx = window.prompt(
                         gpui::PromptLevel::Warning,
-                        "Zed exited unexpectedly",
-                        Some("Would you like to restore the projects that were open before Zed exited?"),
-                        &["Restore", "Don't Restore"],
+                        title,
+                        Some(detail),
+                        buttons,
                         cx,
                     );
                     *prompt_result_clone.lock() = Some(rx);
@@ -1614,6 +1630,11 @@ pub(crate) async fn restore_or_create_workspace(
 
             let prompt_window = prompt_window_handle.lock().take();
             if let Some(prompt_window) = prompt_window {
+                let prompt_workspace_id = cx.update(|cx| {
+                    prompt_window.read(cx).ok().and_then(|mw| {
+                        mw.workspace().read(cx).database_id()
+                    })
+                });
                 let any_other_window = cx.update(|cx| {
                     cx.windows()
                         .iter()
@@ -1624,6 +1645,13 @@ pub(crate) async fn restore_or_create_workspace(
                     prompt_window
                         .update(cx, |_, window, _cx| window.remove_window())
                         .ok();
+                    if let Some(workspace_id) = prompt_workspace_id {
+                        let db = db.clone();
+                        cx.background_spawn(async move {
+                            db.delete_workspace_by_id(workspace_id).await.log_err();
+                        })
+                        .detach();
+                    }
                 }
             }
 
@@ -1636,11 +1664,15 @@ pub(crate) async fn restore_or_create_workspace(
             }
 
             return Ok(());
-        } else {
+        } else if answer == Some(1) {
             if let Some(ref last_session_id) = last_session_id {
                 workspace::clear_session(&db, last_session_id).await.log_err();
             }
 
+            return Ok(());
+        } else {
+            // Cancelled (Esc, Cancel button, or window closed).
+            // Do NOT clear the session so previous projects can still be recovered.
             return Ok(());
         }
     }

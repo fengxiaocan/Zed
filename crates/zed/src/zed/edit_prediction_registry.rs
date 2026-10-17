@@ -115,11 +115,8 @@ fn edit_prediction_provider_config_for_settings(cx: &App) -> Option<EditPredicti
     let settings = &all_language_settings(None, cx).edit_predictions;
     let provider = settings.provider;
     match provider {
-        EditPredictionProvider::None => None,
+        EditPredictionProvider::None | EditPredictionProvider::Zed => None,
         EditPredictionProvider::Copilot => Some(EditPredictionProviderConfig::Copilot),
-        EditPredictionProvider::Zed => {
-            Some(EditPredictionProviderConfig::Zed(EditPredictionModel::Zeta))
-        }
         EditPredictionProvider::Codestral => Some(EditPredictionProviderConfig::Codestral),
         EditPredictionProvider::Ollama | EditPredictionProvider::OpenAiCompatibleApi => {
             let custom_settings = if provider == EditPredictionProvider::Ollama {

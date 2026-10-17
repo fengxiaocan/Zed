@@ -17,8 +17,8 @@ use project::{
 use settings::{Settings, translate_ui};
 use std::{ops::Range, sync::Arc};
 use ui::{ButtonLike, Divider, Tooltip, prelude::*};
-use util::debug_panic;
-use workspace::{HideStatusItem, StatusItemView, Workspace, item::ItemHandle};
+use util::{ResultExt, debug_panic};
+use workspace::{HideStatusItem, MultiWorkspace, StatusItemView, Workspace, item::ItemHandle};
 use zed_actions::agent::{
     ConflictContent, ResolveConflictedFilesWithAgent, ResolveConflictsWithAgent,
 };
@@ -336,27 +336,33 @@ fn render_conflict_buttons(
         .gap_1()
         .bg(cx.theme().colors().editor_background)
         .child(
-            Button::new("head", format!("Use {}", conflict.ours_branch_name))
-                .label_size(LabelSize::Small)
-                .on_click({
-                    let editor = editor.clone();
-                    let conflict = conflict.clone();
-                    let ours = conflict.ours.clone();
-                    move |_, window, cx| {
-                        resolve_conflict(
-                            editor.clone(),
-                            conflict.clone(),
-                            vec![ours.clone()],
-                            window,
-                            cx,
-                        )
-                        .detach()
-                    }
-                }),
+            Button::new(
+                "head",
+                format!("{} {}", translate_ui("Use", cx), conflict.ours_branch_name),
+            )
+            .label_size(LabelSize::Small)
+            .on_click({
+                let editor = editor.clone();
+                let conflict = conflict.clone();
+                let ours = conflict.ours.clone();
+                move |_, window, cx| {
+                    resolve_conflict(
+                        editor.clone(),
+                        conflict.clone(),
+                        vec![ours.clone()],
+                        window,
+                        cx,
+                    )
+                    .detach()
+                }
+            }),
         )
         .child(
-            Button::new("origin", format!("Use {}", conflict.theirs_branch_name))
-                .label_size(LabelSize::Small)
+            Button::new(
+                "origin",
+                format!("{} {}", translate_ui("Use", cx), conflict.theirs_branch_name),
+            )
+            .label_size(LabelSize::Small)
                 .on_click({
                     let editor = editor.clone();
                     let conflict = conflict.clone();
@@ -390,6 +396,114 @@ fn render_conflict_buttons(
                             cx,
                         )
                         .detach()
+                    }
+                }),
+        )
+        .when_some(conflict.base.clone(), |this, base| {
+            this.child(
+                Button::new("base", translate_ui("Use Base", cx))
+                    .label_size(LabelSize::Small)
+                    .on_click({
+                        let editor = editor.clone();
+                        let conflict = conflict.clone();
+                        move |_, window, cx| {
+                            resolve_conflict(
+                                editor.clone(),
+                                conflict.clone(),
+                                vec![base.clone()],
+                                window,
+                                cx,
+                            )
+                            .detach()
+                        }
+                    }),
+            )
+        })
+        .child(
+            Button::new("three-way-compare", translate_ui("3-Way Compare", cx))
+                .label_size(LabelSize::Small)
+                .start_icon(
+                    Icon::new(IconName::GitMergeConflict)
+                        .size(IconSize::Small)
+                        .color(Color::Muted),
+                )
+                .tooltip(Tooltip::text(translate_ui(
+                    "Open 3-Way Conflict Comparison View",
+                    cx,
+                )))
+                .on_click({
+                    let editor = editor.clone();
+                    let conflict = conflict.clone();
+                    move |_, window, cx| {
+                        let texts = editor
+                            .update(cx, |editor, cx| {
+                                let multibuffer = editor.buffer().read(cx);
+                                let buffer_id = conflict.ours.end.buffer_id;
+                                let buffer = multibuffer.buffer(buffer_id)?;
+                                let buffer_read = buffer.read(cx);
+                                let snapshot = buffer_read.snapshot();
+                                let ours_text = snapshot
+                                    .text_for_range(conflict.ours.clone())
+                                    .collect::<String>();
+                                let theirs_text = snapshot
+                                    .text_for_range(conflict.theirs.clone())
+                                    .collect::<String>();
+                                let base_text = conflict.base.as_ref().map(|base| {
+                                    snapshot
+                                        .text_for_range(base.clone())
+                                        .collect::<String>()
+                                });
+                                let file_path = buffer_read
+                                    .file()
+                                    .and_then(|file| file.as_local())
+                                    .map(|f| f.abs_path(cx).to_string_lossy().to_string());
+                                Some((ours_text, theirs_text, base_text, file_path))
+                            })
+                            .ok()
+                            .flatten();
+
+                        if let Some((ours_text, theirs_text, base_text, file_path)) = texts {
+                            if let Some(multi_workspace) =
+                                window.window_handle().downcast::<MultiWorkspace>()
+                            {
+                                multi_workspace
+                                    .update(cx, |multi_workspace, window, cx| {
+                                        let workspace = multi_workspace.workspace().clone();
+                                        workspace.update(cx, |workspace, cx| {
+                                            crate::three_way_diff::ThreeWayConflictModal::open(
+                                                workspace,
+                                                conflict.clone(),
+                                                editor.clone(),
+                                                ours_text,
+                                                theirs_text,
+                                                base_text,
+                                                file_path,
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                    })
+                                    .log_err();
+                            } else if let Some(workspace_handle) =
+                                window.window_handle().downcast::<Workspace>()
+                            {
+                                workspace_handle
+                                    .update(cx, |workspace, window, cx| {
+                                        crate::three_way_diff::ThreeWayConflictModal::open(
+                                            workspace,
+                                            conflict.clone(),
+                                            editor.clone(),
+                                            ours_text,
+                                            theirs_text,
+                                            base_text,
+                                            file_path,
+                                            window,
+                                            cx,
+                                        );
+                                    })
+                                    .log_err();
+                            }
+                        }
                     }
                 }),
         )

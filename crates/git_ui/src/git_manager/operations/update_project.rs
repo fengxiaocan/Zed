@@ -172,6 +172,7 @@ pub(crate) fn askpass_delegate(
 pub(crate) fn update_project(
     repo: &Entity<Repository>,
     workspace: &gpui::WeakEntity<Workspace>,
+    manager: Option<gpui::WeakEntity<crate::git_manager::GitManager>>,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -275,6 +276,12 @@ pub(crate) fn update_project(
                 | UpdateProjectPlan::ShelveThenIntegrate { .. } => {
                     unreachable!("dirty handling resolved above")
                 }
+            }
+
+            if let Some(manager) = manager.and_then(|m| m.upgrade()) {
+                manager.update(cx, |this, cx| {
+                    this.reload_all(cx);
+                });
             }
 
             anyhow::Ok(())

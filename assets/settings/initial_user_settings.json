@@ -13,6 +13,20 @@
   "theme": {
     "mode": "system",
     "light": "One Light",
-    "dark": "One Dark",
+    "dark": "One Dark"
   },
+  "agent_servers": {
+    "claude-acp": {
+      "type": "registry"
+    },
+    "codex-acp": {
+      "type": "registry"
+    },
+    "grok-build": {
+      "type": "registry"
+    },
+    "gemini": {
+      "type": "registry"
+    }
+  }
 }

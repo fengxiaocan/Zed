@@ -445,6 +445,7 @@ pub struct RepositorySnapshot {
     pub merge: MergeDetails,
     pub remote_origin_url: Option<String>,
     pub remote_upstream_url: Option<String>,
+    pub remotes: Arc<HashMap<String, String>>,
     pub stash_entries: GitStash,
     pub linked_worktrees: Arc<[GitWorktree]>,
 }
@@ -598,6 +599,8 @@ pub enum RepositoryEvent {
     StatusesChanged,
     HeadChanged,
     BranchListChanged,
+    RemoteListChanged,
+    TagListChanged,
     StashEntriesChanged,
     GitWorktreeListChanged,
     PendingOpsChanged { pending_ops: SumTree<PendingOps> },
@@ -5165,6 +5168,7 @@ impl RepositorySnapshot {
             merge: Default::default(),
             remote_origin_url: None,
             remote_upstream_url: None,
+            remotes: Arc::new(HashMap::default()),
             stash_entries: Default::default(),
             linked_worktrees: Arc::from([]),
             path_style,
@@ -7278,15 +7282,41 @@ impl Repository {
         cx: &mut Context<Self>,
     ) -> Task<anyhow::Result<()>> {
         let id = self.id;
+        let this_weak = cx.weak_entity();
+        let updates_tx = self
+            .git_store()
+            .and_then(|git_store| match &git_store.read(cx).state {
+                GitStoreState::Local { downstream, .. } => downstream
+                    .as_ref()
+                    .map(|downstream| downstream.updates_tx.clone()),
+                _ => None,
+            });
         cx.spawn(async move |this, cx| {
             this.update(cx, |this, _| {
-                this.send_job("stash_pop", None, move |git_repo, _cx| async move {
+                this.send_job("stash_pop", None, move |git_repo, mut cx| async move {
                     match git_repo {
                         RepositoryState::Local(LocalRepositoryState {
                             backend,
                             environment,
                             ..
-                        }) => backend.stash_pop(index, environment).await,
+                        }) => {
+                            let result = backend.stash_pop(index, environment).await;
+                            if result.is_ok()
+                                && let Ok(stash_entries) = backend.stash_entries().await
+                            {
+                                let snapshot = this_weak.update(&mut cx, |this, cx| {
+                                    this.snapshot.stash_entries = stash_entries;
+                                    cx.emit(RepositoryEvent::StashEntriesChanged);
+                                    this.snapshot.clone()
+                                })?;
+                                if let Some(updates_tx) = updates_tx {
+                                    updates_tx
+                                        .unbounded_send(DownstreamUpdate::UpdateRepository(snapshot))
+                                        .ok();
+                                }
+                            }
+                            result
+                        }
                         RepositoryState::Remote(RemoteRepositoryState { project_id, client }) => {
                             client
                                 .request(proto::StashPop {
@@ -7962,11 +7992,12 @@ impl Repository {
         remote_url: String,
     ) -> oneshot::Receiver<Result<()>> {
         let id = self.id;
+        let this = self.this.clone();
         self.send_job(
             "create_remote",
             Some(format!("git remote add {remote_name} {remote_url}").into()),
-            move |repo, _cx| async move {
-                match repo {
+            move |repo, mut cx| async move {
+                let result = match repo {
                     RepositoryState::Local(LocalRepositoryState { backend, .. }) => {
                         backend.create_remote(remote_name, remote_url).await
                     }
@@ -7978,22 +8009,87 @@ impl Repository {
                                 remote_name,
                                 remote_url,
                             })
-                            .await?;
-
-                        Ok(())
+                            .await
+                            .map(|_| ())
                     }
+                };
+                if result.is_ok() {
+                    this.update(&mut cx, |_, cx| {
+                        cx.emit(RepositoryEvent::RemoteListChanged);
+                    })
+                    .ok();
                 }
+                result
+            },
+        )
+    }
+
+    pub fn set_remote_url(
+        &mut self,
+        remote_name: String,
+        remote_url: String,
+    ) -> oneshot::Receiver<Result<()>> {
+        let this = self.this.clone();
+        self.send_job(
+            "set_remote_url",
+            Some(format!("git remote set-url {remote_name} {remote_url}").into()),
+            move |repo, mut cx| async move {
+                let result = match repo {
+                    RepositoryState::Local(LocalRepositoryState { backend, .. }) => {
+                        backend.set_remote_url(remote_name, remote_url).await
+                    }
+                    RepositoryState::Remote(..) => {
+                        Err(anyhow::anyhow!("set_remote_url not supported on remote repositories"))
+                    }
+                };
+                if result.is_ok() {
+                    this.update(&mut cx, |_, cx| {
+                        cx.emit(RepositoryEvent::RemoteListChanged);
+                    })
+                    .ok();
+                }
+                result
+            },
+        )
+    }
+
+    pub fn rename_remote(
+        &mut self,
+        old_name: String,
+        new_name: String,
+    ) -> oneshot::Receiver<Result<()>> {
+        let this = self.this.clone();
+        self.send_job(
+            "rename_remote",
+            Some(format!("git remote rename {old_name} {new_name}").into()),
+            move |repo, mut cx| async move {
+                let result = match repo {
+                    RepositoryState::Local(LocalRepositoryState { backend, .. }) => {
+                        backend.rename_remote(old_name, new_name).await
+                    }
+                    RepositoryState::Remote(..) => {
+                        Err(anyhow::anyhow!("rename_remote not supported on remote repositories"))
+                    }
+                };
+                if result.is_ok() {
+                    this.update(&mut cx, |_, cx| {
+                        cx.emit(RepositoryEvent::RemoteListChanged);
+                    })
+                    .ok();
+                }
+                result
             },
         )
     }
 
     pub fn remove_remote(&mut self, remote_name: String) -> oneshot::Receiver<Result<()>> {
         let id = self.id;
+        let this = self.this.clone();
         self.send_job(
             "remove_remote",
             Some(format!("git remove remote {remote_name}").into()),
-            move |repo, _cx| async move {
-                match repo {
+            move |repo, mut cx| async move {
+                let result = match repo {
                     RepositoryState::Local(LocalRepositoryState { backend, .. }) => {
                         backend.remove_remote(remote_name).await
                     }
@@ -8004,11 +8100,17 @@ impl Repository {
                                 repository_id: id.to_proto(),
                                 remote_name,
                             })
-                            .await?;
-
-                        Ok(())
+                            .await
+                            .map(|_| ())
                     }
+                };
+                if result.is_ok() {
+                    this.update(&mut cx, |_, cx| {
+                        cx.emit(RepositoryEvent::RemoteListChanged);
+                    })
+                    .ok();
                 }
+                result
             },
         )
     }
@@ -8017,22 +8119,41 @@ impl Repository {
         &mut self,
         remote_name: String,
         askpass: AskPassDelegate,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) -> oneshot::Receiver<Result<RemoteCommandOutput>> {
         let remote_name_str = remote_name.clone();
+        let this = self.this.clone();
+        let updates_tx = self
+            .git_store()
+            .and_then(|git_store| match &git_store.read(cx).state {
+                GitStoreState::Local { downstream, .. } => downstream
+                    .as_ref()
+                    .map(|downstream| downstream.updates_tx.clone()),
+                _ => None,
+            });
         self.send_job(
             "prune_remote",
             Some(format!("git remote prune {remote_name_str}").into()),
-            move |repo, cx| async move {
+            move |repo, mut cx| async move {
                 match repo {
                     RepositoryState::Local(LocalRepositoryState {
                         backend,
                         environment,
                         ..
                     }) => {
-                        backend
-                            .prune_remote(remote_name, askpass, environment.clone(), cx)
-                            .await
+                        let result = backend
+                            .prune_remote(remote_name, askpass, environment.clone(), cx.clone())
+                            .await;
+                        if result.is_ok() {
+                            Self::refresh_branch_list(&this, backend, updates_tx, &mut cx)
+                                .await
+                                .ok();
+                            this.update(&mut cx, |_, cx| {
+                                cx.emit(RepositoryEvent::RemoteListChanged);
+                            })
+                            .ok();
+                        }
+                        result
                     }
                     RepositoryState::Remote(..) => {
                         Err(anyhow::anyhow!("prune not supported on remote repositories"))
@@ -8136,36 +8257,52 @@ impl Repository {
         target: Option<String>,
         message: Option<String>,
     ) -> oneshot::Receiver<Result<()>> {
+        let this = self.this.clone();
         self.send_job(
             "create_tag",
             Some(format!("git tag {name}").into()),
-            move |repo, _cx| async move {
-                match repo {
+            move |repo, mut cx| async move {
+                let result = match repo {
                     RepositoryState::Local(LocalRepositoryState { backend, .. }) => {
                         backend.create_tag(name, target, message).await
                     }
                     RepositoryState::Remote(..) => {
                         Err(anyhow::anyhow!("tags not supported on remote repositories"))
                     }
+                };
+                if result.is_ok() {
+                    this.update(&mut cx, |_, cx| {
+                        cx.emit(RepositoryEvent::TagListChanged);
+                    })
+                    .ok();
                 }
+                result
             },
         )
     }
 
     /// Deletes a tag. Only supported for local repositories.
     pub fn delete_tag(&mut self, name: String) -> oneshot::Receiver<Result<()>> {
+        let this = self.this.clone();
         self.send_job(
             "delete_tag",
             Some(format!("git tag -d {name}").into()),
-            move |repo, _cx| async move {
-                match repo {
+            move |repo, mut cx| async move {
+                let result = match repo {
                     RepositoryState::Local(LocalRepositoryState { backend, .. }) => {
                         backend.delete_tag(name).await
                     }
                     RepositoryState::Remote(..) => {
                         Err(anyhow::anyhow!("tags not supported on remote repositories"))
                     }
+                };
+                if result.is_ok() {
+                    this.update(&mut cx, |_, cx| {
+                        cx.emit(RepositoryEvent::TagListChanged);
+                    })
+                    .ok();
                 }
+                result
             },
         )
     }
@@ -8873,6 +9010,8 @@ impl Repository {
         base_branch: Option<String>,
     ) -> oneshot::Receiver<Result<()>> {
         let id = self.id;
+        let this = self.this.clone();
+        let git_store = self.git_store.clone();
         let status_msg = if let Some(ref base) = base_branch {
             format!("git switch -c {branch_name} {base}").into()
         } else {
@@ -8881,10 +9020,24 @@ impl Repository {
         self.send_job(
             "create_branch",
             Some(status_msg),
-            move |repo, _cx| async move {
+            move |repo, mut cx| async move {
+                let updates_tx = git_store.upgrade().and_then(|store| {
+                    store.read_with(&cx, |store, _| match &store.state {
+                        GitStoreState::Local { downstream, .. } => {
+                            downstream.as_ref().map(|d| d.updates_tx.clone())
+                        }
+                        _ => None,
+                    })
+                });
                 match repo {
                     RepositoryState::Local(LocalRepositoryState { backend, .. }) => {
-                        backend.create_branch(branch_name, base_branch).await
+                        let result = backend.create_branch(branch_name, base_branch).await;
+                        if result.is_ok() {
+                            Self::refresh_branch_list(&this, backend, updates_tx, &mut cx)
+                                .await
+                                .ok();
+                        }
+                        result
                     }
                     RepositoryState::Remote(RemoteRepositoryState { project_id, client }) => {
                         client
@@ -8905,13 +9058,29 @@ impl Repository {
 
     pub fn change_branch(&mut self, branch_name: String) -> oneshot::Receiver<Result<()>> {
         let id = self.id;
+        let this = self.this.clone();
+        let git_store = self.git_store.clone();
         self.send_job(
             "change_branch",
             Some(format!("git switch {branch_name}").into()),
-            move |repo, _cx| async move {
+            move |repo, mut cx| async move {
+                 let updates_tx = git_store.upgrade().and_then(|store| {
+                    store.read_with(&cx, |store, _| match &store.state {
+                        GitStoreState::Local { downstream, .. } => {
+                            downstream.as_ref().map(|d| d.updates_tx.clone())
+                        }
+                        _ => None,
+                    })
+                });
                 match repo {
                     RepositoryState::Local(LocalRepositoryState { backend, .. }) => {
-                        backend.change_branch(branch_name).await
+                        let result = backend.change_branch(branch_name).await;
+                        if result.is_ok() {
+                            Self::refresh_branch_list(&this, backend, updates_tx, &mut cx)
+                                .await
+                                .ok();
+                        }
+                        result
                     }
                     RepositoryState::Remote(RemoteRepositoryState { project_id, client }) => {
                         client
@@ -8936,17 +9105,33 @@ impl Repository {
         force: bool,
     ) -> oneshot::Receiver<Result<()>> {
         let id = self.id;
+        let this = self.this.clone();
+        let git_store = self.git_store.clone();
         let flag = delete_branch_flag(is_remote, force);
         self.send_job(
             "delete_branch",
             Some(format!("git branch {flag} {branch_name}").into()),
-            move |repo, _cx| async move {
+            move |repo, mut cx| async move {
+                let updates_tx = git_store.upgrade().and_then(|store| {
+                    store.read_with(&cx, |store, _| match &store.state {
+                        GitStoreState::Local { downstream, .. } => {
+                            downstream.as_ref().map(|d| d.updates_tx.clone())
+                        }
+                        _ => None,
+                    })
+                });
                 match repo {
                     RepositoryState::Local(state) => {
-                        state
+                        let result = state
                             .backend
                             .delete_branch(is_remote, branch_name, force)
-                            .await
+                            .await;
+                        if result.is_ok() {
+                            Self::refresh_branch_list(&this, state.backend, updates_tx, &mut cx)
+                                .await
+                                .ok();
+                        }
+                        result
                     }
                     RepositoryState::Remote(RemoteRepositoryState { project_id, client }) => {
                         client
@@ -8966,19 +9151,50 @@ impl Repository {
         )
     }
 
+    pub fn merged_branches(&mut self) -> oneshot::Receiver<Result<Vec<String>>> {
+        self.send_job(
+            "merged_branches",
+            Some("git branch --merged".into()),
+            move |repo, _cx| async move {
+                match repo {
+                    RepositoryState::Local(state) => state.backend.merged_branches().await,
+                    RepositoryState::Remote(..) => {
+                        Err(anyhow::anyhow!("merged_branches not supported on remote repositories"))
+                    }
+                }
+            },
+        )
+    }
+
     pub fn rename_branch(
         &mut self,
         branch: String,
         new_name: String,
     ) -> oneshot::Receiver<Result<()>> {
         let id = self.id;
+        let this = self.this.clone();
+        let git_store = self.git_store.clone();
         self.send_job(
             "rename_branch",
             Some(format!("git branch -m {branch} {new_name}").into()),
-            move |repo, _cx| async move {
+            move |repo, mut cx| async move {
+                let updates_tx = git_store.upgrade().and_then(|store| {
+                    store.read_with(&cx, |store, _| match &store.state {
+                        GitStoreState::Local { downstream, .. } => {
+                            downstream.as_ref().map(|d| d.updates_tx.clone())
+                        }
+                        _ => None,
+                    })
+                });
                 match repo {
                     RepositoryState::Local(LocalRepositoryState { backend, .. }) => {
-                        backend.rename_branch(branch, new_name).await
+                        let result = backend.rename_branch(branch, new_name).await;
+                        if result.is_ok() {
+                            Self::refresh_branch_list(&this, backend, updates_tx, &mut cx)
+                                .await
+                                .ok();
+                        }
+                        result
                     }
                     RepositoryState::Remote(RemoteRepositoryState { project_id, client }) => {
                         client
@@ -11009,9 +11225,11 @@ async fn compute_snapshot(
         .filter(|wt| wt.path != *work_directory_abs_path)
         .collect();
 
-    let mut remote_urls = backend.remote_urls().await;
+    let all_remote_urls = backend.remote_urls().await;
+    let mut remote_urls = all_remote_urls.clone();
     let remote_origin_url = remote_urls.remove("origin");
     let remote_upstream_url = remote_urls.remove("upstream");
+    let remotes: Arc<HashMap<String, String>> = Arc::new(all_remote_urls);
 
     log::debug!("fetched remotes");
 
@@ -11021,6 +11239,7 @@ async fn compute_snapshot(
         let branch_list_changed = *branch_list != *this.snapshot.branch_list;
         let branch_list_error_changed = branch_list_error != this.snapshot.branch_list_error;
         let worktrees_changed = *linked_worktrees != *this.snapshot.linked_worktrees;
+        let remotes_changed = *remotes != *this.snapshot.remotes;
 
         this.snapshot = RepositorySnapshot {
             id,
@@ -11031,6 +11250,7 @@ async fn compute_snapshot(
             head_commit,
             remote_origin_url,
             remote_upstream_url,
+            remotes,
             linked_worktrees,
             scan_id: prev_snapshot.scan_id + 1,
             ..prev_snapshot
@@ -11042,6 +11262,10 @@ async fn compute_snapshot(
 
         if branch_list_changed || branch_list_error_changed {
             cx.emit(RepositoryEvent::BranchListChanged);
+        }
+
+        if remotes_changed {
+            cx.emit(RepositoryEvent::RemoteListChanged);
         }
 
         if worktrees_changed {

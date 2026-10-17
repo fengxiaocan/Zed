@@ -10,7 +10,7 @@ use gpui::{
 };
 use markdown::{Markdown, MarkdownElement};
 use project::git_store::Repository;
-use settings::Settings;
+use settings::{Settings, translate_ui};
 use std::hash::Hash;
 use theme_settings::ThemeSettings;
 use time::{OffsetDateTime, UtcOffset};
@@ -293,11 +293,12 @@ impl Render for CommitTooltip {
             .unwrap_or_else(|| self.commit.sha.clone());
         let full_sha = self.commit.sha.to_string();
         let local_offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
-        let absolute_timestamp = time_format::format_localized_timestamp(
+        let absolute_timestamp = crate::format_git_commit_date(
             self.commit.commit_time,
             OffsetDateTime::now_utc(),
             local_offset,
             time_format::TimestampFormat::MediumAbsolute,
+            cx,
         );
         let markdown_style = {
             let style = hover_markdown_style(window, cx);
@@ -313,7 +314,7 @@ impl Render for CommitTooltip {
                     .scroll_handle(self.scroll_handle.clone())
                     .into_any()
             })
-            .unwrap_or("<no commit message>".into_any());
+            .unwrap_or(translate_ui("No commit message", cx).into_any());
 
         let pull_request = self
             .commit

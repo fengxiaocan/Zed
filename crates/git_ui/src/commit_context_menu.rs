@@ -7,6 +7,7 @@ use settings::translate_ui;
 use task::{TaskContext, TaskVariables, VariableName};
 use ui::{Color, ContextMenu, ContextMenuEntry, IconName, IconPosition, prelude::*};
 use workspace::Workspace;
+use workspace::notifications::DetachAndPromptErr;
 
 actions!(
     git_graph,
@@ -56,6 +57,10 @@ pub(crate) fn commit_context_menu(
         None => format!("{} {sha_short}", translate_ui("Commit", cx)),
     };
     let view_diff_label = translate_ui("View Diff", cx);
+    let checkout_commit_label = translate_ui("Checkout Commit…", cx);
+    let new_branch_label = translate_ui("New Branch from Commit…", cx);
+    let new_tag_label = translate_ui("New Tag on Commit…", cx);
+    let reset_branch_label = translate_ui("Reset Current Branch to Here…", cx);
     let copy_sha_label = translate_ui("Copy SHA", cx);
     let copy_ref_name_label = translate_ui("Copy Ref Name", cx);
     let copy_tag_label = translate_ui("Copy Tag", cx);
@@ -85,6 +90,151 @@ pub(crate) fn commit_context_menu(
                     );
                 }
             })
+            .entry(checkout_commit_label, None, {
+                let repository = repository.clone();
+                let sha_str = sha.to_string();
+                let sha_short = sha_short.clone();
+                move |window, cx| {
+                    let Some(repo) = repository.clone().and_then(|r| r.upgrade()) else {
+                        return;
+                    };
+                    let sha_str = sha_str.clone();
+                    let prompt_title = format!("{} ({})", translate_ui("Checkout Commit", cx), sha_short);
+                    let prompt_detail = translate_ui(
+                        "Checking out this commit will put the repository into a 'detached HEAD' state. You can inspect changes or make experimental commits.",
+                        cx,
+                    );
+                    let buttons = [translate_ui("Checkout", cx), translate_ui("Cancel", cx)];
+                    let answer = window.prompt(
+                        gpui::PromptLevel::Info,
+                        &prompt_title,
+                        Some(&prompt_detail),
+                        &buttons,
+                        cx,
+                    );
+                    window
+                        .spawn(cx, async move |cx| {
+                            if answer.await == Ok(0) {
+                                let receiver = repo.update(cx, |repo, _| repo.change_branch(sha_str));
+                                receiver.await??;
+                            }
+                            anyhow::Ok(())
+                        })
+                        .detach_and_prompt_err(
+                            translate_ui("Failed to checkout commit", cx),
+                            window,
+                            cx,
+                            |e, _, _| Some(e.to_string()),
+                        );
+                }
+            })
+            .entry(new_branch_label, None, {
+                let repository = repository.clone();
+                let workspace = workspace.clone();
+                let sha_str = sha.to_string();
+                let sha_short = sha_short.clone();
+                move |window, cx| {
+                    let Some(repo) = repository.clone().and_then(|r| r.upgrade()) else {
+                        return;
+                    };
+                    let sha_str = sha_str.clone();
+                    let sha_short = sha_short.clone();
+                    if let Some(workspace) = workspace.upgrade() {
+                        workspace.update(cx, |workspace, cx| {
+                            let title = format!(
+                                "{} ({})",
+                                translate_ui("New Branch from Commit", cx),
+                                sha_short
+                            );
+                            workspace.toggle_modal(window, cx, |window, cx| {
+                                crate::NewBranchModal::new(
+                                    title,
+                                    String::new(),
+                                    Some(sha_str),
+                                    repo,
+                                    window,
+                                    cx,
+                                )
+                            });
+                        });
+                    }
+                }
+            })
+            .entry(new_tag_label, None, {
+                let repository = repository.clone();
+                let workspace = workspace.clone();
+                let sha_str = sha.to_string();
+                move |window, cx| {
+                    let Some(repo) = repository.clone().and_then(|r| r.upgrade()) else {
+                        return;
+                    };
+                    let sha_str = sha_str.clone();
+                    if let Some(workspace) = workspace.upgrade() {
+                        workspace.update(cx, |workspace, cx| {
+                            workspace.toggle_modal(window, cx, |window, cx| {
+                                crate::git_manager::sections::NewTagModal::new(
+                                    repo,
+                                    Some(sha_str),
+                                    None,
+                                    window,
+                                    cx,
+                                )
+                            });
+                        });
+                    }
+                }
+            })
+            .entry(reset_branch_label, None, {
+                let repository = repository.clone();
+                let sha_str = sha.to_string();
+                let sha_short = sha_short.clone();
+                move |window, cx| {
+                    let Some(repo) = repository.clone().and_then(|r| r.upgrade()) else {
+                        return;
+                    };
+                    let sha_str = sha_str.clone();
+                    let sha_short = sha_short.clone();
+                    let prompt_title = format!(
+                        "{} ({})",
+                        translate_ui("Reset Current Branch to Commit", cx),
+                        sha_short
+                    );
+                    let prompt_detail = translate_ui(
+                        "Choose reset mode:\n• Mixed: Keep working tree changes (unstaged)\n• Soft: Keep working tree and index changes (staged)",
+                        cx,
+                    );
+                    let buttons = [
+                        translate_ui("Mixed (Keep Unstaged)", cx),
+                        translate_ui("Soft (Keep Staged)", cx),
+                        translate_ui("Cancel", cx),
+                    ];
+                    let answer = window.prompt(
+                        gpui::PromptLevel::Warning,
+                        &prompt_title,
+                        Some(&prompt_detail),
+                        &buttons,
+                        cx,
+                    );
+                    window
+                        .spawn(cx, async move |cx| {
+                            let mode = match answer.await {
+                                Ok(0) => git::repository::ResetMode::Mixed,
+                                Ok(1) => git::repository::ResetMode::Soft,
+                                _ => return anyhow::Ok(()),
+                            };
+                            let receiver = repo.update(cx, |repo, cx| repo.reset(sha_str, mode, cx));
+                            receiver.await??;
+                            anyhow::Ok(())
+                        })
+                        .detach_and_prompt_err(
+                            translate_ui("Failed to reset branch", cx),
+                            window,
+                            cx,
+                            |e, _, _| Some(e.to_string()),
+                        );
+                }
+            })
+            .separator()
             .entry(
                 copy_sha_label,
                 Some(CopyCommitSha.boxed_clone()),

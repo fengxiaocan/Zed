@@ -2165,7 +2165,7 @@ impl Workspace {
                 .update(cx, |_, window, cx| {
                     workspace.update(cx, |this: &mut Workspace, cx| {
                         this.update_history(cx);
-                        this.serialize_workspace(window, cx);
+                        this.flush_serialization(window, cx).detach();
                     });
                 })
                 .log_err();
@@ -3380,11 +3380,36 @@ impl Workspace {
                 }
             }
 
+            #[cfg(target_os = "macos")]
+            let save_last_workspace = false;
+
+            // On Linux and Windows, closing the last window should restore the last workspace.
+            #[cfg(not(target_os = "macos"))]
+            let save_last_workspace = {
+                let remaining_workspaces = cx.update(|_window, cx| {
+                    cx.windows()
+                        .iter()
+                        .filter_map(|window| window.downcast::<MultiWorkspace>())
+                        .filter_map(|multi_workspace| {
+                            multi_workspace
+                                .update(cx, |multi_workspace, _, cx| {
+                                    multi_workspace.workspace().read(cx).removing
+                                })
+                                .ok()
+                        })
+                        .filter(|removing| !removing)
+                        .count()
+                })?;
+
+                close_intent != CloseIntent::ReplaceWindow && remaining_workspaces == 0
+            };
+
             // Hot-exit silently writes dirty buffers to the DB; only allow it
             // if the workspace will be reachable again, either via session
             // restore or by reopening its folder paths. Otherwise prompt, so
             // we don't orphan the buffers.
             let allow_hot_exit_serialization = close_intent == CloseIntent::Quit
+                || save_last_workspace
                 || this
                     .read_with(cx, |workspace, cx| {
                         workspace
@@ -3409,6 +3434,7 @@ impl Workspace {
             // If we're not quitting, but closing, we remove the workspace from
             // the current session.
             if close_intent != CloseIntent::Quit
+                && !save_last_workspace
                 && save_result.as_ref().is_ok_and(|&res| res)
             {
                 this.update_in(cx, |this, window, cx| this.remove_from_session(window, cx))?
@@ -10659,7 +10685,7 @@ pub fn open_workspace_by_id(
 
         window.update(cx, |_, window, cx| {
             workspace.update(cx, |workspace, cx| {
-                workspace.serialize_workspace(window, cx);
+                workspace.flush_serialization(window, cx).detach();
             });
         })?;
 

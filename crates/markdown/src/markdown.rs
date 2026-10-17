@@ -1291,6 +1291,8 @@ pub enum AutoscrollBehavior {
     Controlled(ScrollHandle),
 }
 
+pub type InsertCodeCallback = Rc<dyn Fn(String, &mut Window, &mut App)>;
+
 pub struct MarkdownElement {
     markdown: Entity<Markdown>,
     style: MarkdownStyle,
@@ -1300,6 +1302,7 @@ pub struct MarkdownElement {
     code_span_link: Option<CodeSpanLinkCallback>,
     on_source_click: Option<SourceClickCallback>,
     on_checkbox_toggle: Option<CheckboxToggleCallback>,
+    on_insert_code: Option<InsertCodeCallback>,
     image_resolver: Option<Box<dyn Fn(&str) -> Option<ImageSource>>>,
     show_root_block_markers: bool,
     autoscroll: AutoscrollBehavior,
@@ -1320,6 +1323,7 @@ impl MarkdownElement {
             code_span_link: None,
             on_source_click: None,
             on_checkbox_toggle: None,
+            on_insert_code: None,
             image_resolver: None,
             show_root_block_markers: false,
             autoscroll: AutoscrollBehavior::Propagate,
@@ -1389,6 +1393,14 @@ impl MarkdownElement {
         handler: impl Fn(Range<usize>, bool, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_checkbox_toggle = Some(Rc::new(handler));
+        self
+    }
+
+    pub fn on_insert_code(
+        mut self,
+        handler: impl Fn(String, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_insert_code = Some(Rc::new(handler));
         self
     }
 
@@ -2680,7 +2692,8 @@ impl Element for MarkdownElement {
                                 let any_hover = copy_button_visibility
                                     == CopyButtonVisibility::VisibleOnHover
                                     || wrap_button_visibility
-                                        == WrapButtonVisibility::VisibleOnHover;
+                                        == WrapButtonVisibility::VisibleOnHover
+                                    || self.on_insert_code.is_some();
                                 let any_always = copy_button_visibility
                                     == CopyButtonVisibility::AlwaysVisible
                                     || wrap_button_visibility
@@ -2710,6 +2723,17 @@ impl Element for MarkdownElement {
                                                 range.start,
                                                 is_wrapped,
                                                 self.markdown.clone(),
+                                            ))
+                                        },
+                                    )
+                                    .when_some(
+                                        self.on_insert_code.clone(),
+                                        |this, on_insert_code| {
+                                            this.child(render_insert_code_block_button(
+                                                range.end,
+                                                code.clone(),
+                                                self.markdown.clone(),
+                                                on_insert_code,
                                             ))
                                         },
                                     )
@@ -3047,6 +3071,31 @@ fn render_wrap_code_block_button(
                 markdown.toggle_code_block_wrap(id);
                 cx.notify();
             });
+        })
+}
+
+fn render_insert_code_block_button(
+    id: usize,
+    code: String,
+    markdown: Entity<Markdown>,
+    on_insert: InsertCodeCallback,
+) -> impl IntoElement {
+    let button_id = ElementId::NamedChild(
+        Arc::new(ElementId::from((
+            "insert-markdown-code",
+            markdown.entity_id(),
+        ))),
+        id.to_string().into(),
+    );
+
+    IconButton::new(button_id, IconName::CursorIBeam)
+        .icon_size(IconSize::Small)
+        .icon_color(Color::Muted)
+        .tooltip(move |_window, cx| {
+            Tooltip::simple(settings::translate_ui("Insert at Cursor", cx), cx)
+        })
+        .on_click(move |_event, window, cx| {
+            on_insert(code.clone(), window, cx);
         })
 }
 

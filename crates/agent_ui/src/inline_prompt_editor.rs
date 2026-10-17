@@ -1212,6 +1212,8 @@ impl PromptCompletionProviderDelegate for PromptEditorCompletionProviderDelegate
             PromptContextType::Thread,
             PromptContextType::Fetch,
             PromptContextType::Skill,
+            PromptContextType::BranchDiff,
+            PromptContextType::Terminal,
         ]
     }
 

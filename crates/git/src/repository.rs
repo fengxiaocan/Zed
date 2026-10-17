@@ -836,6 +836,8 @@ pub trait GitRepository: Send + Sync {
         force: bool,
     ) -> BoxFuture<'_, Result<()>>;
 
+    fn merged_branches(&self) -> BoxFuture<'_, Result<Vec<String>>>;
+
     fn worktrees(&self) -> BoxFuture<'_, Result<Vec<Worktree>>>;
 
     /// Returns the creation time of a linked worktree's git metadata
@@ -1009,6 +1011,10 @@ pub trait GitRepository: Send + Sync {
     fn remove_remote(&self, name: String) -> BoxFuture<'_, Result<()>>;
 
     fn create_remote(&self, name: String, url: String) -> BoxFuture<'_, Result<()>>;
+
+    fn set_remote_url(&self, name: String, url: String) -> BoxFuture<'_, Result<()>>;
+
+    fn rename_remote(&self, old_name: String, new_name: String) -> BoxFuture<'_, Result<()>>;
 
     fn prune_remote(
         &self,
@@ -2252,6 +2258,33 @@ impl GitRepository for RealGitRepository {
             .boxed()
     }
 
+    fn merged_branches(&self) -> BoxFuture<'_, Result<Vec<String>>> {
+        let git_binary = self.git_binary_in_worktree();
+
+        self.executor
+            .spawn(async move {
+                let git_binary = git_binary?;
+                let output = git_binary.run(&["branch", "--merged"]).await?;
+                let mut merged = Vec::new();
+                for line in output.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with('*')
+                        || trimmed.starts_with('+')
+                        || trimmed.starts_with('(')
+                        || trimmed.is_empty()
+                    {
+                        continue;
+                    }
+                    if trimmed == "main" || trimmed == "master" {
+                        continue;
+                    }
+                    merged.push(trimmed.to_string());
+                }
+                anyhow::Ok(merged)
+            })
+            .boxed()
+    }
+
     fn blame(
         &self,
         path: RepoPath,
@@ -2783,6 +2816,26 @@ impl GitRepository for RealGitRepository {
         self.executor
             .spawn(async move {
                 git_binary.run(&["remote", "add", &name, &url]).await?;
+                Ok(())
+            })
+            .boxed()
+    }
+
+    fn set_remote_url(&self, name: String, url: String) -> BoxFuture<'_, Result<()>> {
+        let git_binary = self.git_binary();
+        self.executor
+            .spawn(async move {
+                git_binary.run(&["remote", "set-url", &name, &url]).await?;
+                Ok(())
+            })
+            .boxed()
+    }
+
+    fn rename_remote(&self, old_name: String, new_name: String) -> BoxFuture<'_, Result<()>> {
+        let git_binary = self.git_binary();
+        self.executor
+            .spawn(async move {
+                git_binary.run(&["remote", "rename", &old_name, &new_name]).await?;
                 Ok(())
             })
             .boxed()
@@ -6599,6 +6652,57 @@ mod tests {
         assert_eq!(
             remote_urls.get("upstream").unwrap(),
             "/Users/user/My Projects/upstream.git"
+        );
+    }
+
+    #[gpui::test]
+    async fn test_set_remote_url_and_rename_remote(cx: &mut TestAppContext) {
+        disable_git_global_config();
+        cx.executor().allow_parking();
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let repo_dir = temp_dir.path().join("repo");
+        std::fs::create_dir_all(&repo_dir).unwrap();
+
+        git_init_repo(&repo_dir);
+
+        let repo = RealGitRepository::new(
+            &repo_dir.join(".git"),
+            None,
+            Some("git".into()),
+            cx.executor(),
+        )
+        .unwrap();
+
+        let git = repo.git_binary();
+        git.run(&[
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/zed-industries/zed.git",
+        ])
+        .await
+        .unwrap();
+
+        repo.set_remote_url("origin".into(), "https://github.com/custom/repo.git".into())
+            .await
+            .unwrap();
+
+        let remote_urls = repo.remote_urls().await;
+        assert_eq!(
+            remote_urls.get("origin").unwrap(),
+            "https://github.com/custom/repo.git"
+        );
+
+        repo.rename_remote("origin".into(), "upstream".into())
+            .await
+            .unwrap();
+
+        let remote_urls = repo.remote_urls().await;
+        assert_eq!(remote_urls.get("origin"), None);
+        assert_eq!(
+            remote_urls.get("upstream").unwrap(),
+            "https://github.com/custom/repo.git"
         );
     }
 }

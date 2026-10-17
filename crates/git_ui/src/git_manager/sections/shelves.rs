@@ -7,7 +7,8 @@ use gpui::{
 use project::git_store::Repository;
 use settings::translate_ui;
 use ui::{
-    Color, ContextMenu, IconButton, IconName, IconSize, Label, LabelSize, PopoverMenu, prelude::*,
+    Color, ContextMenu, IconButton, IconName, IconSize, Label, LabelSize, PopoverMenu, Tooltip,
+    prelude::*,
 };
 use workspace::Workspace;
 use workspace::notifications::DetachAndPromptErr;
@@ -52,6 +53,7 @@ pub(crate) fn render_shelf_filter_editor(
 
 pub(crate) fn drop_all_shelves_with_prompt(
     repo: Entity<Repository>,
+    manager: Option<gpui::WeakEntity<crate::git_manager::GitManager>>,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -68,10 +70,69 @@ pub(crate) fn drop_all_shelves_with_prompt(
                 return anyhow::Ok(());
             }
             repo.update(cx, |repo, cx| repo.stash_clear(cx)).await??;
+            if let Some(manager) = manager.and_then(|m| m.upgrade()) {
+                manager.update(cx, |this, cx| {
+                    this.reload_shelves(cx);
+                });
+            }
             anyhow::Ok(())
         })
         .detach_and_prompt_err(
             translate_ui("Failed to clear shelves", cx),
+            window,
+            cx,
+            |e, _, _| Some(e.to_string()),
+        );
+}
+
+pub(crate) fn apply_shelf(
+    index: usize,
+    repo: Entity<Repository>,
+    manager: Option<gpui::WeakEntity<crate::git_manager::GitManager>>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let manager_handle = manager;
+    window
+        .spawn(cx, async move |cx| {
+            let task = repo.update(cx, |repo, cx| repo.stash_apply(Some(index), cx));
+            task.await?;
+            if let Some(manager) = manager_handle.and_then(|m| m.upgrade()) {
+                manager.update(cx, |this, cx| {
+                    this.reload_shelves(cx);
+                });
+            }
+            anyhow::Ok(())
+        })
+        .detach_and_prompt_err(
+            translate_ui("Failed to apply shelf", cx),
+            window,
+            cx,
+            |e, _, _| Some(e.to_string()),
+        );
+}
+
+pub(crate) fn pop_shelf(
+    index: usize,
+    repo: Entity<Repository>,
+    manager: Option<gpui::WeakEntity<crate::git_manager::GitManager>>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let manager_handle = manager;
+    window
+        .spawn(cx, async move |cx| {
+            let task = repo.update(cx, |repo, cx| repo.stash_pop(Some(index), cx));
+            task.await?;
+            if let Some(manager) = manager_handle.and_then(|m| m.upgrade()) {
+                manager.update(cx, |this, cx| {
+                    this.reload_shelves(cx);
+                });
+            }
+            anyhow::Ok(())
+        })
+        .detach_and_prompt_err(
+            translate_ui("Failed to pop shelf", cx),
             window,
             cx,
             |e, _, _| Some(e.to_string()),
@@ -83,16 +144,26 @@ pub(crate) fn render_shelf_list(
     has_repo: bool,
     repo: Option<Entity<Repository>>,
     workspace: gpui::WeakEntity<Workspace>,
+    manager: gpui::WeakEntity<crate::git_manager::GitManager>,
     cx: &App,
 ) -> AnyElement {
     if !has_repo {
-        return Label::new(translate_ui("Open a folder with a git repository", cx))
-            .color(Color::Muted)
+        return v_flex()
+            .w_full()
+            .items_center()
+            .py_6()
+            .child(
+                Label::new(translate_ui("Open a folder with a git repository", cx))
+                    .color(Color::Muted),
+            )
             .into_any_element();
     }
     if entries.is_empty() {
-        return Label::new(translate_ui("No shelves", cx))
-            .color(Color::Muted)
+        return v_flex()
+            .w_full()
+            .items_center()
+            .py_6()
+            .child(Label::new(translate_ui("No shelves", cx)).color(Color::Muted))
             .into_any_element();
     }
 
@@ -106,7 +177,14 @@ pub(crate) fn render_shelf_list(
                 .enumerate()
                 .map(|(offset, entry)| {
                     let index = range.start + offset;
-                    render_shelf_row(index, entry.clone(), repo.clone(), workspace.clone(), cx)
+                    render_shelf_row(
+                        index,
+                        entry.clone(),
+                        repo.clone(),
+                        workspace.clone(),
+                        manager.clone(),
+                        cx,
+                    )
                 })
                 .collect()
         },
@@ -121,12 +199,16 @@ fn render_shelf_row(
     entry: StashEntry,
     repo: Option<Entity<Repository>>,
     workspace: gpui::WeakEntity<Workspace>,
+    manager: gpui::WeakEntity<crate::git_manager::GitManager>,
     cx: &App,
 ) -> AnyElement {
     let id = SharedString::from(format!("gm-shelf-row-{index}"));
     let short_sha: String = entry.oid.to_string().chars().take(8).collect();
     let branch = entry.branch.clone().unwrap_or_default();
     let entry_for_menu = entry.clone();
+    let repo_for_click = repo.clone();
+    let workspace_for_click = workspace.clone();
+    let stash_ref: SharedString = format!("stash@{{{}}}", entry.index).into();
 
     h_flex()
         .id(ElementId::Name(id))
@@ -134,7 +216,31 @@ fn render_shelf_row(
         .px_2()
         .py_1()
         .gap_2()
+        .cursor_pointer()
         .hover(|s| s.bg(cx.theme().colors().element_hover))
+        .on_click({
+            let repo = repo_for_click;
+            let workspace = workspace_for_click;
+            move |_, window, cx| {
+                let Some(repo) = repo.clone() else {
+                    return;
+                };
+                let stash_ref = stash_ref.clone();
+                if let Some(workspace) = workspace.upgrade() {
+                    workspace.update(cx, |workspace, cx| {
+                        let project = workspace.project().clone();
+                        crate::branch_diff::BranchDiff::deploy_branch_diff_with_base_ref(
+                            workspace,
+                            project,
+                            repo,
+                            stash_ref,
+                            window,
+                            cx,
+                        );
+                    });
+                }
+            }
+        })
         .child(
             v_flex()
                 .flex_1()
@@ -166,6 +272,38 @@ fn render_shelf_row(
                 ),
         )
         .child(
+            IconButton::new(format!("gm-shelf-apply-btn-{index}"), IconName::Check)
+                .icon_size(IconSize::XSmall)
+                .tooltip(Tooltip::text(translate_ui("Apply Shelf", cx)))
+                .on_click({
+                    let repo = repo.clone();
+                    let manager = manager.clone();
+                    let entry_index = entry.index;
+                    move |_, window, cx| {
+                        let Some(repo) = repo.clone() else {
+                            return;
+                        };
+                        apply_shelf(entry_index, repo, Some(manager.clone()), window, cx);
+                    }
+                }),
+        )
+        .child(
+            IconButton::new(format!("gm-shelf-pop-btn-{index}"), IconName::ArrowDown)
+                .icon_size(IconSize::XSmall)
+                .tooltip(Tooltip::text(translate_ui("Pop Shelf", cx)))
+                .on_click({
+                    let repo = repo.clone();
+                    let manager = manager.clone();
+                    let entry_index = entry.index;
+                    move |_, window, cx| {
+                        let Some(repo) = repo.clone() else {
+                            return;
+                        };
+                        pop_shelf(entry_index, repo, Some(manager.clone()), window, cx);
+                    }
+                }),
+        )
+        .child(
             PopoverMenu::new(format!("gm-shelf-menu-{index}"))
                 .trigger(
                     IconButton::new(format!("gm-shelf-menu-btn-{index}"), IconName::Ellipsis)
@@ -175,14 +313,19 @@ fn render_shelf_row(
                     let entry = entry_for_menu;
                     let repo = repo;
                     let workspace = workspace;
+                    let manager = manager;
                     move |window, cx| {
                         let entry = entry.clone();
                         let repo = repo.clone();
                         let workspace = workspace.clone();
+                        let manager = manager.clone();
                         Some(ContextMenu::build(window, cx, move |menu, _, cx| {
                             let apply_repo = repo.clone();
+                            let apply_manager = manager.clone();
                             let pop_repo = repo.clone();
+                            let pop_manager = manager.clone();
                             let drop_repo = repo.clone();
+                            let drop_manager = manager;
                             let diff_repo = repo.clone();
                             let diff_workspace = workspace.clone();
                             let apply_index = entry.index;
@@ -214,49 +357,66 @@ fn render_shelf_row(
                                     }
                                 }
                             })
-                            .separator()
-                            .entry(translate_ui("Apply Shelf", cx), None, {
-                                let repo = apply_repo;
+                            .entry(translate_ui("Show in Git Graph", cx), None, {
+                                let stash_sha = sha.clone();
+                                move |window, cx| {
+                                    window.dispatch_action(
+                                        Box::new(crate::git_graph::OpenAtCommit {
+                                            sha: stash_sha.clone(),
+                                        }),
+                                        cx,
+                                    );
+                                }
+                            })
+                            .entry(translate_ui("New Branch from Shelf…", cx), None, {
+                                let repo = repo.clone();
+                                let workspace = workspace;
+                                let stash_ref = stash_ref.clone();
                                 move |window, cx| {
                                     let Some(repo) = repo.clone() else {
                                         return;
                                     };
-                                    window
-                                        .spawn(cx, async move |cx| {
-                                            let task = repo.update(cx, |repo, cx| {
-                                                repo.stash_apply(Some(apply_index), cx)
+                                    let stash_ref = stash_ref.clone();
+                                    if let Some(workspace) = workspace.upgrade() {
+                                        workspace.update(cx, |workspace, cx| {
+                                            let title = format!(
+                                                "{} ({})",
+                                                translate_ui("New Branch from Shelf", cx),
+                                                stash_ref
+                                            );
+                                            workspace.toggle_modal(window, cx, |window, cx| {
+                                                crate::NewBranchModal::new(
+                                                    title,
+                                                    String::new(),
+                                                    Some(stash_ref),
+                                                    repo,
+                                                    window,
+                                                    cx,
+                                                )
                                             });
-                                            task.await?;
-                                            anyhow::Ok(())
-                                        })
-                                        .detach_and_prompt_err(
-                                            translate_ui("Failed to apply shelf", cx),
-                                            window,
-                                            cx,
-                                            |e, _, _| Some(e.to_string()),
-                                        );
+                                        });
+                                    }
+                                }
+                            })
+                            .separator()
+                            .entry(translate_ui("Apply Shelf", cx), None, {
+                                let repo = apply_repo;
+                                let manager = apply_manager;
+                                move |window, cx| {
+                                    let Some(repo) = repo.clone() else {
+                                        return;
+                                    };
+                                    apply_shelf(apply_index, repo, Some(manager.clone()), window, cx);
                                 }
                             })
                             .entry(translate_ui("Pop Shelf", cx), None, {
                                 let repo = pop_repo;
+                                let manager = pop_manager;
                                 move |window, cx| {
                                     let Some(repo) = repo.clone() else {
                                         return;
                                     };
-                                    window
-                                        .spawn(cx, async move |cx| {
-                                            let task = repo.update(cx, |repo, cx| {
-                                                repo.stash_pop(Some(pop_index), cx)
-                                            });
-                                            task.await?;
-                                            anyhow::Ok(())
-                                        })
-                                        .detach_and_prompt_err(
-                                            translate_ui("Failed to pop shelf", cx),
-                                            window,
-                                            cx,
-                                            |e, _, _| Some(e.to_string()),
-                                        );
+                                    pop_shelf(pop_index, repo, Some(manager.clone()), window, cx);
                                 }
                             })
                             .separator()
@@ -272,6 +432,7 @@ fn render_shelf_row(
                                 None,
                                 {
                                     let repo = drop_repo;
+                                    let manager = drop_manager;
                                     move |window, cx| {
                                         let Some(repo) = repo.clone() else {
                                             return;
@@ -290,6 +451,7 @@ fn render_shelf_row(
                                             &buttons,
                                             cx,
                                         );
+                                        let manager_handle = manager.clone();
                                         window
                                             .spawn(cx, async move |cx| {
                                                 if answer.await != Ok(0) {
@@ -299,6 +461,11 @@ fn render_shelf_row(
                                                     repo.stash_drop(Some(drop_index), cx)
                                                 })
                                                 .await??;
+                                                if let Some(manager) = manager_handle.upgrade() {
+                                                    manager.update(cx, |this, cx| {
+                                                        this.reload_shelves(cx);
+                                                    });
+                                                }
                                                 anyhow::Ok(())
                                             })
                                             .detach_and_prompt_err(

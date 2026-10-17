@@ -202,6 +202,7 @@ fn git_panel_context_menu(
     has_unstaged_changes: bool,
     has_new_changes: bool,
     has_stash_items: bool,
+    has_conflicted_changes: bool,
     focus_handle: FocusHandle,
     window: &mut Window,
     cx: &mut App,
@@ -209,6 +210,14 @@ fn git_panel_context_menu(
     ContextMenu::build(window, cx, |context_menu, _, cx| {
         context_menu
             .context(focus_handle.clone())
+            .when(has_conflicted_changes, |context_menu| {
+                context_menu
+                    .action(
+                        translate_ui("Resolve Conflicts…", cx),
+                        git::ResolveConflicts.boxed_clone(),
+                    )
+                    .separator()
+            })
             .action_disabled_when(
                 !has_unstaged_changes,
                 translate_ui("Stage All", cx),
@@ -418,6 +427,22 @@ pub fn register(workspace: &mut Workspace) {
             panel.update(cx, |panel, cx| {
                 panel.show_git_job_queue(window, cx);
             });
+        }
+    });
+    workspace.register_action(|workspace, _: &git::ResolveConflicts, window, cx| {
+        if let Some(repo) = workspace.project().read(cx).active_repository(cx) {
+            let workspace_handle = workspace.weak_handle();
+            cx.spawn_in(window, async move |_, cx| {
+                let (_, is_rebase) =
+                    crate::git_manager::operations::query_in_progress(&repo, cx).await;
+                workspace_handle.update_in(cx, |workspace, window, cx| {
+                    crate::conflict_modal::GitConflictModal::open(
+                        workspace, repo, is_rebase, window, cx,
+                    );
+                })?;
+                anyhow::Ok(())
+            })
+            .detach_and_log_err(cx);
         }
     });
 }
@@ -2313,7 +2338,7 @@ impl GitPanel {
             Cancel,
         }
         let prompt = prompt(
-            "Discard changes to these files?",
+            translate_ui("Discard changes to these files?", cx),
             Some(&details),
             window,
             cx,
@@ -2363,7 +2388,12 @@ impl GitPanel {
             details.push_str(&format!("\nand {} more…", to_delete.len() - 5))
         }
 
-        let prompt = prompt("Trash these files?", Some(&details), window, cx);
+        let prompt = prompt(
+            translate_ui("Trash these files?", cx),
+            Some(&details),
+            window,
+            cx,
+        );
         cx.spawn_in(window, async move |this, cx| {
             match prompt.await? {
                 TrashCancel::Trash => {}
@@ -2965,7 +2995,10 @@ impl GitPanel {
 
         if self.has_unstaged_conflicts() {
             error_spawn(
-                "There are still conflicts. You must stage these before committing",
+                translate_ui(
+                    "There are still conflicts. You must stage these before committing",
+                    cx,
+                ),
                 window,
                 cx,
             );
@@ -3736,19 +3769,72 @@ impl GitPanel {
         }
 
         telemetry::event!("Git Pulled");
+        let has_dirty_worktree = self.has_unstaged_changes() || self.has_staged_changes();
+        let prompt_task = if has_dirty_worktree {
+            let msg = translate_ui("Uncommitted Changes Detected", cx);
+            let detail = translate_ui(
+                "You have uncommitted changes in your repository. Do you want to automatically stash them before pulling, and restore them after?",
+                cx,
+            );
+            let autostash_label = translate_ui("Autostash & Pull", cx);
+            let direct_label = translate_ui("Pull Directly", cx);
+            let cancel_label = translate_ui("Cancel", cx);
+            Some(window.prompt(
+                PromptLevel::Info,
+                msg,
+                Some(detail),
+                &[autostash_label, direct_label, cancel_label],
+                cx,
+            ))
+        } else {
+            None
+        };
+
         let remote = self.get_remote(false, false, window, cx);
         cx.spawn_in(window, async move |this, cx| {
             let _clear_pending_remote_operation = cx.on_drop(&this, |this, cx| {
                 this.clear_remote_operation(cx);
             });
 
+            let mut autostashed = false;
+            if let Some(prompt_rx) = prompt_task {
+                let choice = prompt_rx.await;
+                match choice {
+                    Ok(0) => {
+                        let stash_task = repo.update(cx, |repo, cx| repo.stash_all(cx));
+                        if let Err(e) = stash_task.await {
+                            log::error!("Failed to stash before pull: {}", e);
+                            this.update(cx, |this, cx| this.show_error_toast("stash", e, cx))
+                                .ok();
+                            return Ok(());
+                        }
+                        autostashed = true;
+                    }
+                    Ok(1) => {
+                        // User chose "Pull Directly"
+                    }
+                    _ => {
+                        // User chose "Cancel" or closed prompt
+                        return Ok(());
+                    }
+                }
+            }
+
             let remote = match remote.await {
                 Ok(Some(remote)) => remote,
                 Ok(None) => {
+                    if autostashed {
+                        let pop_task = repo.update(cx, |repo, cx| repo.stash_pop(None, cx));
+                        pop_task.await.log_err();
+                    }
                     return Ok(());
                 }
                 Err(e) => {
                     log::error!("Failed to get current remote: {}", e);
+                    if autostashed {
+                        let pop_task = repo.update(cx, |repo, cx| repo.stash_pop(None, cx));
+                        pop_task.await.log_err();
+                    }
                     this.update(cx, |this, cx| this.show_error_toast("pull", e, cx))
                         .ok();
                     return Ok(());
@@ -3770,12 +3856,60 @@ impl GitPanel {
 
             let remote_message = pull.await?;
 
+            let is_conflict = if let Err(ref e) = remote_message {
+                let err_str = e.to_string();
+                err_str.contains("CONFLICT")
+                    || err_str.contains("Automatic merge failed")
+                    || err_str.contains("Resolve all conflicts")
+                    || err_str.contains("could not apply")
+                    || err_str.contains("fix conflicts")
+            } else {
+                false
+            };
+
+            let (merge_in_progress, rebase_in_progress) =
+                crate::git_manager::operations::query_in_progress(&repo, cx).await;
+
+            let pull_encountered_conflict = is_conflict || merge_in_progress || rebase_in_progress;
+
+            if autostashed {
+                if !pull_encountered_conflict && remote_message.is_ok() {
+                    let pop_task = repo.update(cx, |repo, cx| repo.stash_pop(None, cx));
+                    if let Err(e) = pop_task.await {
+                        log::warn!("Autostash pop had conflicts or error: {}", e);
+                        this.update(cx, |this, cx| {
+                            this.show_error_toast("stash pop", e, cx);
+                        })
+                        .ok();
+                    }
+                } else if !pull_encountered_conflict && remote_message.is_err() {
+                    let pop_task = repo.update(cx, |repo, cx| repo.stash_pop(None, cx));
+                    pop_task.await.log_err();
+                } else {
+                    log::warn!("Pull conflict detected; keeping autostash safe in stash list");
+                }
+            }
+
             let action = RemoteAction::Pull(remote);
-            this.update(cx, |this, cx| match remote_message {
+            this.update_in(cx, |this, window, cx| match remote_message {
                 Ok(remote_message) => this.show_remote_output(action, remote_message, cx),
                 Err(e) => {
                     log::error!("Error while pulling {:?}", e);
-                    this.show_error_toast(action.name(), e, cx)
+                    if pull_encountered_conflict {
+                        if let Some(workspace) = this.workspace.upgrade() {
+                            workspace.update(cx, |workspace, cx| {
+                                crate::conflict_modal::GitConflictModal::open(
+                                    workspace,
+                                    repo.clone(),
+                                    rebase_in_progress,
+                                    window,
+                                    cx,
+                                );
+                            });
+                        }
+                    } else {
+                        this.show_error_toast(action.name(), e, cx);
+                    }
                 }
             })
             .ok();
@@ -5026,6 +5160,160 @@ impl GitPanel {
             .any(|entry| entry.status.is_conflicted() && entry.staging.has_unstaged())
     }
 
+    pub(crate) fn open_conflict_modal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(repo) = self.active_repository.clone() else {
+            return;
+        };
+        let Some(workspace) = self.workspace.upgrade() else {
+            return;
+        };
+        cx.spawn_in(window, async move |_, cx| {
+            let (_, is_rebase) =
+                crate::git_manager::operations::query_in_progress(&repo, cx).await;
+            workspace.update_in(cx, |workspace, window, cx| {
+                crate::conflict_modal::GitConflictModal::open(
+                    workspace, repo, is_rebase, window, cx,
+                );
+            })?;
+            anyhow::Ok(())
+        })
+        .detach_and_log_err(cx);
+    }
+
+    fn render_conflict_banner(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let repo = self.active_repository.as_ref()?;
+        let conflict_count = self.conflicted_count;
+        let unresolved_count = self.conflicted_count.saturating_sub(self.conflicted_staged_count);
+        if conflict_count == 0 {
+            return None;
+        }
+
+        let repo_abort = repo.clone();
+        let bg_color = if unresolved_count > 0 {
+            cx.theme().status().warning_background.opacity(0.12)
+        } else {
+            cx.theme().status().success_background.opacity(0.12)
+        };
+        let border_color = if unresolved_count > 0 {
+            cx.theme().status().warning_border
+        } else {
+            cx.theme().status().success_border
+        };
+
+        Some(
+            h_flex()
+                .w_full()
+                .px_2p5()
+                .py_1p5()
+                .gap_2()
+                .bg(bg_color)
+                .border_b_1()
+                .border_color(border_color)
+                .items_center()
+                .justify_between()
+                .child(
+                    h_flex()
+                        .gap_1p5()
+                        .items_center()
+                        .child(
+                            Icon::new(if unresolved_count > 0 {
+                                IconName::Warning
+                            } else {
+                                IconName::Check
+                            })
+                            .size(IconSize::Small)
+                            .color(if unresolved_count > 0 {
+                                Color::Warning
+                            } else {
+                                Color::Success
+                            }),
+                        )
+                        .child(
+                            Label::new(if unresolved_count > 0 {
+                                format!(
+                                    "{}: {} {}",
+                                    translate_ui("Merge conflicts", cx),
+                                    unresolved_count,
+                                    translate_ui("Unresolved", cx)
+                                )
+                            } else {
+                                translate_ui("All conflicts marked as resolved", cx).to_string()
+                            })
+                            .size(LabelSize::Small)
+                            .color(if unresolved_count > 0 {
+                                Color::Warning
+                            } else {
+                                Color::Success
+                            }),
+                        ),
+                )
+                .child(
+                    h_flex()
+                        .gap_1()
+                        .items_center()
+                        .when(unresolved_count == 0, |this| {
+                            this.child(
+                                Button::new("panel-complete-merge", translate_ui("Complete Merge", cx))
+                                    .size(ButtonSize::Compact)
+                                    .style(ButtonStyle::Filled)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        let options = this.commit_options();
+                                        this.commit_changes(options, window, cx);
+                                    })),
+                            )
+                        })
+                        .child(
+                            Button::new("panel-resolve-conflict", translate_ui("Resolve…", cx))
+                                .size(ButtonSize::Compact)
+                                .style(ButtonStyle::OutlinedGhost)
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.open_conflict_modal(window, cx);
+                                })),
+                        )
+                        .child(
+                            Button::new("panel-abort-merge", translate_ui("Abort Merge", cx))
+                                .size(ButtonSize::Compact)
+                                .color(Color::Error)
+                                .style(ButtonStyle::OutlinedGhost)
+                                .on_click(cx.listener(move |_this, _, window, cx| {
+                                    let repo = repo_abort.clone();
+                                    let title = translate_ui("Abort Merge?", cx);
+                                    let message = translate_ui(
+                                        "All uncommitted changes from this merge will be lost and the repository will be restored to its state before the pull.",
+                                        cx,
+                                    );
+                                    let abort_label = translate_ui("Abort Merge", cx);
+                                    let cancel_label = translate_ui("Cancel", cx);
+                                    let answer = window.prompt(
+                                        gpui::PromptLevel::Warning,
+                                        title,
+                                        Some(message),
+                                        &[abort_label, cancel_label],
+                                        cx,
+                                    );
+                                    window
+                                        .spawn(cx, async move |cx| {
+                                            if answer.await == Ok(0) {
+                                                let (_, is_rebase) =
+                                                    crate::git_manager::operations::query_in_progress(&repo, cx).await;
+                                                if is_rebase {
+                                                    repo.update(cx, |repo, _| repo.rebase_abort())
+                                                        .await??;
+                                                } else {
+                                                    repo.update(cx, |repo, _| repo.merge_abort())
+                                                        .await??;
+                                                }
+                                            }
+                                            anyhow::Ok(())
+                                        })
+                                        .detach_and_log_err(cx);
+                                })),
+                        ),
+                )
+                .into_any_element(),
+        )
+    }
+
     fn show_error_toast(&self, action: impl Into<SharedString>, e: anyhow::Error, cx: &mut App) {
         let Some(workspace) = self.workspace.upgrade() else {
             return;
@@ -5146,7 +5434,8 @@ impl GitPanel {
         let is_push = matches!(action, RemoteAction::Push(_, _));
 
         workspace.update(cx, |workspace, cx| {
-            let SuccessMessage { message, style } = remote_output::format_output(&action, info);
+            let SuccessMessage { message, style } =
+                remote_output::format_output_localized(&action, info, cx);
             let workspace_weak = cx.weak_entity();
             let operation = action.name();
 
@@ -5159,7 +5448,7 @@ impl GitPanel {
                 );
                 match (style, is_push) {
                     (PushPrLink { label, url }, _) => {
-                        this.action(label, move |_window, cx| cx.open_url(&url))
+                        this.action(translate_ui(label, _cx), move |_window, cx| cx.open_url(&url))
                     }
                     (Toast | ToastWithLog { .. }, true) => {
                         // If we were not able to parse a valid URL from the
@@ -5577,6 +5866,7 @@ impl GitPanel {
         let has_unstaged_changes = self.has_unstaged_changes();
         let has_new_changes = self.new_count > 0;
         let has_stash_items = self.stash_entries.entries.len() > 0;
+        let has_conflicted_changes = self.conflicted_count > 0;
 
         let focus_handle = self.focus_handle.clone();
         let menu_open = self.changes_actions_menu_handle.is_deployed();
@@ -5594,6 +5884,7 @@ impl GitPanel {
                     has_unstaged_changes,
                     has_new_changes,
                     has_stash_items,
+                    has_conflicted_changes,
                     focus_handle.clone(),
                     window,
                     cx,
@@ -6138,6 +6429,20 @@ impl GitPanel {
                                 .on_click(|_, window, cx| {
                                     window.dispatch_action(crate::git_graph::Open.boxed_clone(), cx)
                                 }),
+                        )
+                        .child(
+                            IconButton::new("git-manager-button", IconName::GitCommit)
+                                .icon_size(IconSize::Small)
+                                .tooltip(|_window, cx| {
+                                    Tooltip::for_action(
+                                        translate_ui("Open Git Manager", cx),
+                                        &crate::git_manager::Toggle,
+                                        cx,
+                                    )
+                                })
+                                .on_click(|_, window, cx| {
+                                    window.dispatch_action(crate::git_manager::Toggle.boxed_clone(), cx)
+                                }),
                         ),
                 ),
         )
@@ -6568,21 +6873,24 @@ impl GitPanel {
                                             Some(data.author_email.clone()),
                                             Some(data.commit_timestamp),
                                         ),
-                                        None => ("Loading…".into(), "".into(), None, None),
+                                        None => (
+                                            translate_ui("Loading…", cx).into(),
+                                            "".into(),
+                                            None,
+                                            None,
+                                        ),
                                     };
 
                                     let relative_time: SharedString = timestamp
                                         .and_then(|ts| {
-                                            time::OffsetDateTime::from_unix_timestamp(ts).ok()
-                                        })
-                                        .map(|dt| {
-                                            time_format::format_localized_timestamp(
-                                                dt,
+                                            crate::format_git_commit_timestamp(
+                                                ts,
                                                 now,
                                                 local_offset,
                                                 time_format::TimestampFormat::Relative,
+                                                cx,
                                             )
-                                            .into()
+                                            .map(SharedString::from)
                                         })
                                         .unwrap_or_else(|| "".into());
 
@@ -7308,10 +7616,22 @@ impl GitPanel {
         } else {
             translate_ui("Discard Changes", cx)
         };
+        let is_conflicted = entry.status.is_conflicted()
+            || self.active_repository.as_ref().is_some_and(|repo| {
+                repo.read(cx).had_conflict_on_last_merge_head_change(&entry.repo_path)
+            });
         let context_menu = ContextMenu::build(window, cx, |context_menu, _, cx| {
             let is_created = entry.status.is_created();
             context_menu
                 .context(self.focus_handle.clone())
+                .when(is_conflicted, |context_menu| {
+                    context_menu
+                        .action(
+                            translate_ui("Resolve Conflict…", cx),
+                            git::ResolveConflicts.boxed_clone(),
+                        )
+                        .separator()
+                })
                 .action(stage_title, ToggleStaged.boxed_clone())
                 .action(restore_title, git::RestoreFile::default().boxed_clone())
                 .separator()
@@ -7363,6 +7683,7 @@ impl GitPanel {
         let has_unstaged_changes = self.has_unstaged_changes();
         let has_new_changes = self.new_count > 0;
         let has_stash_items = self.stash_entries.entries.len() > 0;
+        let has_conflicted_changes = self.conflicted_count > 0;
 
         let context_menu = git_panel_context_menu(
             has_tracked_changes,
@@ -7370,6 +7691,7 @@ impl GitPanel {
             has_unstaged_changes,
             has_new_changes,
             has_stash_items,
+            has_conflicted_changes,
             self.focus_handle.clone(),
             window,
             cx,
@@ -8206,6 +8528,9 @@ impl Render for GitPanel {
             .on_action(cx.listener(Self::reset_font_size))
             .on_action(cx.listener(Self::activate_changes_tab))
             .on_action(cx.listener(Self::activate_history_tab))
+            .on_action(cx.listener(|this, _: &git::ResolveConflicts, window, cx| {
+                this.open_conflict_modal(window, cx);
+            }))
             .size_full()
             .overflow_hidden()
             .bg(cx.theme().colors().panel_background)
@@ -8218,6 +8543,7 @@ impl Render for GitPanel {
                     .map(|this| match self.active_tab {
                         GitPanelTab::Changes => this
                             .children(self.render_changes_header(window, cx))
+                            .children(self.render_conflict_banner(cx))
                             .when(!self.commit_editor_expanded, |this| {
                                 this.map(|this| {
                                     if let Some(repo) = self.active_repository.clone()

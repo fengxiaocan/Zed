@@ -1126,6 +1126,49 @@ impl TerminalPanel {
             .collect()
     }
 
+    /// Returns the active terminal view in the active pane, or the first available terminal view.
+    pub fn active_terminal_view(&self, cx: &App) -> Option<Entity<crate::TerminalView>> {
+        if let Some(item) = self.active_pane.read(cx).active_item() {
+            if let Some(terminal_view) = item.downcast::<crate::TerminalView>() {
+                return Some(terminal_view);
+            }
+        }
+        for pane in self.panes() {
+            if let Some(item) = pane.read(cx).active_item() {
+                if let Some(terminal_view) = item.downcast::<crate::TerminalView>() {
+                    return Some(terminal_view);
+                }
+            }
+            for item in pane.read(cx).items() {
+                if let Some(terminal_view) = item.downcast::<crate::TerminalView>() {
+                    return Some(terminal_view);
+                }
+            }
+        }
+        None
+    }
+
+    /// Returns the recent output text from the active terminal (or selection if available).
+    pub fn active_terminal_output(&self, max_lines: usize, cx: &App) -> Option<String> {
+        let terminal_view = self.active_terminal_view(cx)?;
+        let terminal = terminal_view.read(cx).terminal();
+        let terminal_read = terminal.read(cx);
+        if let Some(selection) = &terminal_read.last_content.selection_text {
+            if !selection.trim().is_empty() {
+                return Some(selection.clone());
+            }
+        }
+        let lines = terminal_read.last_n_non_empty_lines(max_lines);
+        if !lines.is_empty() {
+            return Some(lines.join("\n"));
+        }
+        let content = terminal_read.get_content();
+        if !content.trim().is_empty() {
+            return Some(content);
+        }
+        None
+    }
+
     fn is_enabled(&self, cx: &App) -> bool {
         self.workspace
             .upgrade()

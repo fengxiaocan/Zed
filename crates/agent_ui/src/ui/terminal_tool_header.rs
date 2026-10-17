@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use gpui::{AnyElement, ClickEvent, CursorStyle, Window};
-use ui::{CommonAnimationExt, Disclosure, Divider, DividerColor, Tooltip, prelude::*};
+use settings::translate_ui;
+use ui::{CommonAnimationExt, CopyButton, Disclosure, Divider, DividerColor, Tooltip, prelude::*};
 use util::time::duration_alt_display;
 
 const ELAPSED_DISPLAY_THRESHOLD: Duration = Duration::from_secs(10);
@@ -29,6 +30,7 @@ pub struct TerminalToolHeader {
     on_toggle_expand: Option<ClickHandler>,
     on_stop: Option<ClickHandler>,
     command_slot: Option<AnyElement>,
+    output_text: Option<SharedString>,
 }
 
 impl TerminalToolHeader {
@@ -52,7 +54,13 @@ impl TerminalToolHeader {
             on_toggle_expand: None,
             on_stop: None,
             command_slot: None,
+            output_text: None,
         }
+    }
+
+    pub fn output_text(mut self, output: impl Into<SharedString>) -> Self {
+        self.output_text = Some(output.into());
+        self
     }
 
     pub fn elapsed(mut self, elapsed: Duration) -> Self {
@@ -123,6 +131,7 @@ impl RenderOnce for TerminalToolHeader {
             on_toggle_expand,
             on_stop,
             command_slot,
+            output_text,
         } = self;
 
         let child_id = |name: &str| format!("terminal-tool-{name}-{id}");
@@ -158,6 +167,13 @@ impl RenderOnce for TerminalToolHeader {
                     .visible_on_hover(&hover_group)
                     .when_some(on_toggle_expand, |this, handler| this.on_click(handler)),
             )
+            .when_some(output_text, |header, output| {
+                header.child(
+                    CopyButton::new(child_id("copy-output"), output)
+                        .tooltip_label(translate_ui("Copy Output", cx))
+                        .visible_on_hover(&hover_group),
+                )
+            })
             .when(show_elapsed, |header| {
                 let elapsed = elapsed.unwrap_or_default();
                 header.child(
@@ -185,10 +201,13 @@ impl RenderOnce for TerminalToolHeader {
                             .icon_color(Color::Error)
                             .tooltip(move |_window, cx| {
                                 Tooltip::with_meta(
-                                    "Stop This Command",
+                                    translate_ui("Stop This Command", cx),
                                     None,
-                                    "Also possible by placing your cursor inside the terminal \
-                                     and using regular terminal bindings.",
+                                    translate_ui(
+                                        "Also possible by placing your cursor inside the terminal \
+                                         and using regular terminal bindings.",
+                                        cx,
+                                    ),
                                     cx,
                                 )
                             })
@@ -213,7 +232,8 @@ impl RenderOnce for TerminalToolHeader {
                         .icon_size(IconSize::Small)
                         .icon_color(Color::Error)
                         .when_some(exit_code, |this, code| {
-                            this.tooltip(Tooltip::text(format!("Exited with code {code}")))
+                            let label = format!("{}: {code}", translate_ui("Exited with code", cx));
+                            this.tooltip(Tooltip::text(label))
                         }),
                 )
             })

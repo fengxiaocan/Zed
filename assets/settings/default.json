@@ -503,7 +503,7 @@
   "allow_rewrap": "in_comments",
   // Controls whether edit predictions are shown immediately (true)
   // or manually by triggering `editor::ShowEditPrediction` (false).
-  "show_edit_predictions": true,
+  "show_edit_predictions": false,
   // Controls whether edit predictions are shown in a given language scope.
   // Example: ["string", "comment"]
   "edit_predictions_disabled_in": [],
@@ -1785,7 +1785,7 @@
   "load_direnv": "direct",
   "edit_predictions": {
     // Which edit prediction provider to use.
-    "provider": "zed",
+    "provider": "none",
     // A list of globs representing files that edit predictions should be disabled for.
     // There's a sensible default list of globs already included.
     // Any addition to this list will be merged with the default list.
@@ -2800,16 +2800,7 @@
   // Configures context servers for use by the agent.
   "context_servers": {},
   // Configures agent servers available in the agent panel.
-  // The built-in Zed agent is disabled in this build; the agent panel is a
-  // frontend for CLI-based agents (claude, codex, grok, gemini, ...) that are
-  // enabled by default from the ACP registry. Selecting one creates a thread
-  // backed by that CLI's own AI — no built-in AI configuration is required.
-  "agent_servers": {
-    "claude-acp": { "type": "registry" },
-    "codex-acp": { "type": "registry" },
-    "grok-build": { "type": "registry" },
-    "gemini": { "type": "registry" }
-  },
+  "agent_servers": {},
   "debugger": {
     "stepping_granularity": "line",
     "save_breakpoints": true,

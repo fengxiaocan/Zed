@@ -1,6 +1,7 @@
 use anyhow::Context as _;
 
 use git::repository::{Remote, RemoteCommandOutput};
+use gpui::App;
 use ui::SharedString;
 use util::ResultExt as _;
 
@@ -178,6 +179,110 @@ pub fn format_output(action: &RemoteAction, output: RemoteCommandOutput) -> Succ
             } else {
                 SuccessMessage {
                     message: format!("Pushed {} to {}", branch_name, remote_ref.name),
+                    style: SuccessStyle::ToastWithLog { output },
+                }
+            }
+        }
+    }
+}
+
+pub fn format_output_localized(
+    action: &RemoteAction,
+    output: RemoteCommandOutput,
+    cx: &App,
+) -> SuccessMessage {
+    if !settings::is_simplified_chinese(cx) {
+        return format_output(action, output);
+    }
+
+    match action {
+        RemoteAction::Fetch(remote) => {
+            if output.stderr.is_empty() {
+                SuccessMessage {
+                    message: "获取：已是最新".into(),
+                    style: SuccessStyle::Toast,
+                }
+            } else {
+                let message = match remote {
+                    Some(remote) => format!("已与 {} 同步", remote.name),
+                    None => "已与远程仓库同步".into(),
+                };
+                SuccessMessage {
+                    message,
+                    style: SuccessStyle::ToastWithLog { output },
+                }
+            }
+        }
+        RemoteAction::Pull(remote_ref) => {
+            let get_changes = |output: &RemoteCommandOutput| -> anyhow::Result<u32> {
+                let last_line = output
+                    .stdout
+                    .lines()
+                    .last()
+                    .context("Failed to get last line of output")?
+                    .trim();
+
+                let files_changed = last_line
+                    .split_whitespace()
+                    .next()
+                    .context("Failed to get first word of last line")?
+                    .parse()?;
+
+                Ok(files_changed)
+            };
+            if output.stdout.ends_with("Already up to date.\n") {
+                SuccessMessage {
+                    message: "拉取：已是最新".into(),
+                    style: SuccessStyle::Toast,
+                }
+            } else if output.stdout.starts_with("Updating") {
+                let files_changed = get_changes(&output).log_err();
+                let message = if let Some(files_changed) = files_changed {
+                    format!("已从 {} 接收 {} 个文件变更", remote_ref.name, files_changed)
+                } else {
+                    format!("已从 {} 快进", remote_ref.name)
+                };
+                SuccessMessage {
+                    message,
+                    style: SuccessStyle::ToastWithLog { output },
+                }
+            } else if output.stdout.starts_with("Merge") {
+                let files_changed = get_changes(&output).log_err();
+                let message = if let Some(files_changed) = files_changed {
+                    format!("已从 {} 合并 {} 个文件变更", remote_ref.name, files_changed)
+                } else {
+                    format!("已从 {} 合并", remote_ref.name)
+                };
+                SuccessMessage {
+                    message,
+                    style: SuccessStyle::ToastWithLog { output },
+                }
+            } else if output.stdout.contains("Successfully rebased") {
+                SuccessMessage {
+                    message: format!("已成功从 {} 变基", remote_ref.name),
+                    style: SuccessStyle::ToastWithLog { output },
+                }
+            } else {
+                SuccessMessage {
+                    message: format!("已成功从 {} 拉取", remote_ref.name),
+                    style: SuccessStyle::ToastWithLog { output },
+                }
+            }
+        }
+        RemoteAction::Push(branch_name, remote_ref) => {
+            if output.stderr.ends_with("Everything up-to-date\n") {
+                SuccessMessage {
+                    message: "推送：所有内容均已是最新".to_string(),
+                    style: SuccessStyle::Toast,
+                }
+            } else if let Some((label, url)) = extract_pull_request_link(&output) {
+                SuccessMessage {
+                    message: format!("已将 {} 推送至 {}", branch_name, remote_ref.name),
+                    style: SuccessStyle::PushPrLink { label, url },
+                }
+            } else {
+                SuccessMessage {
+                    message: format!("已将 {} 推送至 {}", branch_name, remote_ref.name),
                     style: SuccessStyle::ToastWithLog { output },
                 }
             }

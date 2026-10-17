@@ -1,4 +1,5 @@
-use settings_content::{SettingsContent, UiLanguage};
+use settings_content::SettingsContent;
+pub use settings_content::UiLanguage;
 
 use crate::{self as settings, RegisterSetting, Settings};
 
@@ -23,4 +24,9 @@ impl Settings for UiLanguageSetting {
 pub fn translate_ui(text: &'static str, cx: &gpui::App) -> &'static str {
     use crate::Settings as _;
     UiLanguageSetting::get_global(cx).0.translate(text)
+}
+
+pub fn is_simplified_chinese(cx: &gpui::App) -> bool {
+    use crate::Settings as _;
+    UiLanguageSetting::get_global(cx).0 == UiLanguage::SimplifiedChinese
 }

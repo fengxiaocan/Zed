@@ -968,6 +968,24 @@ impl GitRepository for FakeGitRepository {
         })
     }
 
+    fn merged_branches(&self) -> BoxFuture<'_, Result<Vec<String>>> {
+        self.with_state_async(false, move |state| {
+            let current = state.current_branch_name.as_deref().unwrap_or("");
+            let merged: Vec<String> = state
+                .branches
+                .iter()
+                .filter(|name| {
+                    name.as_str() != current
+                        && name.as_str() != "main"
+                        && name.as_str() != "master"
+                        && !state.branches_requiring_force_delete.contains(*name)
+                })
+                .cloned()
+                .collect();
+            Ok(merged)
+        })
+    }
+
     fn blame(
         &self,
         path: RepoPath,
@@ -1485,6 +1503,28 @@ impl GitRepository for FakeGitRepository {
         self.with_state_async(true, move |state| {
             state.remotes.insert(name, url);
             Ok(())
+        })
+    }
+
+    fn set_remote_url(&self, name: String, url: String) -> BoxFuture<'_, Result<()>> {
+        self.with_state_async(true, move |state| {
+            if let Some(remote_url) = state.remotes.get_mut(&name) {
+                *remote_url = url;
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!("remote '{}' does not exist", name))
+            }
+        })
+    }
+
+    fn rename_remote(&self, old_name: String, new_name: String) -> BoxFuture<'_, Result<()>> {
+        self.with_state_async(true, move |state| {
+            if let Some(url) = state.remotes.remove(&old_name) {
+                state.remotes.insert(new_name, url);
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!("remote '{}' does not exist", old_name))
+            }
         })
     }
 

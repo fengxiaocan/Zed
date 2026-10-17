@@ -10,18 +10,55 @@ use ui::{
     Color, ContextMenu, IconButton, IconName, IconSize, Label, LabelSize, PopoverMenu, Tooltip,
     prelude::*,
 };
+use util::ResultExt;
 use workspace::Workspace;
 use workspace::notifications::DetachAndPromptErr;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub(crate) enum BranchScope {
+    #[default]
+    All,
+    Local,
+    Remote,
+}
+
 /// Pure filter helper (unit-tested).
+#[cfg(test)]
 pub(crate) fn filter_branches(branches: &[Branch], query: &str) -> Vec<Branch> {
-    if query.is_empty() {
-        return branches.to_vec();
-    }
+    filter_branches_with_favorites(
+        branches,
+        query,
+        false,
+        &collections::HashSet::default(),
+        BranchScope::All,
+    )
+}
+
+pub(crate) fn filter_branches_with_favorites(
+    branches: &[Branch],
+    query: &str,
+    favorites_only: bool,
+    favorites: &collections::HashSet<String>,
+    scope: BranchScope,
+) -> Vec<Branch> {
     let query_lower = query.to_lowercase();
     branches
         .iter()
-        .filter(|b| b.name().to_lowercase().contains(&query_lower))
+        .filter(|b| match scope {
+            BranchScope::All => true,
+            BranchScope::Local => !b.is_remote(),
+            BranchScope::Remote => b.is_remote(),
+        })
+        .filter(|b| {
+            if favorites_only && !favorites.contains(b.name()) {
+                return false;
+            }
+            if query.is_empty() {
+                true
+            } else {
+                b.name().to_lowercase().contains(&query_lower)
+            }
+        })
         .cloned()
         .collect()
 }
@@ -59,6 +96,7 @@ pub(crate) fn load_branches_from_repo_with_favorites(
 pub(crate) fn checkout_branch(
     repo: Entity<Repository>,
     branch: &Branch,
+    manager: Option<gpui::WeakEntity<crate::git_manager::GitManager>>,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -68,8 +106,14 @@ pub(crate) fn checkout_branch(
     let name = branch.name().to_string();
     let receiver = repo.update(cx, |repo, _| repo.change_branch(name));
     window
-        .spawn(cx, async move |_cx| {
+        .spawn(cx, async move |cx| {
             receiver.await??;
+            if let Some(manager) = manager.and_then(|m| m.upgrade()) {
+                manager.update(cx, |this, cx| {
+                    this.reload_branches(cx);
+                    this.refresh_in_progress_state(cx);
+                });
+            }
             anyhow::Ok(())
         })
         .detach_and_prompt_err(
@@ -83,6 +127,7 @@ pub(crate) fn checkout_branch(
 pub(crate) fn delete_branch_with_prompt(
     repo: Entity<Repository>,
     branch: Branch,
+    manager: Option<gpui::WeakEntity<crate::git_manager::GitManager>>,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -119,7 +164,15 @@ pub(crate) fn delete_branch_with_prompt(
                 .await?;
 
             match result {
-                Ok(_) => anyhow::Ok(()),
+                Ok(_) => {
+                    if let Some(manager) = manager.and_then(|m| m.upgrade()) {
+                        manager.update(cx, |this, cx| {
+                            this.reload_branches(cx);
+                            this.reload_remotes(cx);
+                        });
+                    }
+                    anyhow::Ok(())
+                }
                 Err(error) => {
                     let should_force = cx.update(|window, cx| {
                         window.prompt(
@@ -135,6 +188,12 @@ pub(crate) fn delete_branch_with_prompt(
                             repo.delete_branch(is_remote, branch_name, true)
                         })
                         .await??;
+                        if let Some(manager) = manager.and_then(|m| m.upgrade()) {
+                            manager.update(cx, |this, cx| {
+                                this.reload_branches(cx);
+                                this.reload_remotes(cx);
+                            });
+                        }
                         anyhow::Ok(())
                     } else {
                         Err(error)
@@ -144,6 +203,172 @@ pub(crate) fn delete_branch_with_prompt(
         })
         .detach_and_prompt_err(
             translate_ui("Failed to delete branch", cx),
+            window,
+            cx,
+            |e, _, _| Some(e.to_string()),
+        );
+}
+
+pub(crate) fn open_create_pull_request_url_for_branch(
+    repo: &Entity<Repository>,
+    branch: &git::repository::Branch,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let repo = repo.clone();
+    let branch = branch.clone();
+    window
+        .spawn(cx, async move |cx| {
+            let (source_branch, target_remote) = if branch.is_remote() {
+                let remote_name = branch.remote_name().unwrap_or("origin");
+                let branch_name = suggested_local_branch_name(branch.name());
+                (branch_name, Some(remote_name.to_string()))
+            } else {
+                let branch_name = branch.name().to_string();
+                let remote_name = branch
+                    .upstream
+                    .as_ref()
+                    .and_then(|u| u.remote_name())
+                    .map(|s| s.to_string());
+                (branch_name, remote_name)
+            };
+
+            let remote_url = cx.update(|_window, cx| {
+                repo.read_with(cx, |snapshot, _| {
+                    target_remote
+                        .as_ref()
+                        .and_then(|name| snapshot.remotes.get(name).cloned())
+                        .or_else(|| {
+                            if snapshot.remotes.contains_key("origin") {
+                                snapshot.remotes.get("origin").cloned()
+                            } else if snapshot.remotes.contains_key("upstream") {
+                                snapshot.remotes.get("upstream").cloned()
+                            } else {
+                                snapshot.remotes.values().next().cloned()
+                            }
+                        })
+                        .or_else(|| snapshot.remote_origin_url.clone())
+                        .or_else(|| snapshot.remote_upstream_url.clone())
+                })
+            })?
+            .ok_or_else(|| anyhow::anyhow!("No remote configured for repository"))?;
+
+            let (url, _) = cx.update(|_window, cx| {
+                let provider_registry = git::GitHostingProviderRegistry::default_global(cx);
+                let (provider, parsed_remote) = git::parse_git_remote_url(provider_registry, &remote_url)
+                    .ok_or_else(|| anyhow::anyhow!("Unsupported remote URL: {remote_url}"))?;
+                let url = provider
+                    .build_create_pull_request_url(&parsed_remote, &source_branch)
+                    .ok_or_else(|| anyhow::anyhow!("Unable to construct pull request URL"))?;
+                cx.open_url(url.as_str());
+                anyhow::Ok((url, ()))
+            })??;
+
+            let _ = url;
+            anyhow::Ok(())
+        })
+        .detach_and_prompt_err(
+            translate_ui("Failed to create pull request", cx),
+            window,
+            cx,
+            |e, _, _| Some(e.to_string()),
+        );
+}
+
+pub(crate) fn delete_merged_branches_with_prompt(
+    repo: Entity<Repository>,
+    manager: Option<gpui::WeakEntity<crate::git_manager::GitManager>>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    window
+        .spawn(cx, async move |cx| {
+            let receiver = repo.update(cx, |repo, _| repo.merged_branches());
+            let merged = receiver.await??;
+            if merged.is_empty() {
+                cx.update(|window, cx| {
+                    window.prompt(
+                        PromptLevel::Info,
+                        translate_ui("No merged branches found", cx),
+                        Some(translate_ui(
+                            "All local branches have unmerged changes or are currently active.",
+                            cx,
+                        )),
+                        &[translate_ui("OK", cx)],
+                        cx,
+                    )
+                })?
+                .await
+                .ok();
+                return anyhow::Ok(());
+            }
+
+            let answer = cx.update(|window, cx| {
+                let branch_count = merged.len();
+                let branch_list_str = merged
+                    .iter()
+                    .map(|b| format!("• {b}"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let prompt_title = if branch_count == 1 {
+                    translate_ui("Delete 1 merged branch?", cx).to_string()
+                } else {
+                    format!(
+                        "{} {} {}?",
+                        translate_ui("Delete", cx),
+                        branch_count,
+                        translate_ui("merged branches", cx)
+                    )
+                };
+                let prompt_detail = format!(
+                    "{}\n\n{}",
+                    translate_ui(
+                        "The following branches are fully merged into HEAD and will be safely deleted:",
+                        cx
+                    ),
+                    branch_list_str
+                );
+                let delete_label = if branch_count == 1 {
+                    translate_ui("Delete Branch", cx).to_string()
+                } else {
+                    format!(
+                        "{} {} {}",
+                        translate_ui("Delete", cx),
+                        branch_count,
+                        translate_ui("Branches", cx)
+                    )
+                };
+                let buttons = [delete_label.as_str(), translate_ui("Cancel", cx)];
+                window.prompt(
+                    PromptLevel::Warning,
+                    &prompt_title,
+                    Some(&prompt_detail),
+                    &buttons,
+                    cx,
+                )
+            })?;
+
+            if answer.await != Ok(0) {
+                return anyhow::Ok(());
+            }
+
+            for branch_name in merged {
+                let rx = repo.update(cx, |repo, _| {
+                    repo.delete_branch(false, branch_name, false)
+                });
+                rx.await?.log_err();
+            }
+
+            if let Some(manager) = manager.and_then(|m| m.upgrade()) {
+                manager.update(cx, |this, cx| {
+                    this.reload_branches(cx);
+                });
+            }
+
+            anyhow::Ok(())
+        })
+        .detach_and_prompt_err(
+            translate_ui("Failed to clean merged branches", cx),
             window,
             cx,
             |e, _, _| Some(e.to_string()),
@@ -160,13 +385,22 @@ pub(crate) fn render_branch_list(
     cx: &App,
 ) -> AnyElement {
     if !has_repo {
-        return Label::new(translate_ui("Open a folder with a git repository", cx))
-            .color(Color::Muted)
+        return v_flex()
+            .w_full()
+            .items_center()
+            .py_6()
+            .child(
+                Label::new(translate_ui("Open a folder with a git repository", cx))
+                    .color(Color::Muted),
+            )
             .into_any_element();
     }
     if branches.is_empty() {
-        return Label::new(translate_ui("No branches match", cx))
-            .color(Color::Muted)
+        return v_flex()
+            .w_full()
+            .items_center()
+            .py_6()
+            .child(Label::new(translate_ui("No branches match", cx)).color(Color::Muted))
             .into_any_element();
     }
 
@@ -211,12 +445,41 @@ fn render_branch_row(
     let name = branch.name().to_string();
     let is_head = branch.is_head;
     let is_remote = branch.is_remote();
-    let tracking = branch.tracking_status();
-    let status = match tracking {
-        Some(status) if status.ahead > 0 || status.behind > 0 => {
-            format!("↑{} ↓{}", status.ahead, status.behind)
+    let (ahead, behind) = match branch.tracking_status() {
+        Some(status) => (status.ahead, status.behind),
+        None => (0, 0),
+    };
+
+    let (branch_commit_tip, commit_relative_time) = match branch.most_recent_commit.as_ref() {
+        Some(c) => {
+            let now = time::OffsetDateTime::now_utc();
+            let local_offset =
+                time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
+            let date_str = crate::format_git_commit_timestamp(
+                c.commit_timestamp,
+                now,
+                local_offset,
+                time_format::TimestampFormat::Absolute,
+                cx,
+            )
+            .unwrap_or_default();
+            let rel_time = crate::format_git_commit_timestamp(
+                c.commit_timestamp,
+                now,
+                local_offset,
+                time_format::TimestampFormat::Relative,
+                cx,
+            );
+            let short_sha: String = c.sha.chars().take(8).collect();
+            (
+                Some(format!(
+                    "{}\n{} • {}\nSHA: {}",
+                    c.subject, c.author_name, date_str, short_sha
+                )),
+                rel_time,
+            )
         }
-        _ => String::new(),
+        None => (None, None),
     };
 
     let id = SharedString::from(format!("gm-branch-row-{index}"));
@@ -246,9 +509,16 @@ fn render_branch_row(
             )
         })
         .child(
-            Label::new(name)
-                .size(LabelSize::Small)
-                .when(is_head, |l| l.weight(FontWeight::SEMIBOLD)),
+            h_flex()
+                .id(ElementId::Name(format!("gm-branch-name-{index}").into()))
+                .child(
+                    Label::new(name)
+                        .size(LabelSize::Small)
+                        .when(is_head, |l| l.weight(FontWeight::SEMIBOLD)),
+                )
+                .when_some(branch_commit_tip, |this, tip| {
+                    this.tooltip(Tooltip::text(tip))
+                }),
         )
         .when(is_remote, |this| {
             this.child(
@@ -257,14 +527,48 @@ fn render_branch_row(
                     .color(Color::Muted),
             )
         })
-        .when(!status.is_empty(), |this| {
+        .when(ahead > 0, |this| {
+            let tip = if ahead == 1 {
+                format!("1 {}", translate_ui("commit ahead of upstream", cx))
+            } else {
+                format!("{ahead} {}", translate_ui("commits ahead of upstream", cx))
+            };
             this.child(
-                Label::new(status)
+                h_flex()
+                    .id(ElementId::Name(format!("gm-ahead-{index}").into()))
+                    .child(
+                        Label::new(format!("↑{ahead}"))
+                            .size(LabelSize::XSmall)
+                            .color(Color::Accent),
+                    )
+                    .tooltip(Tooltip::text(tip)),
+            )
+        })
+        .when(behind > 0, |this| {
+            let tip = if behind == 1 {
+                format!("1 {}", translate_ui("commit behind upstream", cx))
+            } else {
+                format!("{behind} {}", translate_ui("commits behind upstream", cx))
+            };
+            this.child(
+                h_flex()
+                    .id(ElementId::Name(format!("gm-behind-{index}").into()))
+                    .child(
+                        Label::new(format!("↓{behind}"))
+                            .size(LabelSize::XSmall)
+                            .color(Color::Warning),
+                    )
+                    .tooltip(Tooltip::text(tip)),
+            )
+        })
+        .child(div().flex_1())
+        .when_some(commit_relative_time, |this, time| {
+            this.child(
+                Label::new(time)
                     .size(LabelSize::XSmall)
                     .color(Color::Muted),
             )
         })
-        .child(div().flex_1())
         .child(
             IconButton::new(format!("gm-fav-btn-{index}"), IconName::Star)
                 .icon_size(IconSize::XSmall)
@@ -286,11 +590,12 @@ fn render_branch_row(
         .on_click({
             let branch = branch_for_click;
             let repo = repo_for_click;
+            let manager = manager.clone();
             move |_, window, cx| {
                 let Some(repo) = repo.clone() else {
                     return;
                 };
-                checkout_branch(repo, &branch, window, cx);
+                checkout_branch(repo, &branch, Some(manager.clone()), window, cx);
             }
         })
         .child(
@@ -318,16 +623,19 @@ fn render_branch_row(
 
                             let mut menu = menu;
 
-                            menu = menu.entry(translate_ui("Checkout", cx), None, {
-                                let branch = checkout_branch_item;
-                                let repo = checkout_repo;
-                                move |window, cx| {
-                                    let Some(repo) = repo.clone() else {
-                                        return;
-                                    };
-                                    checkout_branch(repo, &branch, window, cx);
-                                }
-                            });
+                            if !is_head {
+                                menu = menu.entry(translate_ui("Checkout", cx), None, {
+                                    let branch = checkout_branch_item;
+                                    let repo = checkout_repo;
+                                    let manager = manager.clone();
+                                    move |window, cx| {
+                                        let Some(repo) = repo.clone() else {
+                                            return;
+                                        };
+                                        checkout_branch(repo, &branch, Some(manager.clone()), window, cx);
+                                    }
+                                });
+                            }
 
                             if is_remote {
                                 let branch_name = branch.name().to_string();
@@ -424,84 +732,210 @@ fn render_branch_row(
                                 });
                             }
 
-                            menu = menu
-                                .separator()
-                                .entry(translate_ui("Compare with Current", cx), None, {
-                                    let branch_name = branch.name().to_string();
-                                    let repo = repo.clone();
-                                    let workspace = workspace.clone();
+                            if !is_remote {
+                                let push_branch_name = branch.name().to_string();
+                                let push_repo = repo.clone();
+                                let push_workspace = workspace.clone();
+                                let push_manager = manager.clone();
+                                menu = menu.entry(
+                                    translate_ui("Push Branch to Remote", cx),
+                                    None,
                                     move |window, cx| {
-                                        let Some(repo) = repo.clone() else {
+                                        let Some(repo) = push_repo.clone() else {
                                             return;
                                         };
-                                        let branch_name = branch_name.clone();
-                                        if let Some(workspace) = workspace.upgrade() {
-                                            workspace.update(cx, |workspace, cx| {
-                                                let project = workspace.project().clone();
-                                                crate::branch_diff::BranchDiff::deploy_branch_diff_with_base_ref(
-                                                    workspace,
-                                                    project,
-                                                    repo,
-                                                    branch_name.into(),
+                                        let remote_name = repo.read_with(cx, |repo, _| {
+                                            if repo.remotes.contains_key("origin") {
+                                                Some("origin".to_string())
+                                            } else {
+                                                repo.remotes.keys().next().cloned()
+                                            }
+                                        });
+                                        let Some(remote_name) = remote_name else {
+                                            window
+                                                .spawn(cx, async move |_| -> anyhow::Result<()> {
+                                                    anyhow::bail!("No remote configured to push branch to");
+                                                })
+                                                .detach_and_prompt_err(
+                                                    translate_ui("Failed to push branch", cx),
                                                     window,
                                                     cx,
+                                                    |e, _, _| Some(e.to_string()),
                                                 );
-                                            });
-                                        }
-                                    }
-                                })
-                                .entry(translate_ui("Compare with…", cx), None, {
-                                    let repo = repo.clone();
-                                    let workspace = workspace.clone();
-                                    move |window, cx| {
-                                        let Some(repo) = repo.clone() else {
                                             return;
                                         };
-                                        if let Some(workspace) = workspace.upgrade() {
-                                            let workspace_handle = workspace.clone();
-                                            workspace.update(cx, |workspace, cx| {
-                                                workspace.toggle_modal(window, cx, |window, cx| {
-                                                    crate::RefPickerModal::new(
+                                        let branch_name = push_branch_name.clone();
+                                        let askpass = crate::git_manager::operations::askpass_delegate(
+                                            &push_workspace,
+                                            format!("git push {remote_name} {branch_name}"),
+                                            window,
+                                            cx,
+                                        );
+                                        let receiver = repo.update(cx, |repo, cx| {
+                                            repo.push(
+                                                branch_name.clone().into(),
+                                                branch_name.clone().into(),
+                                                remote_name.into(),
+                                                Some(git::repository::PushOptions::SetUpstream),
+                                                askpass,
+                                                cx,
+                                            )
+                                        });
+                                        let manager_handle = push_manager.clone();
+                                        window
+                                            .spawn(cx, async move |cx| {
+                                                receiver.await??;
+                                                if let Some(manager) = manager_handle.upgrade() {
+                                                    manager.update(cx, |this, cx| {
+                                                        this.reload_branches(cx);
+                                                        this.refresh_in_progress_state(cx);
+                                                    });
+                                                }
+                                                anyhow::Ok(())
+                                            })
+                                            .detach_and_prompt_err(
+                                                translate_ui("Failed to push branch", cx),
+                                                window,
+                                                cx,
+                                                |e, _, _| Some(e.to_string()),
+                                            );
+                                    },
+                                );
+                            }
+
+                            {
+                                let pr_branch = branch.clone();
+                                let pr_repo = repo.clone();
+                                menu = menu.entry(
+                                    translate_ui("Create Pull Request…", cx),
+                                    None,
+                                    move |window, cx| {
+                                        let Some(repo) = pr_repo.clone() else {
+                                            return;
+                                        };
+                                        open_create_pull_request_url_for_branch(
+                                            &repo,
+                                            &pr_branch,
+                                            window,
+                                            cx,
+                                        );
+                                    },
+                                );
+                            }
+
+                            if !is_head {
+                                menu = menu
+                                    .separator()
+                                    .entry(translate_ui("Compare with Current", cx), None, {
+                                        let branch_name = branch.name().to_string();
+                                        let repo = repo.clone();
+                                        let workspace = workspace.clone();
+                                        move |window, cx| {
+                                            let Some(repo) = repo.clone() else {
+                                                return;
+                                            };
+                                            let branch_name = branch_name.clone();
+                                            if let Some(workspace) = workspace.upgrade() {
+                                                workspace.update(cx, |workspace, cx| {
+                                                    let project = workspace.project().clone();
+                                                    crate::branch_diff::BranchDiff::deploy_branch_diff_with_base_ref(
+                                                        workspace,
+                                                        project,
                                                         repo,
-                                                        workspace_handle,
+                                                        branch_name.into(),
                                                         window,
                                                         cx,
-                                                    )
+                                                    );
                                                 });
-                                            });
+                                            }
                                         }
-                                    }
-                                })
-                                .entry(translate_ui("Merge into Current", cx), None, {
-                                    let branch = branch.clone();
-                                    let repo = repo.clone();
-                                    move |window, cx| {
-                                        let Some(repo) = repo.clone() else {
-                                            return;
-                                        };
-                                        crate::git_manager::operations::merge_branch(
-                                            &repo,
-                                            branch.name().to_string(),
-                                            window,
-                                            cx,
-                                        );
-                                    }
-                                })
-                                .entry(translate_ui("Rebase Current onto This", cx), None, {
-                                    let branch = branch.clone();
-                                    let repo = repo.clone();
-                                    move |window, cx| {
-                                        let Some(repo) = repo.clone() else {
-                                            return;
-                                        };
-                                        crate::git_manager::operations::rebase_branch(
-                                            &repo,
-                                            branch.name().to_string(),
-                                            window,
-                                            cx,
-                                        );
-                                    }
-                                });
+                                    })
+                                    .entry(translate_ui("Compare with…", cx), None, {
+                                        let repo = repo.clone();
+                                        let workspace = workspace.clone();
+                                        move |window, cx| {
+                                            let Some(repo) = repo.clone() else {
+                                                return;
+                                            };
+                                            if let Some(workspace) = workspace.upgrade() {
+                                                let workspace_handle = workspace.clone();
+                                                workspace.update(cx, |workspace, cx| {
+                                                    workspace.toggle_modal(window, cx, |window, cx| {
+                                                        crate::RefPickerModal::new(
+                                                            repo,
+                                                            workspace_handle,
+                                                            window,
+                                                            cx,
+                                                        )
+                                                    });
+                                                });
+                                            }
+                                        }
+                                    })
+                                    .entry(translate_ui("Merge into Current", cx), None, {
+                                        let branch = branch.clone();
+                                        let repo = repo.clone();
+                                        let workspace = workspace.clone();
+                                        let manager = manager.clone();
+                                        move |window, cx| {
+                                            let Some(repo) = repo.clone() else {
+                                                return;
+                                            };
+                                            crate::git_manager::operations::merge_branch(
+                                                &repo,
+                                                branch.name().to_string(),
+                                                Some(workspace.clone()),
+                                                Some(manager.clone()),
+                                                window,
+                                                cx,
+                                            );
+                                        }
+                                    })
+                                    .entry(translate_ui("Rebase Current onto This", cx), None, {
+                                        let branch = branch.clone();
+                                        let repo = repo.clone();
+                                        let workspace = workspace.clone();
+                                        let manager = manager.clone();
+                                        move |window, cx| {
+                                            let Some(repo) = repo.clone() else {
+                                                return;
+                                            };
+                                            crate::git_manager::operations::rebase_branch(
+                                                &repo,
+                                                branch.name().to_string(),
+                                                Some(workspace.clone()),
+                                                Some(manager.clone()),
+                                                window,
+                                                cx,
+                                            );
+                                        }
+                                    });
+                            } else {
+                                menu = menu
+                                    .separator()
+                                    .entry(translate_ui("Compare with…", cx), None, {
+                                        let repo = repo.clone();
+                                        let workspace = workspace.clone();
+                                        move |window, cx| {
+                                            let Some(repo) = repo.clone() else {
+                                                return;
+                                            };
+                                            if let Some(workspace) = workspace.upgrade() {
+                                                let workspace_handle = workspace.clone();
+                                                workspace.update(cx, |workspace, cx| {
+                                                    workspace.toggle_modal(window, cx, |window, cx| {
+                                                        crate::RefPickerModal::new(
+                                                            repo,
+                                                            workspace_handle,
+                                                            window,
+                                                            cx,
+                                                        )
+                                                    });
+                                                });
+                                            }
+                                        }
+                                    });
+                            }
 
                             if !is_remote {
                                 let branch_name = branch.name().to_string();
@@ -529,10 +963,90 @@ fn render_branch_row(
                                 });
                             }
 
+                            {
+                                let branch_name = branch.name().to_string();
+                                let repo = repo.clone();
+                                let workspace = workspace.clone();
+                                let manager = manager.clone();
+                                menu = menu.entry(translate_ui("New Tag on Branch…", cx), None, move |window, cx| {
+                                    let Some(repo) = repo.clone() else {
+                                        return;
+                                    };
+                                    let branch_name = branch_name.clone();
+                                    let manager = manager.clone();
+                                    if let Some(workspace) = workspace.upgrade() {
+                                        workspace.update(cx, |workspace, cx| {
+                                            workspace.toggle_modal(window, cx, |window, cx| {
+                                                crate::git_manager::sections::NewTagModal::new(
+                                                    repo,
+                                                    Some(branch_name),
+                                                    Some(manager),
+                                                    window,
+                                                    cx,
+                                                )
+                                            });
+                                        });
+                                    }
+                                });
+                            }
+
+                            if is_remote {
+                                let branch_name = branch.name().to_string();
+                                let repo = repo.clone();
+                                let workspace = workspace.clone();
+                                let manager = manager.clone();
+                                menu = menu.entry(translate_ui("Fetch Remote Branch", cx), None, move |window, cx| {
+                                    let Some(repo) = repo.clone() else {
+                                        return;
+                                    };
+                                    let branch_name = branch_name.clone();
+                                    let manager = manager.clone();
+                                    let remote_name = branch_name.split('/').next().unwrap_or("origin").to_string();
+                                    let askpass = crate::git_manager::operations::askpass_delegate(
+                                        &workspace,
+                                        format!("git fetch {remote_name}"),
+                                        window,
+                                        cx,
+                                    );
+                                    let receiver = repo.update(cx, |repo, cx| {
+                                        repo.fetch(
+                                            git::repository::FetchOptions::Remote(git::repository::Remote {
+                                                name: remote_name.into(),
+                                            }),
+                                            askpass,
+                                            cx,
+                                        )
+                                    });
+                                    window
+                                        .spawn(cx, async move |cx| {
+                                            receiver.await??;
+                                            if let Some(manager) = manager.upgrade() {
+                                                manager.update(cx, |this, cx| {
+                                                    this.reload_branches(cx);
+                                                    this.reload_remotes(cx);
+                                                });
+                                            }
+                                            anyhow::Ok(())
+                                        })
+                                        .detach_and_prompt_err(
+                                            translate_ui("Failed to fetch branch", cx),
+                                            window,
+                                            cx,
+                                            |e, _, _| Some(e.to_string()),
+                                        );
+                                });
+                            }
+
                             if !is_head {
                                 let branch = branch.clone();
                                 let repo = repo.clone();
-                                menu = menu.entry(translate_ui("Delete Branch", cx), None, {
+                                let manager = manager.clone();
+                                let delete_label = if is_remote {
+                                    translate_ui("Delete Remote Branch", cx)
+                                } else {
+                                    translate_ui("Delete Branch", cx)
+                                };
+                                menu = menu.entry(delete_label, None, {
                                     move |window, cx| {
                                         let Some(repo) = repo.clone() else {
                                             return;
@@ -540,6 +1054,7 @@ fn render_branch_row(
                                         delete_branch_with_prompt(
                                             repo,
                                             branch.clone(),
+                                            Some(manager.clone()),
                                             window,
                                             cx,
                                         );
@@ -547,7 +1062,7 @@ fn render_branch_row(
                                 });
                             }
 
-                            menu.separator().entry(
+                            menu = menu.separator().entry(
                                 translate_ui("Copy Branch Name", cx),
                                 None,
                                 {
@@ -558,7 +1073,38 @@ fn render_branch_row(
                                         ));
                                     }
                                 },
-                            )
+                            );
+
+                            if let Some(commit) = branch.most_recent_commit.as_ref() {
+                                let sha = commit.sha.clone();
+                                menu = menu.entry(
+                                    translate_ui("Copy Commit SHA", cx),
+                                    None,
+                                    move |_, cx| {
+                                        cx.write_to_clipboard(ClipboardItem::new_string(
+                                            sha.to_string(),
+                                        ));
+                                    },
+                                );
+                            }
+
+                            if let Some(commit) = branch.most_recent_commit.as_ref() {
+                                let sha = commit.sha.to_string();
+                                menu = menu.entry(
+                                    translate_ui("Show in Git Graph", cx),
+                                    None,
+                                    move |window, cx| {
+                                        window.dispatch_action(
+                                            Box::new(crate::git_graph::OpenAtCommit {
+                                                sha: sha.clone(),
+                                            }),
+                                            cx,
+                                        );
+                                    },
+                                );
+                            }
+
+                            menu
                         }))
                     }
                 }),
@@ -680,5 +1226,73 @@ mod tests {
             "feature/auth"
         );
         assert_eq!(suggested_local_branch_name("local-branch"), "local-branch");
+    }
+
+    #[test]
+    fn filter_branches_with_favorites_filters_correctly() {
+        let branches = vec![
+            branch("main", true, false),
+            branch("feature/fav", false, false),
+            branch("feature/other", false, false),
+        ];
+        let mut favorites = collections::HashSet::default();
+        favorites.insert("feature/fav".to_string());
+
+        let favs_only = super::filter_branches_with_favorites(
+            &branches,
+            "",
+            true,
+            &favorites,
+            super::BranchScope::All,
+        );
+        assert_eq!(favs_only.len(), 1);
+        assert_eq!(favs_only[0].name(), "feature/fav");
+
+        let favs_with_query = super::filter_branches_with_favorites(
+            &branches,
+            "other",
+            true,
+            &favorites,
+            super::BranchScope::All,
+        );
+        assert_eq!(favs_with_query.len(), 0);
+    }
+
+    #[test]
+    fn filter_branches_with_scope_filters_correctly() {
+        let branches = vec![
+            branch("main", true, false),
+            branch("origin/main", false, true),
+            branch("origin/feature", false, true),
+        ];
+        let favorites = collections::HashSet::default();
+
+        let all = super::filter_branches_with_favorites(
+            &branches,
+            "",
+            false,
+            &favorites,
+            super::BranchScope::All,
+        );
+        assert_eq!(all.len(), 3);
+
+        let local = super::filter_branches_with_favorites(
+            &branches,
+            "",
+            false,
+            &favorites,
+            super::BranchScope::Local,
+        );
+        assert_eq!(local.len(), 1);
+        assert_eq!(local[0].name(), "main");
+
+        let remote = super::filter_branches_with_favorites(
+            &branches,
+            "",
+            false,
+            &favorites,
+            super::BranchScope::Remote,
+        );
+        assert_eq!(remote.len(), 2);
     }
 }
