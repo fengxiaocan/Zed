@@ -15,7 +15,7 @@ use git::{
         CommitDiff, CommitFile, InitialGraphCommitData, LogOrder, LogSource, RepoPath,
         SearchCommitArgs,
     },
-    status::{FileStatus, StatusCode, TrackedStatus},
+    status::{DiffTreeType, FileStatus, StatusCode, TrackedStatus, TreeDiffStatus},
 };
 use gpui::{
     Anchor, AnyElement, App, Bounds, ClickEvent, ClipboardItem, DefiniteLength, DismissEvent,
@@ -57,7 +57,7 @@ use ui::{
     Checkbox, Chip, ColumnWidthConfig, CommonAnimationExt as _, ContextMenu, DiffStat, Divider,
     HeaderResizeInfo, HighlightedLabel, IndentGuideColors, ListItem, ListItemSpacing,
     RedistributableColumnsState, ScrollableHandle, Table, TableInteractionState,
-    TableRenderContext, TableResizeBehavior, Tooltip, WithScrollbar, bind_redistributable_columns,
+    TableRenderContext, TableResizeBehavior, TintColor, Tooltip, WithScrollbar, bind_redistributable_columns,
     prelude::*, redistribute_hidden_fractions, redistribute_hidden_widths,
     render_redistributable_columns_resize_handles, render_table_header, table_row::TableRow,
 };
@@ -908,6 +908,13 @@ pub struct BranchCompareState {
     pub filtered_commit_indices: Option<Arc<[usize]>>,
 }
 
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum CompareDetailMode {
+    #[default]
+    SelectedCommit,
+    BranchOverallDiff,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CommitCompareBadge {
     Ahead,
@@ -1553,6 +1560,10 @@ pub struct GitGraph {
     active_lineage: Option<Arc<HashSet<Oid>>>,
     active_lineage_target: Option<Oid>,
     branch_compare_state: Option<BranchCompareState>,
+    compare_detail_mode: CompareDetailMode,
+    overall_branch_diff: Option<CommitDiff>,
+    overall_branch_diff_stats: Option<(usize, usize)>,
+    _overall_branch_diff_task: Option<Task<()>>,
 }
 
 impl GitGraph {
@@ -1565,6 +1576,10 @@ impl GitGraph {
         self.active_lineage = None;
         self.active_lineage_target = None;
         self.branch_compare_state = None;
+        self.compare_detail_mode = CompareDetailMode::default();
+        self.overall_branch_diff = None;
+        self.overall_branch_diff_stats = None;
+        self._overall_branch_diff_task = None;
         cx.emit(ItemEvent::Edit);
         cx.notify();
     }
@@ -1602,12 +1617,123 @@ impl GitGraph {
             filter_to_compared_only: false,
             filtered_commit_indices: None,
         });
+        self.overall_branch_diff = None;
+        self.overall_branch_diff_stats = None;
+        self._overall_branch_diff_task = None;
+        if self.selected_entry_idx.is_none() {
+            self.compare_detail_mode = CompareDetailMode::BranchOverallDiff;
+        }
+        self.fetch_overall_branch_diff(cx);
         cx.notify();
     }
 
     pub fn exit_branch_compare(&mut self, cx: &mut Context<Self>) {
         self.branch_compare_state = None;
+        self.compare_detail_mode = CompareDetailMode::default();
+        self.overall_branch_diff = None;
+        self.overall_branch_diff_stats = None;
+        self._overall_branch_diff_task = None;
         cx.notify();
+    }
+
+    pub fn compare_detail_mode(&self) -> CompareDetailMode {
+        self.compare_detail_mode
+    }
+
+    pub fn set_compare_detail_mode(&mut self, mode: CompareDetailMode, cx: &mut Context<Self>) {
+        if self.compare_detail_mode == mode {
+            return;
+        }
+        self.compare_detail_mode = mode;
+        self.changed_files_expanded_dirs.clear();
+        self.changed_files_scroll_handle
+            .scroll_to_item(0, ScrollStrategy::Top);
+        if mode == CompareDetailMode::BranchOverallDiff
+            && self.overall_branch_diff.is_none()
+            && self._overall_branch_diff_task.is_none()
+        {
+            self.fetch_overall_branch_diff(cx);
+        }
+        cx.notify();
+    }
+
+    pub fn overall_branch_diff(&self) -> Option<&CommitDiff> {
+        self.overall_branch_diff.as_ref()
+    }
+
+    pub fn overall_branch_diff_stats(&self) -> Option<(usize, usize)> {
+        self.overall_branch_diff_stats
+    }
+
+    fn fetch_overall_branch_diff(&mut self, cx: &mut Context<Self>) {
+        let Some(compare_state) = self.branch_compare_state.as_ref() else {
+            return;
+        };
+        let Some(repository) = self.get_repository(cx) else {
+            return;
+        };
+
+        let base_ref = if !compare_state.base_branch.is_empty() {
+            compare_state.base_branch.clone()
+        } else {
+            compare_state.base_sha.to_string().into()
+        };
+        let target_ref = if !compare_state.target_branch.is_empty() {
+            compare_state.target_branch.clone()
+        } else {
+            compare_state.target_sha.to_string().into()
+        };
+
+        let diff_receiver = repository.update(cx, |repo, cx| {
+            repo.diff_tree(
+                DiffTreeType::MergeBase {
+                    base: base_ref,
+                    head: target_ref,
+                },
+                cx,
+            )
+        });
+
+        self._overall_branch_diff_task = Some(cx.spawn(async move |this, cx| {
+            let result = diff_receiver.await;
+            if let Ok(Ok(tree_diff)) = result {
+                this.update(cx, |this, cx| {
+                    let mut files: Vec<CommitFile> = tree_diff
+                        .entries
+                        .into_iter()
+                        .map(|(path, status)| {
+                            let (old_text, new_text) = match status {
+                                TreeDiffStatus::Added => (None, Some(String::new())),
+                                TreeDiffStatus::Deleted { .. } => (Some(String::new()), None),
+                                TreeDiffStatus::Modified { .. } => {
+                                    (Some(String::new()), Some(String::new()))
+                                }
+                            };
+                            CommitFile {
+                                path,
+                                old_text,
+                                new_text,
+                                is_binary: false,
+                            }
+                        })
+                        .collect();
+                    files.sort_by(|a, b| a.path.cmp(&b.path));
+                    let diff = CommitDiff { files };
+                    let stats = compute_diff_stats(&diff);
+                    this.overall_branch_diff = Some(diff);
+                    this.overall_branch_diff_stats = Some(stats);
+                    this._overall_branch_diff_task = None;
+                    cx.notify();
+                })
+                .ok();
+            } else {
+                this.update(cx, |this, cx| {
+                    this._overall_branch_diff_task = None;
+                    cx.notify();
+                })
+                .ok();
+            }
+        }));
     }
 
     fn compute_filtered_commit_indices(&self) -> Option<Arc<[usize]>> {
@@ -1637,6 +1763,7 @@ impl GitGraph {
             self.selected_entry_idx = None;
             self.selected_commit_diff = None;
             self.selected_commit_diff_stats = None;
+            self.compare_detail_mode = CompareDetailMode::BranchOverallDiff;
             self.changed_files_expanded_dirs.clear();
         }
         let filtered_indices = self.compute_filtered_commit_indices();
@@ -2058,6 +2185,10 @@ impl GitGraph {
             active_lineage: None,
             active_lineage_target: None,
             branch_compare_state: None,
+            compare_detail_mode: CompareDetailMode::default(),
+            overall_branch_diff: None,
+            overall_branch_diff_stats: None,
+            _overall_branch_diff_task: None,
         };
 
         this.fetch_initial_graph_data(cx);
@@ -2471,6 +2602,10 @@ impl GitGraph {
         self.selected_entry_idx = None;
         self.selected_commit_diff = None;
         self.selected_commit_diff_stats = None;
+        self.compare_detail_mode = CompareDetailMode::default();
+        self.overall_branch_diff = None;
+        self.overall_branch_diff_stats = None;
+        self._overall_branch_diff_task = None;
         self.changed_files_expanded_dirs.clear();
         self.set_active_lineage(None, cx);
         cx.emit(ItemEvent::Edit);
@@ -2680,6 +2815,9 @@ impl GitGraph {
         self.selected_entry_idx = Some(idx);
         self.selected_commit_diff = None;
         self.selected_commit_diff_stats = None;
+        if self.branch_compare_state.is_some() {
+            self.compare_detail_mode = CompareDetailMode::SelectedCommit;
+        }
         self.changed_files_expanded_dirs.clear();
         self.changed_files_scroll_handle
             .scroll_to_item(0, ScrollStrategy::Top);
@@ -3263,112 +3401,246 @@ impl GitGraph {
             .into_any_element()
     }
 
+    fn render_detail_close_button(&self, cx: &mut Context<Self>) -> IconButton {
+        IconButton::new("close-detail", IconName::Close)
+            .icon_size(IconSize::Small)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if this.branch_compare_state.is_some() && this.selected_entry_idx.is_none() {
+                    this.exit_branch_compare(cx);
+                    return;
+                }
+                this.selected_entry_idx = None;
+                this.selected_commit_diff = None;
+                this.selected_commit_diff_stats = None;
+                this.selected_commit_message = None;
+                this._selected_commit_message_task = None;
+                this.changed_files_expanded_dirs.clear();
+                this._commit_diff_task = None;
+                this.set_active_lineage(None, cx);
+                if this.branch_compare_state.is_some() {
+                    this.compare_detail_mode = CompareDetailMode::BranchOverallDiff;
+                }
+                cx.notify();
+            }))
+    }
+
+    fn render_branch_compare_header(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let Some(compare_state) = self.branch_compare_state.as_ref() else {
+            return Empty.into_any_element();
+        };
+
+        let is_branch_diff = self.compare_detail_mode == CompareDetailMode::BranchOverallDiff
+            || self.selected_entry_idx.is_none();
+        let base_branch = compare_state.base_branch.clone();
+
+        v_flex()
+            .w_full()
+            .p_2()
+            .pb_1()
+            .gap_1p5()
+            .child(
+                h_flex()
+                    .w_full()
+                    .justify_between()
+                    .items_center()
+                    .child(
+                        h_flex()
+                            .gap_1()
+                            .p_0p5()
+                            .bg(cx.theme().colors().element_background)
+                            .rounded_md()
+                            .child(
+                                Button::new(
+                                    "compare-tab-selected-commit",
+                                    translate_ui("Selected Commit", cx),
+                                )
+                                .label_size(LabelSize::Small)
+                                .toggle_state(!is_branch_diff)
+                                .selected_style(ButtonStyle::Tinted(TintColor::Accent))
+                                .style(ButtonStyle::Subtle)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    if this.selected_entry_idx.is_none()
+                                        && this.visible_commit_count() > 0
+                                    {
+                                        this.select_entry(0, ScrollStrategy::Nearest, cx);
+                                    } else {
+                                        this.set_compare_detail_mode(
+                                            CompareDetailMode::SelectedCommit,
+                                            cx,
+                                        );
+                                    }
+                                })),
+                            )
+                            .child(
+                                Button::new(
+                                    "compare-tab-branch-overall-diff",
+                                    translate_ui("Branch Overall Diff", cx),
+                                )
+                                .label_size(LabelSize::Small)
+                                .toggle_state(is_branch_diff)
+                                .selected_style(ButtonStyle::Tinted(TintColor::Accent))
+                                .style(ButtonStyle::Subtle)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.set_compare_detail_mode(
+                                        CompareDetailMode::BranchOverallDiff,
+                                        cx,
+                                    );
+                                })),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_1()
+                            .items_center()
+                            .child(
+                                Button::new(
+                                    "open-branch-diff-view",
+                                    translate_ui("Open Branch Diff View", cx),
+                                )
+                                .label_size(LabelSize::Small)
+                                .start_icon(
+                                    Icon::new(IconName::Diff)
+                                        .size(IconSize::Small)
+                                        .color(Color::Muted),
+                                )
+                                .style(ButtonStyle::Subtle)
+                                .tooltip(Tooltip::text(
+                                    translate_ui("Open full branch diff editor", cx),
+                                ))
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    if let Some(workspace) = this.workspace.upgrade() {
+                                        let Some(repository) = this.get_repository(cx) else {
+                                            return;
+                                        };
+                                        workspace.update(cx, |workspace, cx| {
+                                            let project = workspace.project().clone();
+                                            crate::branch_diff::BranchDiff::deploy_branch_diff_with_base_ref(
+                                                workspace,
+                                                project,
+                                                repository,
+                                                base_branch.clone(),
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                    }
+                                })),
+                            )
+                            .child(self.render_detail_close_button(cx)),
+                    ),
+            )
+            .child(Divider::horizontal())
+            .into_any_element()
+    }
+
+    fn render_branch_compare_summary(
+        &self,
+        state: &BranchCompareState,
+        cx: &App,
+    ) -> impl IntoElement {
+        let base_branch = state.base_branch.clone();
+        let target_branch = state.target_branch.clone();
+        let ahead_count = state.ahead_commits.len();
+        let behind_count = state.behind_commits.len();
+
+        v_flex()
+            .w_full()
+            .p_2()
+            .gap_1()
+            .child(
+                h_flex()
+                    .gap_1p5()
+                    .items_center()
+                    .child(
+                        Icon::new(IconName::GitBranch)
+                            .size(IconSize::Small)
+                            .color(Color::Accent),
+                    )
+                    .child(
+                        Label::new(format!("{} … {}", base_branch, target_branch))
+                            .size(LabelSize::Default)
+                            .weight(gpui::FontWeight::SEMIBOLD),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        Label::new(format!(
+                            "{} {}, {} {}",
+                            ahead_count,
+                            translate_ui("ahead", cx),
+                            behind_count,
+                            translate_ui("behind", cx),
+                        ))
+                        .size(LabelSize::Small)
+                        .color(Color::Muted),
+                    ),
+            )
+    }
+
     fn render_commit_detail_panel(
         &self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let Some(selected_idx) = self.selected_entry_idx else {
-            return Empty.into_any_element();
-        };
+        let is_in_compare_mode = self.branch_compare_state.is_some();
+        let selected_idx = self.selected_entry_idx;
 
-        let Some(commit_entry) = self.commit_at_display_index(selected_idx) else {
+        if selected_idx.is_none() && !is_in_compare_mode {
             return Empty.into_any_element();
-        };
+        }
+
+        let is_branch_diff = is_in_compare_mode
+            && (self.compare_detail_mode == CompareDetailMode::BranchOverallDiff
+                || selected_idx.is_none());
 
         let Some(repository) = self.get_repository(cx) else {
             return Empty.into_any_element();
         };
 
-        let data = repository.update(cx, |repository, cx| {
-            repository
-                .fetch_commit_data(commit_entry.data.sha, false, cx)
-                .clone()
-        });
-
-        let full_sha: SharedString = commit_entry.data.sha.to_string().into();
-        let ref_names = commit_entry.data.ref_names.clone();
-
-        let head_branch_name: Option<SharedString> = repository
-            .read(cx)
-            .snapshot()
-            .branch
-            .as_ref()
-            .map(|branch| SharedString::from(branch.name().to_string()));
-
-        let accent_colors = cx.theme().accents();
-        let accent_color = accent_colors
-            .0
-            .get(commit_entry.color_idx)
-            .copied()
-            .unwrap_or_else(|| accent_colors.0.first().copied().unwrap_or_default());
-
-        let (author_name, author_email, commit_timestamp) = match &data {
-            CommitDataState::Loaded(data) => (
-                data.author_name.clone(),
-                data.author_email.clone(),
-                Some(data.commit_timestamp),
-            ),
-            CommitDataState::Loading(_) => (translate_ui("Loading…", cx).into(), "".into(), None),
-        };
-
-        let date_string = commit_timestamp
-            .and_then(|ts| OffsetDateTime::from_unix_timestamp(ts).ok())
-            .map(|datetime| {
-                let local_offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
-                let local_datetime = datetime.to_offset(local_offset);
-                if settings::is_simplified_chinese(cx) {
-                    format!(
-                        "{:04}年{:02}月{:02}日",
-                        local_datetime.year(),
-                        u8::from(local_datetime.month()),
-                        local_datetime.day()
-                    )
-                } else {
-                    let format =
-                        time::format_description::parse("[month repr:short] [day], [year]").ok();
-                    format
-                        .and_then(|f| local_datetime.format(&f).ok())
-                        .unwrap_or_default()
-                }
-            })
-            .unwrap_or_default();
-
-        let remote = repository.update(cx, |repo, cx| {
-            let remote_url = repo.default_remote_url()?;
-            let provider_registry = GitHostingProviderRegistry::default_global(cx);
-            let (provider, parsed) = parse_git_remote_url(provider_registry, &remote_url)?;
-            Some(GitRemote {
-                host: provider,
-                owner: parsed.owner.into(),
-                repo: parsed.repo.into(),
-            })
-        });
-
-        let avatar = {
-            let author_email_for_avatar = if author_email.is_empty() {
-                None
-            } else {
-                Some(author_email.clone())
+        let selected_commit_entry = if !is_branch_diff {
+            let Some(selected_idx) = selected_idx else {
+                return Empty.into_any_element();
             };
-
-            CommitAvatar::new(&full_sha, author_email_for_avatar, remote.as_ref())
-                .size(px(32.))
-                .render(window, cx)
+            let Some(commit_entry) = self.commit_at_display_index(selected_idx) else {
+                return Empty.into_any_element();
+            };
+            Some((selected_idx, commit_entry))
+        } else {
+            None
         };
 
-        let changed_files_count = self
-            .selected_commit_diff
-            .as_ref()
-            .map(|diff| diff.files.len())
-            .unwrap_or(0);
+        let full_sha: SharedString = if is_branch_diff {
+            "branch-diff".into()
+        } else if let Some((_, entry)) = selected_commit_entry.as_ref() {
+            entry.data.sha.to_string().into()
+        } else {
+            SharedString::default()
+        };
 
-        let (total_lines_added, total_lines_removed) =
-            self.selected_commit_diff_stats.unwrap_or((0, 0));
+        let (diff_to_display, stats_to_display, is_diff_loading) = if is_branch_diff {
+            (
+                self.overall_branch_diff.as_ref(),
+                self.overall_branch_diff_stats,
+                self._overall_branch_diff_task.is_some() && self.overall_branch_diff.is_none(),
+            )
+        } else {
+            (
+                self.selected_commit_diff.as_ref(),
+                self.selected_commit_diff_stats,
+                self._commit_diff_task.is_some() && self.selected_commit_diff.is_none(),
+            )
+        };
 
-        let changed_file_entries: Vec<ChangedFileEntry> = self
-            .selected_commit_diff
-            .as_ref()
+        let changed_files_count = diff_to_display.map(|diff| diff.files.len()).unwrap_or(0);
+        let (total_lines_added, total_lines_removed) = stats_to_display.unwrap_or((0, 0));
+
+        let changed_file_entries: Vec<ChangedFileEntry> = diff_to_display
             .map(|diff| {
                 let mut files = diff.files.iter().collect::<Vec<_>>();
                 if !self.changed_files_view_mode.is_tree() {
@@ -3410,6 +3682,325 @@ impl GitGraph {
                 cx.notify();
             }));
 
+        let upper_section = if is_branch_diff {
+            let Some(compare_state) = self.branch_compare_state.as_ref() else {
+                return Empty.into_any_element();
+            };
+            self.render_branch_compare_summary(compare_state, cx)
+                .into_any_element()
+        } else {
+            let Some((selected_idx, commit_entry)) = selected_commit_entry else {
+                return Empty.into_any_element();
+            };
+
+            let data = repository.update(cx, |repository, cx| {
+                repository
+                    .fetch_commit_data(commit_entry.data.sha, false, cx)
+                    .clone()
+            });
+
+            let full_sha: SharedString = commit_entry.data.sha.to_string().into();
+            let ref_names = commit_entry.data.ref_names.clone();
+
+            let head_branch_name: Option<SharedString> = repository
+                .read(cx)
+                .snapshot()
+                .branch
+                .as_ref()
+                .map(|branch| SharedString::from(branch.name().to_string()));
+
+            let accent_colors = cx.theme().accents();
+            let accent_color = accent_colors
+                .0
+                .get(commit_entry.color_idx)
+                .copied()
+                .unwrap_or_else(|| accent_colors.0.first().copied().unwrap_or_default());
+
+            let (author_name, author_email, commit_timestamp) = match &data {
+                CommitDataState::Loaded(data) => (
+                    data.author_name.clone(),
+                    data.author_email.clone(),
+                    Some(data.commit_timestamp),
+                ),
+                CommitDataState::Loading(_) => {
+                    (translate_ui("Loading…", cx).into(), "".into(), None)
+                }
+            };
+
+            let date_string = commit_timestamp
+                .and_then(|ts| OffsetDateTime::from_unix_timestamp(ts).ok())
+                .map(|datetime| {
+                    let local_offset =
+                        UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
+                    let local_datetime = datetime.to_offset(local_offset);
+                    if settings::is_simplified_chinese(cx) {
+                        format!(
+                            "{:04}年{:02}月{:02}日",
+                            local_datetime.year(),
+                            u8::from(local_datetime.month()),
+                            local_datetime.day()
+                        )
+                    } else {
+                        let format = time::format_description::parse(
+                            "[month repr:short] [day], [year]",
+                        )
+                        .ok();
+                        format
+                            .and_then(|f| local_datetime.format(&f).ok())
+                            .unwrap_or_default()
+                    }
+                })
+                .unwrap_or_default();
+
+            let remote = repository.update(cx, |repo, cx| {
+                let remote_url = repo.default_remote_url()?;
+                let provider_registry = GitHostingProviderRegistry::default_global(cx);
+                let (provider, parsed) =
+                    parse_git_remote_url(provider_registry, &remote_url)?;
+                Some(GitRemote {
+                    host: provider,
+                    owner: parsed.owner.into(),
+                    repo: parsed.repo.into(),
+                })
+            });
+
+            let avatar = {
+                let author_email_for_avatar = if author_email.is_empty() {
+                    None
+                } else {
+                    Some(author_email.clone())
+                };
+
+                CommitAvatar::new(&full_sha, author_email_for_avatar, remote.as_ref())
+                    .size(px(32.))
+                    .render(window, cx)
+            };
+
+            v_flex()
+                .relative()
+                .w_full()
+                .p_2()
+                .gap_2()
+                .when(!is_in_compare_mode, |this| {
+                    this.child(
+                        div()
+                            .absolute()
+                            .top_2()
+                            .right_2()
+                            .child(self.render_detail_close_button(cx)),
+                    )
+                })
+                .child(
+                    v_flex()
+                        .py_1()
+                        .w_full()
+                        .items_center()
+                        .child(avatar)
+                        .child(Label::new(author_name).mt_1p5())
+                        .child(
+                            Label::new(date_string)
+                                .color(Color::Muted)
+                                .size(LabelSize::Small),
+                        ),
+                )
+                .children((!ref_names.is_empty()).then(|| {
+                    h_flex().gap_1().flex_wrap().justify_center().children(
+                        ref_names.iter().map(|name| {
+                            let is_head = Self::is_head_ref(name.as_ref(), &head_branch_name);
+                            self.render_ref_chip(name, accent_color, is_head, selected_idx, cx)
+                        }),
+                    )
+                }))
+                .child(
+                    v_flex()
+                        .ml_neg_1()
+                        .gap_1p5()
+                        .when(!author_email.is_empty(), |this| {
+                            let copied_state: Entity<CopiedState> = window.use_keyed_state(
+                                "author-email-copy",
+                                cx,
+                                CopiedState::new,
+                            );
+                            let is_copied = copied_state.read(cx).is_copied();
+
+                            let (icon, icon_color, tooltip_label) = if is_copied {
+                                (IconName::Check, Color::Success, "Email Copied!")
+                            } else {
+                                (IconName::Envelope, Color::Muted, "Copy Email")
+                            };
+
+                            let copy_email = author_email.clone();
+                            let author_email_for_tooltip = author_email.clone();
+
+                            this.child(
+                                Button::new("author-email-copy", author_email)
+                                    .start_icon(
+                                        Icon::new(icon).size(IconSize::Small).color(icon_color),
+                                    )
+                                    .label_size(LabelSize::Small)
+                                    .truncate(true)
+                                    .color(Color::Muted)
+                                    .tooltip(move |_, cx| {
+                                        Tooltip::with_meta(
+                                            tooltip_label,
+                                            None,
+                                            author_email_for_tooltip.clone(),
+                                            cx,
+                                        )
+                                    })
+                                    .on_click(move |_, _, cx| {
+                                        copied_state.update(cx, |state, _cx| {
+                                            state.mark_copied();
+                                        });
+                                        cx.write_to_clipboard(ClipboardItem::new_string(
+                                            copy_email.to_string(),
+                                        ));
+                                        let state_id = copied_state.entity_id();
+                                        cx.spawn(async move |cx| {
+                                            cx.background_executor()
+                                                .timer(COPIED_STATE_DURATION)
+                                                .await;
+                                            cx.update(|cx| {
+                                                cx.notify(state_id);
+                                            })
+                                        })
+                                        .detach();
+                                    }),
+                            )
+                        })
+                        .child({
+                            let copy_sha = full_sha.clone();
+                            let copied_state: Entity<CopiedState> =
+                                window.use_keyed_state("sha-copy", cx, CopiedState::new);
+                            let is_copied = copied_state.read(cx).is_copied();
+
+                            let (icon, icon_color, tooltip_label) = if is_copied {
+                                (IconName::Check, Color::Success, "Commit SHA Copied!")
+                            } else {
+                                (IconName::Hash, Color::Muted, "Copy Commit SHA")
+                            };
+
+                            Button::new("sha-button", full_sha.as_ref())
+                                .start_icon(
+                                    Icon::new(icon).size(IconSize::Small).color(icon_color),
+                                )
+                                .label_size(LabelSize::Small)
+                                .truncate(true)
+                                .color(Color::Muted)
+                                .tooltip({
+                                    let full_sha = full_sha.clone();
+                                    move |_, cx| {
+                                        Tooltip::with_meta(
+                                            tooltip_label,
+                                            None,
+                                            full_sha.clone(),
+                                            cx,
+                                        )
+                                    }
+                                })
+                                .on_click(move |_, _, cx| {
+                                    copied_state.update(cx, |state, _cx| {
+                                        state.mark_copied();
+                                    });
+                                    cx.write_to_clipboard(ClipboardItem::new_string(
+                                        copy_sha.to_string(),
+                                    ));
+                                    let state_id = copied_state.entity_id();
+                                    cx.spawn(async move |cx| {
+                                        cx.background_executor()
+                                            .timer(COPIED_STATE_DURATION)
+                                            .await;
+                                        cx.update(|cx| {
+                                            cx.notify(state_id);
+                                        })
+                                    })
+                                    .detach();
+                                })
+                        })
+                        .when_some(remote, |this, remote| {
+                            let provider_name = remote.host.name();
+                            let icon = crate::get_provider_icon(provider_name.as_str());
+                            let parsed_remote = ParsedGitRemote {
+                                owner: remote.owner.as_ref().into(),
+                                repo: remote.repo.as_ref().into(),
+                            };
+                            let params = BuildCommitPermalinkParams {
+                                sha: full_sha.as_ref(),
+                            };
+                            let url = remote
+                                .host
+                                .build_commit_permalink(&parsed_remote, params)
+                                .to_string();
+
+                            this.child(
+                                Button::new(
+                                    "view-on-provider",
+                                    format!("View on {}", provider_name),
+                                )
+                                .start_icon(
+                                    Icon::new(icon).size(IconSize::Small).color(Color::Muted),
+                                )
+                                .label_size(LabelSize::Small)
+                                .truncate(true)
+                                .color(Color::Muted)
+                                .on_click(move |_, _, cx| {
+                                    cx.open_url(&url);
+                                }),
+                            )
+                        }),
+                )
+                .into_any_element()
+        };
+
+        let bottom_action = if is_branch_diff {
+            let base_branch = self
+                .branch_compare_state
+                .as_ref()
+                .map(|state| state.base_branch.clone())
+                .unwrap_or_default();
+            Button::new(
+                "open-branch-diff-bottom",
+                translate_ui("Open Branch Diff View", cx),
+            )
+            .full_width()
+            .start_icon(
+                Icon::new(IconName::Diff)
+                    .size(IconSize::Small)
+                    .color(Color::Muted),
+            )
+            .style(ButtonStyle::OutlinedGhost)
+            .on_click(cx.listener(move |this, _, window, cx| {
+                if let Some(workspace) = this.workspace.upgrade() {
+                    let Some(repository) = this.get_repository(cx) else {
+                        return;
+                    };
+                    workspace.update(cx, |workspace, cx| {
+                        let project = workspace.project().clone();
+                        crate::branch_diff::BranchDiff::deploy_branch_diff_with_base_ref(
+                            workspace,
+                            project,
+                            repository,
+                            base_branch.clone(),
+                            window,
+                            cx,
+                        );
+                    });
+                }
+            }))
+        } else {
+            Button::new("view-commit", translate_ui("View Commit", cx))
+                .full_width()
+                .start_icon(
+                    Icon::new(IconName::GitCommit)
+                        .size(IconSize::Small)
+                        .color(Color::Muted),
+                )
+                .style(ButtonStyle::OutlinedGhost)
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.open_selected_commit_view(window, cx);
+                }))
+        };
+
         v_flex()
             .id("commit-detail-panel")
             .debug_selector({
@@ -3422,193 +4013,14 @@ impl GitGraph {
             .flex_basis(DefiniteLength::Fraction(
                 self.commit_details_split_state.read(cx).right_ratio(),
             ))
-            .child(
-                v_flex()
-                    .relative()
-                    .w_full()
-                    .p_2()
-                    .gap_2()
-                    .child(
-                        div().absolute().top_2().right_2().child(
-                            IconButton::new("close-detail", IconName::Close)
-                                .icon_size(IconSize::Small)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.selected_entry_idx = None;
-                                    this.selected_commit_diff = None;
-                                    this.selected_commit_diff_stats = None;
-                                    this.selected_commit_message = None;
-                                    this._selected_commit_message_task = None;
-                                    this.changed_files_expanded_dirs.clear();
-                                    this._commit_diff_task = None;
-                                    this.set_active_lineage(None, cx);
-                                    cx.notify();
-                                })),
-                        ),
-                    )
-                    .child(
-                        v_flex()
-                            .py_1()
-                            .w_full()
-                            .items_center()
-                            .child(avatar)
-                            .child(Label::new(author_name).mt_1p5())
-                            .child(
-                                Label::new(date_string)
-                                    .color(Color::Muted)
-                                    .size(LabelSize::Small),
-                            ),
-                    )
-                    .children((!ref_names.is_empty()).then(|| {
-                        h_flex().gap_1().flex_wrap().justify_center().children(
-                            ref_names.iter().map(|name| {
-                                let is_head = Self::is_head_ref(name.as_ref(), &head_branch_name);
-                                self.render_ref_chip(name, accent_color, is_head, selected_idx, cx)
-                            }),
-                        )
-                    }))
-                    .child(
-                        v_flex()
-                            .ml_neg_1()
-                            .gap_1p5()
-                            .when(!author_email.is_empty(), |this| {
-                                let copied_state: Entity<CopiedState> = window.use_keyed_state(
-                                    "author-email-copy",
-                                    cx,
-                                    CopiedState::new,
-                                );
-                                let is_copied = copied_state.read(cx).is_copied();
-
-                                let (icon, icon_color, tooltip_label) = if is_copied {
-                                    (IconName::Check, Color::Success, "Email Copied!")
-                                } else {
-                                    (IconName::Envelope, Color::Muted, "Copy Email")
-                                };
-
-                                let copy_email = author_email.clone();
-                                let author_email_for_tooltip = author_email.clone();
-
-                                this.child(
-                                    Button::new("author-email-copy", author_email.clone())
-                                        .start_icon(
-                                            Icon::new(icon).size(IconSize::Small).color(icon_color),
-                                        )
-                                        .label_size(LabelSize::Small)
-                                        .truncate(true)
-                                        .color(Color::Muted)
-                                        .tooltip(move |_, cx| {
-                                            Tooltip::with_meta(
-                                                tooltip_label,
-                                                None,
-                                                author_email_for_tooltip.clone(),
-                                                cx,
-                                            )
-                                        })
-                                        .on_click(move |_, _, cx| {
-                                            copied_state.update(cx, |state, _cx| {
-                                                state.mark_copied();
-                                            });
-                                            cx.write_to_clipboard(ClipboardItem::new_string(
-                                                copy_email.to_string(),
-                                            ));
-                                            let state_id = copied_state.entity_id();
-                                            cx.spawn(async move |cx| {
-                                                cx.background_executor()
-                                                    .timer(COPIED_STATE_DURATION)
-                                                    .await;
-                                                cx.update(|cx| {
-                                                    cx.notify(state_id);
-                                                })
-                                            })
-                                            .detach();
-                                        }),
-                                )
-                            })
-                            .child({
-                                let copy_sha = full_sha.clone();
-                                let copied_state: Entity<CopiedState> =
-                                    window.use_keyed_state("sha-copy", cx, CopiedState::new);
-                                let is_copied = copied_state.read(cx).is_copied();
-
-                                let (icon, icon_color, tooltip_label) = if is_copied {
-                                    (IconName::Check, Color::Success, "Commit SHA Copied!")
-                                } else {
-                                    (IconName::Hash, Color::Muted, "Copy Commit SHA")
-                                };
-
-                                Button::new("sha-button", &full_sha)
-                                    .start_icon(
-                                        Icon::new(icon).size(IconSize::Small).color(icon_color),
-                                    )
-                                    .label_size(LabelSize::Small)
-                                    .truncate(true)
-                                    .color(Color::Muted)
-                                    .tooltip({
-                                        let full_sha = full_sha.clone();
-                                        move |_, cx| {
-                                            Tooltip::with_meta(
-                                                tooltip_label,
-                                                None,
-                                                full_sha.clone(),
-                                                cx,
-                                            )
-                                        }
-                                    })
-                                    .on_click(move |_, _, cx| {
-                                        copied_state.update(cx, |state, _cx| {
-                                            state.mark_copied();
-                                        });
-                                        cx.write_to_clipboard(ClipboardItem::new_string(
-                                            copy_sha.to_string(),
-                                        ));
-                                        let state_id = copied_state.entity_id();
-                                        cx.spawn(async move |cx| {
-                                            cx.background_executor()
-                                                .timer(COPIED_STATE_DURATION)
-                                                .await;
-                                            cx.update(|cx| {
-                                                cx.notify(state_id);
-                                            })
-                                        })
-                                        .detach();
-                                    })
-                            })
-                            .when_some(remote.clone(), |this, remote| {
-                                let provider_name = remote.host.name();
-                                let icon = crate::get_provider_icon(provider_name.as_str());
-                                let parsed_remote = ParsedGitRemote {
-                                    owner: remote.owner.as_ref().into(),
-                                    repo: remote.repo.as_ref().into(),
-                                };
-                                let params = BuildCommitPermalinkParams {
-                                    sha: full_sha.as_ref(),
-                                };
-                                let url = remote
-                                    .host
-                                    .build_commit_permalink(&parsed_remote, params)
-                                    .to_string();
-
-                                this.child(
-                                    Button::new(
-                                        "view-on-provider",
-                                        format!("View on {}", provider_name),
-                                    )
-                                    .start_icon(
-                                        Icon::new(icon).size(IconSize::Small).color(Color::Muted),
-                                    )
-                                    .label_size(LabelSize::Small)
-                                    .truncate(true)
-                                    .color(Color::Muted)
-                                    .on_click(
-                                        move |_, _, cx| {
-                                            cx.open_url(&url);
-                                        },
-                                    ),
-                                )
-                            }),
-                    ),
-            )
-            .child(Divider::horizontal())
-            .child(self.render_commit_message(window, cx))
+            .when(is_in_compare_mode, |this| {
+                this.child(self.render_branch_compare_header(cx))
+            })
+            .child(upper_section)
+            .when(!is_branch_diff, |this| {
+                this.child(Divider::horizontal())
+                    .child(self.render_commit_message(window, cx))
+            })
             .child(Divider::horizontal())
             .child(
                 v_flex()
@@ -3654,109 +4066,118 @@ impl GitGraph {
                             .flex_1()
                             .min_h_0()
                             .child({
-                                let flat_entries = changed_file_entries;
-
-                                let entry_count = if is_tree_view {
-                                    tree_entries.len()
+                                if is_diff_loading {
+                                    v_flex()
+                                        .size_full()
+                                        .items_center()
+                                        .justify_center()
+                                        .gap_2()
+                                        .child(
+                                            Icon::new(IconName::ArrowCircle)
+                                                .size(IconSize::Medium)
+                                                .color(Color::Accent)
+                                                .with_rotate_animation(3),
+                                        )
+                                        .child(
+                                            Label::new(translate_ui("Loading…", cx))
+                                                .size(LabelSize::Small)
+                                                .color(Color::Muted),
+                                        )
+                                        .into_any_element()
                                 } else {
-                                    flat_entries.len()
-                                };
-                                let commit_sha = full_sha.clone();
-                                let repository = repository.downgrade();
-                                let workspace = self.workspace.clone();
-                                let git_graph = cx.weak_entity();
-                                let indent_tree_entries = tree_entries.clone();
+                                    let flat_entries = changed_file_entries;
 
-                                uniform_list(
-                                    "changed-files-list",
-                                    entry_count,
-                                    move |range, _window, cx| {
-                                        range
-                                            .map(|ix| {
-                                                if is_tree_view {
-                                                    match &tree_entries[ix] {
-                                                        ChangedFileTreeEntry::Directory(entry) => {
-                                                            entry.render(ix, git_graph.clone(), cx)
+                                    let entry_count = if is_tree_view {
+                                        tree_entries.len()
+                                    } else {
+                                        flat_entries.len()
+                                    };
+                                    let commit_sha = full_sha;
+                                    let repository = repository.downgrade();
+                                    let workspace = self.workspace.clone();
+                                    let git_graph = cx.weak_entity();
+                                    let indent_tree_entries = tree_entries.clone();
+
+                                    uniform_list(
+                                        "changed-files-list",
+                                        entry_count,
+                                        move |range, _window, cx| {
+                                            range
+                                                .map(|ix| {
+                                                    if is_tree_view {
+                                                        match &tree_entries[ix] {
+                                                            ChangedFileTreeEntry::Directory(entry) => {
+                                                                entry.render(ix, git_graph.clone(), cx)
+                                                            }
+                                                            ChangedFileTreeEntry::File(entry) => {
+                                                                entry.entry.render(
+                                                                    ix,
+                                                                    entry.depth,
+                                                                    None,
+                                                                    commit_sha.clone(),
+                                                                    repository.clone(),
+                                                                    workspace.clone(),
+                                                                    cx,
+                                                                )
+                                                            }
                                                         }
-                                                        ChangedFileTreeEntry::File(entry) => {
-                                                            entry.entry.render(
-                                                                ix,
-                                                                entry.depth,
-                                                                None,
-                                                                commit_sha.clone(),
-                                                                repository.clone(),
-                                                                workspace.clone(),
-                                                                cx,
-                                                            )
-                                                        }
+                                                    } else {
+                                                        let directory_label = (!flat_entries[ix]
+                                                            .dir_path
+                                                            .is_empty())
+                                                        .then(|| flat_entries[ix].dir_path.clone());
+                                                        flat_entries[ix].render(
+                                                            ix,
+                                                            0,
+                                                            directory_label,
+                                                            commit_sha.clone(),
+                                                            repository.clone(),
+                                                            workspace.clone(),
+                                                            cx,
+                                                        )
                                                     }
-                                                } else {
-                                                    let directory_label = (!flat_entries[ix]
-                                                        .dir_path
-                                                        .is_empty())
-                                                    .then(|| flat_entries[ix].dir_path.clone());
-                                                    flat_entries[ix].render(
-                                                        ix,
-                                                        0,
-                                                        directory_label,
-                                                        commit_sha.clone(),
-                                                        repository.clone(),
-                                                        workspace.clone(),
-                                                        cx,
-                                                    )
-                                                }
-                                            })
-                                            .collect()
-                                    },
-                                )
-                                .when(is_tree_view, |list| {
-                                    list.with_decoration(
-                                        ui::indent_guides(
-                                            px(TREE_INDENT),
-                                            IndentGuideColors::panel(cx),
-                                        )
-                                        .with_left_offset(
-                                            ui::LIST_ITEM_INDENT_GUIDE_LEFT_OFFSET - px(2.),
-                                        )
-                                        .with_compute_indents_fn(
-                                            cx.entity(),
-                                            move |_, range, _window, _cx| {
-                                                range
-                                                    .map(|ix| match indent_tree_entries.get(ix) {
-                                                        Some(ChangedFileTreeEntry::Directory(
-                                                            entry,
-                                                        )) => entry.depth,
-                                                        Some(ChangedFileTreeEntry::File(entry)) => {
-                                                            entry.depth
-                                                        }
-                                                        None => 0,
-                                                    })
-                                                    .collect()
-                                            },
-                                        ),
+                                                })
+                                                .collect()
+                                        },
                                     )
-                                })
-                                .size_full()
-                                .track_scroll(&self.changed_files_scroll_handle)
+                                    .when(is_tree_view, |list| {
+                                        list.with_decoration(
+                                            ui::indent_guides(
+                                                px(TREE_INDENT),
+                                                IndentGuideColors::panel(cx),
+                                            )
+                                            .with_left_offset(
+                                                ui::LIST_ITEM_INDENT_GUIDE_LEFT_OFFSET - px(2.),
+                                            )
+                                            .with_compute_indents_fn(
+                                                cx.entity(),
+                                                move |_, range, _window, _cx| {
+                                                    range
+                                                        .map(|ix| match indent_tree_entries.get(ix) {
+                                                            Some(ChangedFileTreeEntry::Directory(
+                                                                entry,
+                                                            )) => entry.depth,
+                                                            Some(ChangedFileTreeEntry::File(entry)) => {
+                                                                entry.depth
+                                                            }
+                                                            None => 0,
+                                                        })
+                                                        .collect()
+                                                },
+                                            ),
+                                        )
+                                    })
+                                    .size_full()
+                                    .track_scroll(&self.changed_files_scroll_handle)
+                                    .into_any_element()
+                                }
                             })
                             .vertical_scrollbar_for(&self.changed_files_scroll_handle, window, cx),
                     ),
             )
             .child(Divider::horizontal())
             .child(
-                h_flex().p_1p5().w_full().child(
-                    Button::new("view-commit", translate_ui("View Commit", cx))
-                        .full_width()
-                        .start_icon(
-                            Icon::new(IconName::GitCommit)
-                                .size(IconSize::Small)
-                                .color(Color::Muted),
-                        )
-                        .style(ButtonStyle::OutlinedGhost)
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.open_selected_commit_view(window, cx);
-                        })),
-                ),
+                h_flex().p_1p5().w_full().child(bottom_action),
             )
             .into_any_element()
     }
@@ -4683,10 +5104,13 @@ impl Render for GitGraph {
                         state.commit_ratio();
                     });
                 }))
-                .when(self.selected_entry_idx.is_some(), |this| {
-                    this.child(self.render_commit_view_resize_handle(window, cx))
-                        .child(self.render_commit_detail_panel(window, cx))
-                })
+                .when(
+                    self.selected_entry_idx.is_some() || self.branch_compare_state.is_some(),
+                    |this| {
+                        this.child(self.render_commit_view_resize_handle(window, cx))
+                            .child(self.render_commit_detail_panel(window, cx))
+                    },
+                )
         };
 
         div()
@@ -8787,6 +9211,10 @@ mod tests {
 
             assert_eq!(graph.visible_commit_count(), 5);
             assert!(graph.visible_commit_indices().is_none());
+            assert_eq!(
+                graph.compare_detail_mode(),
+                CompareDetailMode::BranchOverallDiff
+            );
 
             graph.toggle_filter_to_compared_only(cx);
             assert!(
@@ -8856,6 +9284,70 @@ mod tests {
         );
         cx.run_until_parked();
 
+        git_graph.read_with(&*cx, |graph, _| {
+            assert_eq!(
+                graph.compare_detail_mode(),
+                CompareDetailMode::SelectedCommit
+            );
+        });
+
+        git_graph.update(cx, |graph, cx| {
+            graph.overall_branch_diff = Some(CommitDiff {
+                files: vec![CommitFile {
+                    path: RepoPath::new("branch_diff_file.txt").expect("repository path should be valid"),
+                    old_text: Some("old".into()),
+                    new_text: Some("new".into()),
+                    is_binary: false,
+                }],
+            });
+            graph.overall_branch_diff_stats = Some((3, 2));
+            graph.set_compare_detail_mode(CompareDetailMode::BranchOverallDiff, cx);
+        });
+
+        cx.draw(
+            point(px(0.), px(0.)),
+            gpui::size(px(1200.), px(800.)),
+            |_, _| multi_workspace.clone().into_any_element(),
+        );
+        cx.run_until_parked();
+
+        git_graph.read_with(&*cx, |graph, _| {
+            assert_eq!(
+                graph.compare_detail_mode(),
+                CompareDetailMode::BranchOverallDiff
+            );
+            assert_eq!(
+                graph.overall_branch_diff().map(|diff| diff.files.len()),
+                Some(1)
+            );
+            assert_eq!(graph.overall_branch_diff_stats(), Some((3, 2)));
+        });
+
+        assert!(
+            cx.debug_bounds("commit-detail-panel-branch-diff").is_some(),
+            "commit detail panel should render overall branch diff in BranchOverallDiff mode"
+        );
+        assert!(
+            cx.debug_bounds("commit-detail-panel-4444444444444444444444444444444444444444").is_none(),
+            "commit detail panel should not render selected commit when in BranchOverallDiff mode"
+        );
+
+        git_graph.update(cx, |graph, cx| {
+            graph.set_compare_detail_mode(CompareDetailMode::SelectedCommit, cx);
+        });
+
+        cx.draw(
+            point(px(0.), px(0.)),
+            gpui::size(px(1200.), px(800.)),
+            |_, _| multi_workspace.clone().into_any_element(),
+        );
+        cx.run_until_parked();
+
+        assert!(
+            cx.debug_bounds("commit-detail-panel-4444444444444444444444444444444444444444").is_some(),
+            "commit detail panel should switch back to selected commit"
+        );
+
         git_graph.update_in(cx, |graph, window, cx| {
             graph.toggle_filter_to_compared_only(cx);
             assert!(
@@ -8885,6 +9377,9 @@ mod tests {
 
         git_graph.read_with(&*cx, |graph, _| {
             assert!(graph.branch_compare_state().is_none());
+            assert_eq!(graph.compare_detail_mode(), CompareDetailMode::SelectedCommit);
+            assert!(graph.overall_branch_diff().is_none());
+            assert!(graph.overall_branch_diff_stats().is_none());
         });
 
         git_graph.update(cx, |graph, cx| {
