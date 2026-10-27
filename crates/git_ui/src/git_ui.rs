@@ -362,23 +362,6 @@ pub fn init(cx: &mut App) {
         workspace.register_action(|workspace, _: &git::CopyBranchName, _, cx| {
             copy_branch_name(workspace, cx);
         });
-        workspace.register_action(
-            |workspace, action: &crate::git_graph::CompareBranchWithCurrent, window, cx| {
-                let Some(repo) = workspace.project().read(cx).active_repository(cx) else {
-                    return;
-                };
-                let repo_id = repo.read(cx).id;
-                let git_store = workspace.project().read(cx).git_store().clone();
-                crate::git_graph::open_or_reuse_graph_for_branch_compare(
-                    workspace,
-                    repo_id,
-                    git_store,
-                    action.base_branch.clone(),
-                    window,
-                    cx,
-                );
-            },
-        );
         workspace.register_action(show_ref_picker);
         workspace.register_action(
             |workspace, action: &DiffClipboardWithSelectionData, window, cx| {

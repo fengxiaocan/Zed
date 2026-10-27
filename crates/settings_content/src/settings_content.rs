@@ -510,6 +510,11 @@ impl UiLanguage {
                 "Jump to HEAD" => "跳转到 HEAD",
                 "Filter to Compared Only" => "仅显示对比提交",
                 "Exit Compare Mode" => "退出对比模式",
+                "Ahead" => "领先 (Ahead)",
+                "Behind" => "落后 (Behind)",
+                "Base" => "分叉基点",
+                "ahead" => "领先",
+                "behind" => "落后",
                 "Checkout Commit" => "检出提交",
                 "Checkout Commit…" => "检出此提交…",
                 "Checking out this commit will put the repository into a 'detached HEAD' state. You can inspect changes or make experimental commits." => {
@@ -2611,5 +2616,10 @@ mod ui_language_tests {
             "仅显示对比提交"
         );
         assert_eq!(language.translate("Exit Compare Mode"), "退出对比模式");
+        assert_eq!(language.translate("Ahead"), "领先 (Ahead)");
+        assert_eq!(language.translate("Behind"), "落后 (Behind)");
+        assert_eq!(language.translate("Base"), "分叉基点");
+        assert_eq!(language.translate("ahead"), "领先");
+        assert_eq!(language.translate("behind"), "落后");
     }
 }

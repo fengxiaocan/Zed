@@ -1843,6 +1843,7 @@ impl GitGraph {
     }
 
     pub fn exit_branch_compare(&mut self, cx: &mut Context<Self>) {
+        self.pending_branch_compare = None;
         self.branch_compare_state = None;
         self.compare_detail_mode = CompareDetailMode::default();
         self.overall_branch_diff = None;
@@ -2052,23 +2053,24 @@ impl GitGraph {
     pub fn render_compare_chip(&self, sha: &Oid, cx: &App) -> Option<Chip> {
         let badge = self.commit_compare_badge(sha)?;
         let status = cx.theme().status();
+        let label = translate_ui(badge.label(), cx);
         match badge {
             CommitCompareBadge::Ahead => Some(
-                Chip::new(badge.label())
+                Chip::new(label)
                     .label_size(LabelSize::Small)
                     .label_color(Color::Created)
                     .bg_color(status.created_background)
                     .border_color(status.created_border),
             ),
             CommitCompareBadge::Behind => Some(
-                Chip::new(badge.label())
+                Chip::new(label)
                     .label_size(LabelSize::Small)
                     .label_color(Color::Info)
                     .bg_color(status.info_background)
                     .border_color(status.info_border),
             ),
             CommitCompareBadge::Base => Some(
-                Chip::new(badge.label())
+                Chip::new(label)
                     .label_size(LabelSize::Small)
                     .label_color(Color::Hint)
                     .bg_color(status.hint_background)
@@ -2434,8 +2436,11 @@ impl GitGraph {
                 match event {
                     GitGraphEvent::FullyLoaded => {
                         self.refresh_branch_compare_state();
-                        if let Some(base_branch) = self.pending_branch_compare.clone() {
-                            self.compare_branch_with_current(base_branch, cx);
+                        if let Some(pending_base_branch) = self.pending_branch_compare.take() {
+                            self.compare_branch_with_current(pending_base_branch, cx);
+                            if self.branch_compare_state.is_none() {
+                                self.pending_branch_compare = None;
+                            }
                         }
                         if let Some(pending_sha_raw_index) =
                             self.pending_select_sha.take().and_then(|oid| {
@@ -9900,5 +9905,30 @@ mod tests {
             );
         });
         cx.run_until_parked();
+
+        git_graph.update(cx, |graph, cx| {
+            graph.compare_branch_with_current("nonexistent".into(), cx);
+            assert_eq!(graph.pending_branch_compare.as_deref(), Some("nonexistent"));
+            graph.exit_branch_compare(cx);
+            assert!(graph.pending_branch_compare.is_none());
+
+            graph.compare_branch_with_current("nonexistent".into(), cx);
+            assert_eq!(graph.pending_branch_compare.as_deref(), Some("nonexistent"));
+        });
+
+        let repository = project.read_with(&*cx, |project, cx| {
+            project.active_repository(cx).unwrap()
+        });
+        git_graph.update(cx, |graph, cx| {
+            graph.on_repository_event(
+                repository.clone(),
+                &RepositoryEvent::GraphEvent(
+                    (graph.log_source.clone(), graph.log_order),
+                    GitGraphEvent::FullyLoaded,
+                ),
+                cx,
+            );
+            assert!(graph.pending_branch_compare.is_none());
+        });
     }
 }
