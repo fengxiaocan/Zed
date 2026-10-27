@@ -1484,7 +1484,7 @@ pub struct GitGraph {
     changed_files_view_mode: ChangedFilesViewMode,
     changed_files_expanded_dirs: HashMap<RepoPath, bool>,
     pending_select_sha: Option<Oid>,
-    active_lineage: Option<HashSet<Oid>>,
+    active_lineage: Option<Arc<HashSet<Oid>>>,
     active_lineage_target: Option<Oid>,
 }
 
@@ -1501,7 +1501,7 @@ impl GitGraph {
         cx.notify();
     }
 
-    pub fn active_lineage(&self) -> Option<&HashSet<Oid>> {
+    pub fn active_lineage(&self) -> Option<&Arc<HashSet<Oid>>> {
         self.active_lineage.as_ref()
     }
 
@@ -1510,7 +1510,7 @@ impl GitGraph {
             return;
         }
         self.active_lineage_target = target;
-        self.active_lineage = target.map(|sha| self.graph_data.find_lineage(sha));
+        self.active_lineage = target.map(|sha| Arc::new(self.graph_data.find_lineage(sha)));
         cx.notify();
     }
 
@@ -1823,6 +1823,11 @@ impl GitGraph {
                             self.pending_select_sha.take();
                         }
 
+                        if let Some(target) = self.active_lineage_target {
+                            self.active_lineage =
+                                Some(Arc::new(self.graph_data.find_lineage(target)));
+                        }
+
                         cx.notify();
                     }
                 }
@@ -1856,6 +1861,9 @@ impl GitGraph {
                     .commits;
                 self.graph_data.add_commits(commits);
             });
+            if let Some(target) = self.active_lineage_target {
+                self.active_lineage = Some(Arc::new(self.graph_data.find_lineage(target)));
+            }
         }
     }
 
@@ -3855,6 +3863,10 @@ impl GitGraph {
                 } else {
                     (0, false)
                 };
+
+                if let Some(target) = self.active_lineage_target {
+                    self.active_lineage = Some(Arc::new(self.graph_data.find_lineage(target)));
+                }
 
                 (commit_count, is_loading)
             }
@@ -8106,7 +8118,8 @@ mod tests {
         git_graph.update(cx, |graph, cx| {
             graph.set_active_lineage(Some(c3), cx);
             assert_eq!(graph.active_lineage_target, Some(c3));
-            let lineage = graph.active_lineage.as_ref().expect("active lineage should be set");
+            assert_eq!(graph.active_lineage(), graph.active_lineage.as_ref());
+            let lineage = graph.active_lineage().expect("active lineage should be set");
             assert!(lineage.contains(&c1));
             assert!(lineage.contains(&c3));
             assert!(!lineage.contains(&c2));
@@ -8114,7 +8127,31 @@ mod tests {
 
             graph.set_active_lineage(None, cx);
             assert_eq!(graph.active_lineage, None);
+            assert_eq!(graph.active_lineage(), None);
             assert_eq!(graph.active_lineage_target, None);
+        });
+
+        let c5 = Oid::from_str("5555555555555555555555555555555555555555").unwrap();
+        git_graph.update(cx, |graph, cx| {
+            graph.set_active_lineage(Some(c2), cx);
+            let lineage = graph.active_lineage().expect("active lineage should be set");
+            assert!(!lineage.contains(&c5));
+
+            let incremental_commits = vec![Arc::new(InitialGraphCommitData {
+                sha: c5,
+                parents: smallvec![c4],
+                ref_names: vec![],
+            })];
+            graph.graph_data.add_commits(&incremental_commits);
+            if let Some(target) = graph.active_lineage_target {
+                graph.active_lineage = Some(Arc::new(graph.graph_data.find_lineage(target)));
+            }
+
+            let updated_lineage = graph.active_lineage().expect("active lineage should be recomputed");
+            assert!(updated_lineage.contains(&c5));
+            assert!(updated_lineage.contains(&c1));
+            assert!(updated_lineage.contains(&c2));
+            assert!(updated_lineage.contains(&c4));
         });
     }
 }
