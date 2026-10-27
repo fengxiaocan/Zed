@@ -274,7 +274,7 @@ impl ChangedFileEntry {
         ix: usize,
         depth: usize,
         directory_label: Option<SharedString>,
-        commit_sha: SharedString,
+        target: ChangedFileTarget,
         repository: WeakEntity<Repository>,
         workspace: WeakEntity<Workspace>,
         _cx: &App,
@@ -310,12 +310,38 @@ impl ChangedFileEntry {
             })
             .on_click({
                 let entry = self.clone();
-                move |_, window, cx| {
-                    entry.open_in_commit_view(&commit_sha, &repository, &workspace, window, cx);
+                move |_, window, cx| match &target {
+                    ChangedFileTarget::Commit(commit_sha) => {
+                        entry.open_in_commit_view(commit_sha, &repository, &workspace, window, cx);
+                    }
+                    ChangedFileTarget::BranchDiff { base_ref } => {
+                        if let (Some(workspace), Some(repository)) =
+                            (workspace.upgrade(), repository.upgrade())
+                        {
+                            let base_ref = base_ref.clone();
+                            workspace.update(cx, |workspace, cx| {
+                                let project = workspace.project().clone();
+                                crate::branch_diff::BranchDiff::deploy_branch_diff_with_base_ref(
+                                    workspace,
+                                    project,
+                                    repository,
+                                    base_ref,
+                                    window,
+                                    cx,
+                                );
+                            });
+                        }
+                    }
                 }
             })
             .into_any_element()
     }
+}
+
+#[derive(Clone)]
+enum ChangedFileTarget {
+    Commit(SharedString),
+    BranchDiff { base_ref: SharedString },
 }
 
 enum ChangedFileTreeEntry {
@@ -1695,8 +1721,18 @@ impl GitGraph {
         });
 
         self._overall_branch_diff_task = Some(cx.spawn(async move |this, cx| {
-            let result = diff_receiver.await;
-            if let Ok(Ok(tree_diff)) = result {
+            let tree_diff = match diff_receiver.await {
+                Ok(Ok(tree_diff)) => Some(tree_diff),
+                Ok(Err(err)) => {
+                    log::error!("failed to compute branch overall diff: {err:#}");
+                    None
+                }
+                Err(err) => {
+                    log::error!("overall branch diff task failed or was cancelled: {err:#}");
+                    None
+                }
+            };
+            if let Some(tree_diff) = tree_diff {
                 this.update(cx, |this, cx| {
                     let mut files: Vec<CommitFile> = tree_diff
                         .entries
@@ -2599,9 +2635,34 @@ impl GitGraph {
     }
 
     fn cancel(&mut self, _: &Cancel, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.branch_compare_state.is_some() {
+            if self.selected_entry_idx.is_some() {
+                self.selected_entry_idx = None;
+                self.selected_commit_diff = None;
+                self.selected_commit_diff_stats = None;
+                self.selected_commit_message = None;
+                self._selected_commit_message_task = None;
+                self._commit_diff_task = None;
+                self.compare_detail_mode = CompareDetailMode::BranchOverallDiff;
+                self.changed_files_expanded_dirs.clear();
+                self.set_active_lineage(None, cx);
+                if self.overall_branch_diff.is_none() {
+                    self.fetch_overall_branch_diff(cx);
+                }
+                cx.emit(ItemEvent::Edit);
+                cx.notify();
+            } else {
+                self.exit_branch_compare(cx);
+            }
+            return;
+        }
+
         self.selected_entry_idx = None;
         self.selected_commit_diff = None;
         self.selected_commit_diff_stats = None;
+        self.selected_commit_message = None;
+        self._selected_commit_message_task = None;
+        self._commit_diff_task = None;
         self.compare_detail_mode = CompareDetailMode::default();
         self.overall_branch_diff = None;
         self.overall_branch_diff_stats = None;
@@ -3434,7 +3495,11 @@ impl GitGraph {
 
         let is_branch_diff = self.compare_detail_mode == CompareDetailMode::BranchOverallDiff
             || self.selected_entry_idx.is_none();
-        let base_branch = compare_state.base_branch.clone();
+        let base_ref = if compare_state.base_branch.is_empty() {
+            compare_state.base_sha.to_string().into()
+        } else {
+            compare_state.base_branch.clone()
+        };
 
         v_flex()
             .w_full()
@@ -3521,7 +3586,7 @@ impl GitGraph {
                                                 workspace,
                                                 project,
                                                 repository,
-                                                base_branch.clone(),
+                                                base_ref.clone(),
                                                 window,
                                                 cx,
                                             );
@@ -3953,10 +4018,16 @@ impl GitGraph {
         };
 
         let bottom_action = if is_branch_diff {
-            let base_branch = self
+            let base_ref = self
                 .branch_compare_state
                 .as_ref()
-                .map(|state| state.base_branch.clone())
+                .map(|state| {
+                    if state.base_branch.is_empty() {
+                        state.base_sha.to_string().into()
+                    } else {
+                        state.base_branch.clone()
+                    }
+                })
                 .unwrap_or_default();
             Button::new(
                 "open-branch-diff-bottom",
@@ -3980,7 +4051,7 @@ impl GitGraph {
                             workspace,
                             project,
                             repository,
-                            base_branch.clone(),
+                            base_ref.clone(),
                             window,
                             cx,
                         );
@@ -4054,11 +4125,22 @@ impl GitGraph {
                                     .child(Divider::vertical())
                                     .child(view_toggle),
                             )
-                            .child(DiffStat::new(
-                                "commit-diff-stat",
-                                total_lines_added,
-                                total_lines_removed,
-                            )),
+                            .when(
+                                !(is_branch_diff
+                                    && total_lines_added == 0
+                                    && total_lines_removed == 0),
+                                |this| {
+                                    this.child(
+                                        div()
+                                            .debug_selector(|| "commit-diff-stat".into())
+                                            .child(DiffStat::new(
+                                                "commit-diff-stat",
+                                                total_lines_added,
+                                                total_lines_removed,
+                                            )),
+                                    )
+                                },
+                            ),
                     )
                     .child(
                         div()
@@ -4092,7 +4174,22 @@ impl GitGraph {
                                     } else {
                                         flat_entries.len()
                                     };
-                                    let commit_sha = full_sha;
+                                    let file_target = if is_branch_diff {
+                                        let base_ref = self
+                                            .branch_compare_state
+                                            .as_ref()
+                                            .map(|state| {
+                                                if state.base_branch.is_empty() {
+                                                    state.base_sha.to_string().into()
+                                                } else {
+                                                    state.base_branch.clone()
+                                                }
+                                            })
+                                            .unwrap_or_default();
+                                        ChangedFileTarget::BranchDiff { base_ref }
+                                    } else {
+                                        ChangedFileTarget::Commit(full_sha)
+                                    };
                                     let repository = repository.downgrade();
                                     let workspace = self.workspace.clone();
                                     let git_graph = cx.weak_entity();
@@ -4114,7 +4211,7 @@ impl GitGraph {
                                                                     ix,
                                                                     entry.depth,
                                                                     None,
-                                                                    commit_sha.clone(),
+                                                                    file_target.clone(),
                                                                     repository.clone(),
                                                                     workspace.clone(),
                                                                     cx,
@@ -4130,7 +4227,7 @@ impl GitGraph {
                                                             ix,
                                                             0,
                                                             directory_label,
-                                                            commit_sha.clone(),
+                                                            file_target.clone(),
                                                             repository.clone(),
                                                             workspace.clone(),
                                                             cx,
@@ -9348,7 +9445,88 @@ mod tests {
             "commit detail panel should switch back to selected commit"
         );
 
+        // Escape (Cancel) with selected commit in compare mode switches back to BranchOverallDiff
         git_graph.update_in(cx, |graph, window, cx| {
+            graph.cancel(&Cancel, window, cx);
+        });
+        cx.draw(
+            point(px(0.), px(0.)),
+            gpui::size(px(1200.), px(800.)),
+            |_, _| multi_workspace.clone().into_any_element(),
+        );
+        cx.run_until_parked();
+
+        git_graph.read_with(&*cx, |graph, _| {
+            assert!(graph.branch_compare_state().is_some());
+            assert_eq!(graph.selected_entry_idx, None);
+            assert_eq!(
+                graph.compare_detail_mode(),
+                CompareDetailMode::BranchOverallDiff
+            );
+            assert!(graph.overall_branch_diff().is_some());
+        });
+
+        // Escape (Cancel) with no selected commit exits compare mode
+        git_graph.update_in(cx, |graph, window, cx| {
+            graph.cancel(&Cancel, window, cx);
+        });
+        cx.draw(
+            point(px(0.), px(0.)),
+            gpui::size(px(1200.), px(800.)),
+            |_, _| multi_workspace.clone().into_any_element(),
+        );
+        cx.run_until_parked();
+
+        git_graph.read_with(&*cx, |graph, _| {
+            assert!(graph.branch_compare_state().is_none());
+            assert!(graph.overall_branch_diff().is_none());
+        });
+
+        // Test diffstat badge rendering in BranchOverallDiff mode
+        git_graph.update(cx, |graph, cx| {
+            graph.enter_branch_compare("main".into(), "feature".into(), c4, c3, cx);
+            graph._overall_branch_diff_task = None;
+            graph.overall_branch_diff = Some(CommitDiff { files: vec![] });
+            graph.overall_branch_diff_stats = Some((0, 0));
+            graph.set_compare_detail_mode(CompareDetailMode::BranchOverallDiff, cx);
+        });
+        cx.draw(
+            point(px(0.), px(0.)),
+            gpui::size(px(1200.), px(800.)),
+            |_, _| multi_workspace.clone().into_any_element(),
+        );
+        cx.run_until_parked();
+
+        assert!(
+            cx.debug_bounds("commit-diff-stat").is_none(),
+            "DiffStat should not be rendered in BranchOverallDiff mode when stats are (0, 0)"
+        );
+
+        git_graph.update(cx, |graph, cx| {
+            graph._overall_branch_diff_task = None;
+            graph.overall_branch_diff_stats = Some((5, 2));
+            cx.notify();
+        });
+        cx.draw(
+            point(px(0.), px(0.)),
+            gpui::size(px(1200.), px(800.)),
+            |_, _| multi_workspace.clone().into_any_element(),
+        );
+        cx.run_until_parked();
+
+        assert!(
+            cx.debug_bounds("commit-diff-stat").is_some(),
+            "DiffStat should be rendered in BranchOverallDiff mode when stats are non-zero"
+        );
+
+        git_graph.update_in(cx, |graph, window, cx| {
+            graph.toggle_filter_to_compared_only(cx);
+            assert!(
+                graph
+                    .branch_compare_state()
+                    .expect("compare state should be set")
+                    .filter_to_compared_only
+            );
             graph.toggle_filter_to_compared_only(cx);
             assert!(
                 !graph
