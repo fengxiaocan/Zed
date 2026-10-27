@@ -965,15 +965,9 @@ impl GraphData {
             }
             self.lane_states
                 .iter()
-                .enumerate()
                 .skip(1)
-                .find_map(|(lane_index, state)| {
-                    if state.is_empty() {
-                        Some(lane_index)
-                    } else {
-                        None
-                    }
-                })
+                .position(LaneState::is_empty)
+                .map(|index| index + 1)
                 .unwrap_or_else(|| {
                     self.lane_states.push(LaneState::Empty);
                     self.lane_states.len() - 1
@@ -995,11 +989,8 @@ impl GraphData {
         self.lines.reserve(commits.len() / 2);
         self.oid_to_index.reserve(commits.len());
 
-        let contains_head = commits.iter().any(|commit| is_head_commit(commit));
-        if contains_head {
+        if commits.iter().any(|commit| is_head_commit(commit)) {
             self.head_seen = true;
-        } else if !self.head_seen && self.commits.is_empty() && !commits.is_empty() {
-            self.trunk_shas.insert(commits[0].sha);
         }
 
         for commit in commits.iter() {
@@ -5186,7 +5177,7 @@ mod tests {
                     .iter()
                     .enumerate()
                     .skip(1)
-                    .find_map(|(idx, p)| if p.is_none() { Some(idx) } else { None })
+                    .find_map(|(lane_index, parent)| if parent.is_none() { Some(lane_index) } else { None })
                 {
                     empty_lane
                 } else {
@@ -7847,6 +7838,7 @@ mod tests {
         ];
 
         graph_data.add_commits(&commits);
+        verify_all_invariants(&graph_data, &commits).unwrap();
 
         let c4_entry = graph_data.commits.iter().find(|c| c.data.sha == c4).unwrap();
         let c2_entry = graph_data.commits.iter().find(|c| c.data.sha == c2).unwrap();
@@ -7891,6 +7883,57 @@ mod tests {
         ];
 
         graph_data.add_commits(&commits);
+        verify_all_invariants(&graph_data, &commits).unwrap();
+
+        let c4_entry = graph_data.commits.iter().find(|c| c.data.sha == c4).unwrap();
+        let c2_entry = graph_data.commits.iter().find(|c| c.data.sha == c2).unwrap();
+        let c1_entry = graph_data.commits.iter().find(|c| c.data.sha == c1).unwrap();
+        assert_eq!(c4_entry.lane, 0, "HEAD commit should be on lane 0");
+        assert_eq!(c2_entry.lane, 0, "Trunk commit c2 should be on lane 0");
+        assert_eq!(c1_entry.lane, 0, "Root trunk commit c1 should be on lane 0");
+
+        let c3_entry = graph_data.commits.iter().find(|c| c.data.sha == c3).unwrap();
+        assert_eq!(c3_entry.lane, 1, "Side branch c3 should be on lane 1");
+    }
+
+    #[gpui::test]
+    fn test_lane_0_head_priority_multichunk_head_in_second_chunk() {
+        let mut graph_data = GraphData::new(8);
+        let c1 = Oid::from_str("1111111111111111111111111111111111111111").unwrap();
+        let c2 = Oid::from_str("2222222222222222222222222222222222222222").unwrap();
+        let c3 = Oid::from_str("3333333333333333333333333333333333333333").unwrap();
+        let c4 = Oid::from_str("4444444444444444444444444444444444444444").unwrap();
+
+        let chunk1 = vec![Arc::new(InitialGraphCommitData {
+            sha: c3,
+            parents: smallvec![c1],
+            ref_names: vec!["refs/heads/feature".into()],
+        })];
+
+        let chunk2 = vec![
+            Arc::new(InitialGraphCommitData {
+                sha: c4,
+                parents: smallvec![c2],
+                ref_names: vec!["HEAD".into(), "refs/heads/main".into()],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c2,
+                parents: smallvec![c1],
+                ref_names: vec![],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c1,
+                parents: smallvec![],
+                ref_names: vec![],
+            }),
+        ];
+
+        graph_data.add_commits(&chunk1);
+        graph_data.add_commits(&chunk2);
+
+        let mut all_commits = chunk1;
+        all_commits.extend(chunk2);
+        verify_all_invariants(&graph_data, &all_commits).unwrap();
 
         let c4_entry = graph_data.commits.iter().find(|c| c.data.sha == c4).unwrap();
         let c2_entry = graph_data.commits.iter().find(|c| c.data.sha == c2).unwrap();
