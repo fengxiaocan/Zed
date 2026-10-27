@@ -57,6 +57,7 @@ pub(crate) fn commit_context_menu(
         None => format!("{} {sha_short}", translate_ui("Commit", cx)),
     };
     let view_diff_label = translate_ui("View Diff", cx);
+    let compare_with_current_branch_label = translate_ui("Compare with Current Branch", cx);
     let checkout_commit_label = translate_ui("Checkout Commit…", cx);
     let new_branch_label = translate_ui("New Branch from Commit…", cx);
     let new_tag_label = translate_ui("New Tag on Commit…", cx);
@@ -67,6 +68,31 @@ pub(crate) fn commit_context_menu(
     let show_in_git_graph_label = translate_ui("Show in Git Graph", cx);
     let custom_commands_label = translate_ui("Custom Commands", cx);
     let learn_more_label = translate_ui("Learn More", cx);
+
+    let is_head = ref_name.as_ref().map_or(false, |name| {
+        if name == "HEAD" || name.starts_with("HEAD -> ") {
+            return true;
+        }
+        let clean_name = name
+            .strip_prefix("HEAD -> ")
+            .or_else(|| name.strip_prefix("tag: "))
+            .or_else(|| name.strip_prefix("refs/heads/"))
+            .unwrap_or(name.as_ref());
+        if clean_name == "HEAD" {
+            return true;
+        }
+        let head_branch_name = repository
+            .as_ref()
+            .and_then(|repo| repo.upgrade())
+            .and_then(|repo| {
+                repo.read(cx)
+                    .snapshot()
+                    .branch
+                    .as_ref()
+                    .map(|branch| SharedString::from(branch.name().to_string()))
+            });
+        head_branch_name.as_ref().map_or(false, |head| clean_name == head.as_ref())
+    });
 
     ContextMenu::build(window, cx, move |context_menu, _, _| {
         context_menu
@@ -89,6 +115,44 @@ pub(crate) fn commit_context_menu(
                         cx,
                     );
                 }
+            })
+            .when(ref_name.is_some() && !is_head, |menu| {
+                let target_ref = ref_name.clone();
+                let repository = repository.clone();
+                let workspace = workspace.clone();
+                menu.entry(
+                    compare_with_current_branch_label,
+                    target_ref.as_ref().map(|target_ref| {
+                        crate::git_graph::CompareBranchWithCurrent {
+                            base_branch: target_ref.clone(),
+                        }
+                        .boxed_clone()
+                    }),
+                    move |window, cx| {
+                        let Some(target_ref) = target_ref.clone() else {
+                            return;
+                        };
+                        if let Some(workspace) = workspace.upgrade() {
+                            workspace.update(cx, |workspace, cx| {
+                                let Some(repo) =
+                                    repository.as_ref().and_then(|repo| repo.upgrade())
+                                else {
+                                    return;
+                                };
+                                let repo_id = repo.read(cx).id;
+                                let git_store = workspace.project().read(cx).git_store().clone();
+                                crate::git_graph::open_or_reuse_graph_for_branch_compare(
+                                    workspace,
+                                    repo_id,
+                                    git_store,
+                                    target_ref,
+                                    window,
+                                    cx,
+                                );
+                            });
+                        }
+                    },
+                )
             })
             .entry(checkout_commit_label, None, {
                 let repository = repository.clone();

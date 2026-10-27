@@ -1,3 +1,4 @@
+use std::str::FromStr;
 pub use crate::commit_context_menu::{CopyCommitSha, CopyCommitTag, OpenCommitView};
 use crate::{
     commit_context_menu::{CommitContextMenuData, CommitContextMenuSource, commit_context_menu},
@@ -630,6 +631,13 @@ actions!(
 #[action(namespace = git_graph)]
 pub struct OpenAtCommit {
     pub sha: String,
+}
+
+/// Compares a branch with the current branch in the Git Graph.
+#[derive(Clone, PartialEq, serde::Deserialize, schemars::JsonSchema, gpui::Action)]
+#[action(namespace = git_graph)]
+pub struct CompareBranchWithCurrent {
+    pub base_branch: SharedString,
 }
 
 fn timestamp_format() -> &'static [BorrowedFormatItem<'static>] {
@@ -1362,23 +1370,52 @@ pub fn init(cx: &mut App) {
                                 .ok();
                         }
                     })
-                    .on_action(move |action: &OpenAtCommit, window, cx| {
-                        let sha = action.sha.clone();
+                    .on_action({
+                        let workspace = workspace.clone();
+                        move |action: &OpenAtCommit, window, cx| {
+                            let sha = action.sha.clone();
+                            workspace
+                                .update(cx, |workspace, cx| {
+                                    let Some(repo) =
+                                        workspace.project().read(cx).active_repository(cx)
+                                    else {
+                                        return;
+                                    };
+                                    let selected_repo_id = repo.read(cx).id;
+
+                                    let git_store =
+                                        workspace.project().read(cx).git_store().clone();
+                                    open_or_reuse_graph(
+                                        workspace,
+                                        selected_repo_id,
+                                        git_store,
+                                        LogSource::All,
+                                        Some(sha),
+                                        window,
+                                        cx,
+                                    );
+                                })
+                                .ok();
+                        }
+                    })
+                    .on_action(move |action: &CompareBranchWithCurrent, window, cx| {
+                        let base_branch = action.base_branch.clone();
                         workspace
                             .update(cx, |workspace, cx| {
-                                let Some(repo) = workspace.project().read(cx).active_repository(cx)
+                                let Some(repo) =
+                                    workspace.project().read(cx).active_repository(cx)
                                 else {
                                     return;
                                 };
                                 let selected_repo_id = repo.read(cx).id;
 
-                                let git_store = workspace.project().read(cx).git_store().clone();
-                                open_or_reuse_graph(
+                                let git_store =
+                                    workspace.project().read(cx).git_store().clone();
+                                open_or_reuse_graph_for_branch_compare(
                                     workspace,
                                     selected_repo_id,
                                     git_store,
-                                    LogSource::All,
-                                    Some(sha),
+                                    base_branch,
                                     window,
                                     cx,
                                 );
@@ -1449,7 +1486,7 @@ pub fn open_or_reuse_graph(
     sha: Option<String>,
     window: &mut Window,
     cx: &mut Context<Workspace>,
-) {
+) -> Entity<GitGraph> {
     let existing = workspace.items_of_type::<GitGraph>(cx).find(|graph| {
         let graph = graph.read(cx);
         graph.repo_id == repo_id && graph.log_source == log_source
@@ -1475,12 +1512,38 @@ pub fn open_or_reuse_graph(
     };
 
     if let Some(sha) = sha {
+        let graph_handle = git_graph.clone();
         cx.defer(move |cx| {
-            git_graph.update(cx, |graph, cx| {
+            graph_handle.update(cx, |graph, cx| {
                 graph.select_commit_by_sha(sha.as_str(), cx);
             });
         });
     }
+
+    git_graph
+}
+
+pub fn open_or_reuse_graph_for_branch_compare(
+    workspace: &mut Workspace,
+    repo_id: RepositoryId,
+    git_store: Entity<GitStore>,
+    base_branch: SharedString,
+    window: &mut Window,
+    cx: &mut Context<Workspace>,
+) {
+    let git_graph = open_or_reuse_graph(
+        workspace,
+        repo_id,
+        git_store,
+        LogSource::All,
+        None,
+        window,
+        cx,
+    );
+
+    git_graph.update(cx, |graph, cx| {
+        graph.compare_branch_with_current(base_branch, cx);
+    });
 }
 
 fn lane_center_x(bounds: Bounds<Pixels>, lane: f32) -> Pixels {
@@ -1583,6 +1646,7 @@ pub struct GitGraph {
     changed_files_view_mode: ChangedFilesViewMode,
     changed_files_expanded_dirs: HashMap<RepoPath, bool>,
     pending_select_sha: Option<Oid>,
+    pending_branch_compare: Option<SharedString>,
     active_lineage: Option<Arc<HashSet<Oid>>>,
     active_lineage_target: Option<Oid>,
     branch_compare_state: Option<BranchCompareState>,
@@ -1601,6 +1665,7 @@ impl GitGraph {
         self.context_menu = None;
         self.active_lineage = None;
         self.active_lineage_target = None;
+        self.pending_branch_compare = None;
         self.branch_compare_state = None;
         self.compare_detail_mode = CompareDetailMode::default();
         self.overall_branch_diff = None;
@@ -1651,6 +1716,130 @@ impl GitGraph {
         }
         self.fetch_overall_branch_diff(cx);
         cx.notify();
+    }
+
+    pub fn compare_branch_with_current(
+        &mut self,
+        base_branch: SharedString,
+        cx: &mut Context<Self>,
+    ) {
+        let repository = self.get_repository(cx);
+        let snapshot = repository.as_ref().map(|repo| repo.read(cx).snapshot());
+
+        let target_branch = snapshot
+            .as_ref()
+            .and_then(|snapshot| {
+                snapshot
+                    .branch
+                    .as_ref()
+                    .map(|branch| SharedString::from(branch.name().to_string()))
+                    .or_else(|| {
+                        snapshot
+                            .branch_list
+                            .iter()
+                            .find(|branch| branch.is_head)
+                            .map(|branch| SharedString::from(branch.name().to_string()))
+                    })
+            })
+            .or_else(|| {
+                self.graph_data.commits.iter().find_map(|commit| {
+                    commit.data.ref_names.iter().find_map(|ref_name| {
+                        ref_name
+                            .strip_prefix("HEAD -> ")
+                            .map(|name| SharedString::from(name.to_string()))
+                    })
+                })
+            })
+            .unwrap_or_else(|| SharedString::from("HEAD"));
+
+        let target_sha = self
+            .graph_data
+            .commits
+            .iter()
+            .find_map(|commit| {
+                if commit
+                    .data
+                    .ref_names
+                    .iter()
+                    .any(|ref_name| ref_name == "HEAD" || ref_name.starts_with("HEAD -> "))
+                {
+                    Some(commit.data.sha)
+                } else {
+                    None
+                }
+            })
+            .or_else(|| {
+                snapshot.as_ref().and_then(|snapshot| {
+                    snapshot
+                        .head_commit
+                        .as_ref()
+                        .and_then(|commit| Oid::from_str(&commit.sha).ok())
+                        .or_else(|| {
+                            snapshot
+                                .branch
+                                .as_ref()
+                                .and_then(|branch| branch.most_recent_commit.as_ref())
+                                .and_then(|commit| Oid::from_str(&commit.sha).ok())
+                        })
+                        .or_else(|| {
+                            snapshot
+                                .branch_list
+                                .iter()
+                                .find(|branch| branch.is_head)
+                                .and_then(|branch| branch.most_recent_commit.as_ref())
+                                .and_then(|commit| Oid::from_str(&commit.sha).ok())
+                        })
+                })
+            })
+            .or_else(|| self.graph_data.commits.first().map(|commit| commit.data.sha));
+
+        let base_sha = snapshot
+            .as_ref()
+            .and_then(|snapshot| {
+                snapshot
+                    .branch_list
+                    .iter()
+                    .find(|branch| {
+                        branch.name() == base_branch.as_ref()
+                            || branch.ref_name.as_ref() == base_branch.as_ref()
+                            || branch.name()
+                                == base_branch
+                                    .strip_prefix("refs/heads/")
+                                    .unwrap_or(&base_branch)
+                            || branch.name()
+                                == base_branch
+                                    .strip_prefix("refs/remotes/")
+                                    .unwrap_or(&base_branch)
+                    })
+                    .and_then(|branch| branch.most_recent_commit.as_ref())
+                    .and_then(|commit| Oid::from_str(&commit.sha).ok())
+            })
+            .or_else(|| Oid::from_str(&base_branch).ok())
+            .or_else(|| {
+                self.graph_data.commits.iter().find_map(|commit| {
+                    let matches = commit.data.ref_names.iter().any(|ref_name| {
+                        ref_name.as_ref() == base_branch.as_ref()
+                            || ref_name.strip_prefix("tag: ") == Some(base_branch.as_ref())
+                            || ref_name.strip_prefix("HEAD -> ") == Some(base_branch.as_ref())
+                            || ref_name.strip_prefix("refs/heads/") == Some(base_branch.as_ref())
+                            || ref_name.strip_prefix("refs/remotes/") == Some(base_branch.as_ref())
+                            || Self::ref_name_from_decoration(ref_name.as_ref()).as_ref()
+                                == Some(&base_branch)
+                    });
+                    if matches {
+                        Some(commit.data.sha)
+                    } else {
+                        None
+                    }
+                })
+            });
+
+        if let (Some(target_sha), Some(base_sha)) = (target_sha, base_sha) {
+            self.pending_branch_compare = None;
+            self.enter_branch_compare(base_branch, target_branch, base_sha, target_sha, cx);
+        } else {
+            self.pending_branch_compare = Some(base_branch);
+        }
     }
 
     pub fn exit_branch_compare(&mut self, cx: &mut Context<Self>) {
@@ -2218,6 +2407,7 @@ impl GitGraph {
             changed_files_view_mode: ChangedFilesViewMode::default(),
             changed_files_expanded_dirs: HashMap::default(),
             pending_select_sha: None,
+            pending_branch_compare: None,
             active_lineage: None,
             active_lineage_target: None,
             branch_compare_state: None,
@@ -2244,6 +2434,9 @@ impl GitGraph {
                 match event {
                     GitGraphEvent::FullyLoaded => {
                         self.refresh_branch_compare_state();
+                        if let Some(base_branch) = self.pending_branch_compare.clone() {
+                            self.compare_branch_with_current(base_branch, cx);
+                        }
                         if let Some(pending_sha_raw_index) =
                             self.pending_select_sha.take().and_then(|oid| {
                                 repository
@@ -2308,6 +2501,9 @@ impl GitGraph {
                                 Some(Arc::new(self.graph_data.find_lineage(target)));
                         }
                         self.refresh_branch_compare_state();
+                        if let Some(base_branch) = self.pending_branch_compare.clone() {
+                            self.compare_branch_with_current(base_branch, cx);
+                        }
 
                         if let Some(raw_index) = pending_selection_raw_index {
                             let display_index = if let Some(indices) = self.visible_commit_indices() {
@@ -8972,6 +9168,8 @@ mod tests {
                 ref_names: vec![],
             }),
         ];
+        fs.set_branch_name(Path::new("/project/.git"), Some("feature"));
+        fs.set_head_for_repo(Path::new("/project/.git"), &[], c3.to_string());
         fs.set_graph_commits(Path::new("/project/.git"), commits);
 
         let project = Project::test(fs.clone(), [Path::new("/project")], cx).await;
@@ -9207,6 +9405,8 @@ mod tests {
                 ref_names: vec![],
             }),
         ];
+        fs.set_branch_name(Path::new("/project/.git"), Some("feature"));
+        fs.set_head_for_repo(Path::new("/project/.git"), &[], c3.to_string());
         fs.set_graph_commits(Path::new("/project/.git"), commits);
         fs.set_commit_data(
             Path::new("/project/.git"),
@@ -9568,5 +9768,137 @@ mod tests {
             graph.invalidate_state(cx);
             assert!(graph.branch_compare_state().is_none());
         });
+    }
+
+    #[gpui::test]
+    async fn test_open_or_reuse_graph_for_branch_compare(cx: &mut TestAppContext) {
+        init_test(cx);
+
+        let fs = FakeFs::new(cx.executor());
+        fs.insert_tree(
+            Path::new("/project"),
+            serde_json::json!({
+                ".git": {},
+                "file.txt": "content",
+            }),
+        )
+        .await;
+
+        let c1 = Oid::from_str("1111111111111111111111111111111111111111").unwrap();
+        let c2 = Oid::from_str("2222222222222222222222222222222222222222").unwrap();
+        let c3 = Oid::from_str("3333333333333333333333333333333333333333").unwrap();
+        let c4 = Oid::from_str("4444444444444444444444444444444444444444").unwrap();
+
+        let commits = vec![
+            Arc::new(InitialGraphCommitData {
+                sha: c3,
+                parents: smallvec![c2],
+                ref_names: vec!["HEAD -> feature".into()],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c4,
+                parents: smallvec![c1],
+                ref_names: vec!["refs/heads/main".into()],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c2,
+                parents: smallvec![c1],
+                ref_names: vec![],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c1,
+                parents: smallvec![],
+                ref_names: vec![],
+            }),
+        ];
+        fs.set_branch_name(Path::new("/project/.git"), Some("feature"));
+        fs.set_head_for_repo(Path::new("/project/.git"), &[], c3.to_string());
+        fs.set_graph_commits(Path::new("/project/.git"), commits);
+
+        let project = Project::test(fs.clone(), [Path::new("/project")], cx).await;
+        cx.run_until_parked();
+
+        let repository = project.read_with(cx, |project, cx| {
+            project
+                .active_repository(cx)
+                .expect("should have a repository")
+        });
+
+        let (multi_workspace, cx) = cx.add_window_view(|window, cx| {
+            workspace::MultiWorkspace::test_new(project.clone(), window, cx)
+        });
+
+        let workspace = multi_workspace.read_with(&*cx, |multi, _| multi.workspace().clone());
+
+        workspace.update_in(cx, |workspace, window, cx| {
+            open_or_reuse_graph_for_branch_compare(
+                workspace,
+                repository.read(cx).id,
+                project.read(cx).git_store().clone(),
+                "main".into(),
+                window,
+                cx,
+            );
+        });
+        cx.run_until_parked();
+
+        let git_graph = workspace.read_with(&*cx, |workspace, cx| {
+            workspace
+                .items_of_type::<GitGraph>(cx)
+                .next()
+                .expect("GitGraph should be opened")
+        });
+
+        git_graph.read_with(&*cx, |graph, _| {
+            let state = graph
+                .branch_compare_state()
+                .expect("compare state should be set");
+            assert_eq!(state.base_branch, "main");
+            assert_eq!(state.target_branch, "feature");
+            assert_eq!(state.base_sha, c4);
+            assert_eq!(state.target_sha, c3);
+            assert!(state.ahead_commits.contains(&c3));
+            assert!(state.behind_commits.contains(&c4));
+        });
+
+        git_graph.update(cx, |graph, cx| {
+            graph.exit_branch_compare(cx);
+            assert!(graph.branch_compare_state().is_none());
+        });
+
+        workspace.update_in(cx, |_, window, cx| {
+            window.dispatch_action(
+                Box::new(CompareBranchWithCurrent {
+                    base_branch: "main".into(),
+                }),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+
+        git_graph.read_with(&*cx, |graph, _| {
+            let state = graph
+                .branch_compare_state()
+                .expect("compare state should be set via action");
+            assert_eq!(state.base_branch, "main");
+            assert_eq!(state.target_branch, "feature");
+            assert_eq!(state.base_sha, c4);
+            assert_eq!(state.target_sha, c3);
+        });
+
+        git_graph.update_in(cx, |graph, window, cx| {
+            graph.deploy_entry_context_menu(
+                point(px(20.), px(20.)),
+                1,
+                Some("main".into()),
+                window,
+                cx,
+            );
+            assert!(
+                graph.context_menu.is_some(),
+                "context menu should open for non-head ref"
+            );
+        });
+        cx.run_until_parked();
     }
 }

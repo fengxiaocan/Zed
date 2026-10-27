@@ -487,6 +487,12 @@ impl UiLanguage {
                 "Push Tag to Remote" => "推送标签到远程",
                 "Branch name…" => "分支名称…",
                 "Compare with Current" => "与当前分支对比",
+                "Compare with Current Branch" => "与当前分支对比",
+                "Compare in Git Graph" => "在 Git 图谱中对比",
+                "Compare with Current in Git Graph" => "在 Git 图谱中与当前分支对比",
+                "Branch Overall Diff" => "两分支总差异",
+                "Selected Commit" => "当前选中提交",
+                "Open Branch Diff View" => "打开分支差异对比视图",
                 "Rename Branch…" => "重命名分支…",
                 "Delete branch" => "删除分支",
                 "Delete remote branch" => "删除远程分支",
@@ -502,8 +508,8 @@ impl UiLanguage {
                 "Edit URL…" => "编辑 URL…",
                 "Open in Browser" => "在浏览器中打开",
                 "Jump to HEAD" => "跳转到 HEAD",
-                "Filter to Compared Only" => "仅看差异提交",
-                "Exit Compare Mode" => "退出对比",
+                "Filter to Compared Only" => "仅显示对比提交",
+                "Exit Compare Mode" => "退出对比模式",
                 "Checkout Commit" => "检出提交",
                 "Checkout Commit…" => "检出此提交…",
                 "Checking out this commit will put the repository into a 'detached HEAD' state. You can inspect changes or make experimental commits." => {
@@ -2580,5 +2586,30 @@ mod ui_language_tests {
             UiLanguage::SimplifiedChinese.translate("Future UI text"),
             "Future UI text"
         );
+    }
+
+    #[test]
+    fn git_graph_compare_translations() {
+        let language = UiLanguage::SimplifiedChinese;
+        assert_eq!(language.translate("Compare in Git Graph"), "在 Git 图谱中对比");
+        assert_eq!(
+            language.translate("Compare with Current in Git Graph"),
+            "在 Git 图谱中与当前分支对比"
+        );
+        assert_eq!(
+            language.translate("Compare with Current Branch"),
+            "与当前分支对比"
+        );
+        assert_eq!(language.translate("Branch Overall Diff"), "两分支总差异");
+        assert_eq!(language.translate("Selected Commit"), "当前选中提交");
+        assert_eq!(
+            language.translate("Open Branch Diff View"),
+            "打开分支差异对比视图"
+        );
+        assert_eq!(
+            language.translate("Filter to Compared Only"),
+            "仅显示对比提交"
+        );
+        assert_eq!(language.translate("Exit Compare Mode"), "退出对比模式");
     }
 }

@@ -850,6 +850,32 @@ fn render_branch_row(
                                             }
                                         }
                                     })
+                                    .entry(translate_ui("Compare in Git Graph", cx), None, {
+                                        let branch_name = branch.name().to_string();
+                                        let repo = repo.clone();
+                                        let workspace = workspace.clone();
+                                        move |window, cx| {
+                                            let Some(repo) = repo.clone() else {
+                                                return;
+                                            };
+                                            let branch_name = branch_name.clone();
+                                            if let Some(workspace) = workspace.upgrade() {
+                                                workspace.update(cx, |workspace, cx| {
+                                                    let git_store =
+                                                        workspace.project().read(cx).git_store().clone();
+                                                    let repo_id = repo.read(cx).id;
+                                                    crate::git_graph::open_or_reuse_graph_for_branch_compare(
+                                                        workspace,
+                                                        repo_id,
+                                                        git_store,
+                                                        branch_name.into(),
+                                                        window,
+                                                        cx,
+                                                    );
+                                                });
+                                            }
+                                        }
+                                    })
                                     .entry(translate_ui("Compare with…", cx), None, {
                                         let repo = repo.clone();
                                         let workspace = workspace.clone();
