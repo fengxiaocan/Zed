@@ -669,9 +669,7 @@ impl LaneState {
 
         match state {
             LaneState::Active {
-                #[cfg_attr(not(test), allow(unused_variables))]
                 parent,
-                #[cfg_attr(not(test), allow(unused_variables))]
                 child,
                 color,
                 starting_row,
@@ -683,9 +681,7 @@ impl LaneState {
                 let final_color = color.unwrap_or(parent_color);
 
                 Some(CommitLine {
-                    #[cfg(test)]
                     child,
-                    #[cfg(test)]
                     parent,
                     child_column: starting_col,
                     full_interval: starting_row..ending_row,
@@ -839,9 +835,7 @@ enum CommitLineSegment {
 
 #[derive(Debug)]
 struct CommitLine {
-    #[cfg(test)]
     child: Oid,
-    #[cfg(test)]
     parent: Oid,
     child_column: usize,
     full_interval: Range<usize>,
@@ -1490,6 +1484,8 @@ pub struct GitGraph {
     changed_files_view_mode: ChangedFilesViewMode,
     changed_files_expanded_dirs: HashMap<RepoPath, bool>,
     pending_select_sha: Option<Oid>,
+    active_lineage: Option<HashSet<Oid>>,
+    active_lineage_target: Option<Oid>,
 }
 
 impl GitGraph {
@@ -1499,7 +1495,22 @@ impl GitGraph {
         self.search_state.selected_index = None;
         self.search_state.state.next_state();
         self.context_menu = None;
+        self.active_lineage = None;
+        self.active_lineage_target = None;
         cx.emit(ItemEvent::Edit);
+        cx.notify();
+    }
+
+    pub fn active_lineage(&self) -> Option<&HashSet<Oid>> {
+        self.active_lineage.as_ref()
+    }
+
+    pub fn set_active_lineage(&mut self, target: Option<Oid>, cx: &mut Context<Self>) {
+        if self.active_lineage_target == target {
+            return;
+        }
+        self.active_lineage_target = target;
+        self.active_lineage = target.map(|sha| self.graph_data.find_lineage(sha));
         cx.notify();
     }
 
@@ -1736,6 +1747,8 @@ impl GitGraph {
             changed_files_view_mode: ChangedFilesViewMode::default(),
             changed_files_expanded_dirs: HashMap::default(),
             pending_select_sha: None,
+            active_lineage: None,
+            active_lineage_target: None,
         };
 
         this.fetch_initial_graph_data(cx);
@@ -2002,9 +2015,26 @@ impl GitGraph {
 
                 let is_selected = self.selected_entry_idx == Some(idx);
                 let is_matched = self.search_state.matches.contains(&commit.data.sha);
+                let is_in_active_lineage = self
+                    .active_lineage
+                    .as_ref()
+                    .map_or(false, |lineage| lineage.contains(&commit.data.sha));
+
+                let label_color = if is_selected {
+                    None
+                } else if self.active_lineage.is_some() {
+                    if is_in_active_lineage {
+                        None
+                    } else {
+                        Some(Color::Disabled)
+                    }
+                } else {
+                    Some(Color::Muted)
+                };
+
                 let column_label = |label: SharedString| {
                     Label::new(label)
-                        .when(!is_selected, |c| c.color(Color::Muted))
+                        .when_some(label_color, |c, color| c.color(color))
                         .truncate()
                         .into_any_element()
                 };
@@ -2040,7 +2070,7 @@ impl GitGraph {
                         })
                         .unwrap_or_default();
                     HighlightedLabel::from_ranges(subject, highlight_ranges)
-                        .when(!is_selected, |c| c.color(Color::Muted))
+                        .when_some(label_color, |c, color| c.color(color))
                         .truncate()
                         .into_any_element()
                 } else {
@@ -2086,6 +2116,7 @@ impl GitGraph {
         self.selected_commit_diff = None;
         self.selected_commit_diff_stats = None;
         self.changed_files_expanded_dirs.clear();
+        self.set_active_lineage(None, cx);
         cx.emit(ItemEvent::Edit);
         cx.notify();
     }
@@ -2297,16 +2328,18 @@ impl GitGraph {
             cx.notify();
         });
 
-        let Some(commit) = self.graph_data.commits.get(idx) else {
+        let Some(commit_sha) = self.graph_data.commits.get(idx).map(|commit| commit.data.sha) else {
             return;
         };
+
+        self.set_active_lineage(Some(commit_sha), cx);
 
         let Some(repository) = self.get_repository(cx) else {
             return;
         };
 
-        let commit_message_handle = commit.data.sha;
-        let diff_handle = commit.data.sha.to_string();
+        let commit_message_handle = commit_sha;
+        let diff_handle = commit_sha.to_string();
 
         self.load_selected_commit_message(cx, &commit_message_handle, &repository);
 
@@ -3035,6 +3068,7 @@ impl GitGraph {
                                     this._selected_commit_message_task = None;
                                     this.changed_files_expanded_dirs.clear();
                                     this._commit_diff_task = None;
+                                    this.set_active_lineage(None, cx);
                                     cx.notify();
                                 })),
                         ),
@@ -3397,10 +3431,11 @@ impl GitGraph {
             .cloned()
             .collect();
 
-        let mut lines: BTreeMap<usize, Vec<_>> = BTreeMap::new();
+        let mut lines: BTreeMap<(bool, usize), Vec<_>> = BTreeMap::new();
 
         let hovered_entry_idx = self.hovered_entry_idx;
         let selected_entry_idx = self.selected_entry_idx;
+        let active_lineage = self.active_lineage.clone();
         let context_menu_target_index = self
             .context_menu
             .as_ref()
@@ -3459,7 +3494,16 @@ impl GitGraph {
 
                         let commit_x = lane_center_x(bounds, row.lane as f32);
 
-                        draw_commit_circle(commit_x, row_y_center, row_color, window);
+                        let in_lineage = active_lineage
+                            .as_ref()
+                            .map_or(true, |lineage| lineage.contains(&row.data.sha));
+                        let circle_color = if in_lineage {
+                            row_color
+                        } else {
+                            row_color.opacity(0.18)
+                        };
+
+                        draw_commit_circle(commit_x, row_y_center, circle_color, window);
                     }
 
                     for line in commit_lines {
@@ -3468,6 +3512,10 @@ impl GitGraph {
                         else {
                             continue;
                         };
+
+                        let in_lineage = active_lineage.as_ref().map_or(true, |lineage| {
+                            lineage.contains(&line.child) && lineage.contains(&line.parent)
+                        });
 
                         let line_x = lane_center_x(bounds, start_column as f32);
 
@@ -3609,18 +3657,23 @@ impl GitGraph {
                         }
 
                         builder.close();
-                        lines.entry(line.color_idx).or_default().push(builder);
+                        lines.entry((in_lineage, line.color_idx)).or_default().push(builder);
                     }
 
-                    for (color_idx, builders) in lines {
-                        let line_color = accent_colors.color_for_index(color_idx as u32);
+                    for ((in_lineage, color_idx), builders) in lines {
+                        let accent_color = accent_colors.color_for_index(color_idx as u32);
+                        let stroke_color = if in_lineage {
+                            accent_color
+                        } else {
+                            accent_color.opacity(0.15)
+                        };
 
                         for builder in builders {
                             if let Ok(path) = builder.build() {
                                 // we paint each color on it's own layer to stop overlapping lines
                                 // of different colors changing the color of a line
                                 window.paint_layer(bounds, |window| {
-                                    window.paint_path(path, line_color);
+                                    window.paint_path(path, stroke_color);
                                 });
                             }
                         }
@@ -7944,5 +7997,124 @@ mod tests {
 
         let c3_entry = graph_data.commits.iter().find(|c| c.data.sha == c3).unwrap();
         assert_eq!(c3_entry.lane, 1, "Side branch c3 should be on lane 1");
+    }
+
+    #[gpui::test]
+    async fn test_lineage_selection_and_cancellation(cx: &mut TestAppContext) {
+        init_test(cx);
+
+        let fs = FakeFs::new(cx.executor());
+        fs.insert_tree(
+            Path::new("/project"),
+            serde_json::json!({
+                ".git": {},
+                "file.txt": "content",
+            }),
+        )
+        .await;
+
+        let c1 = Oid::from_str("1111111111111111111111111111111111111111").unwrap();
+        let c2 = Oid::from_str("2222222222222222222222222222222222222222").unwrap();
+        let c3 = Oid::from_str("3333333333333333333333333333333333333333").unwrap();
+        let c4 = Oid::from_str("4444444444444444444444444444444444444444").unwrap();
+
+        let commits = vec![
+            Arc::new(InitialGraphCommitData {
+                sha: c4,
+                parents: smallvec![c2],
+                ref_names: vec!["HEAD".into(), "refs/heads/main".into()],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c3,
+                parents: smallvec![c1],
+                ref_names: vec!["refs/heads/feature".into()],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c2,
+                parents: smallvec![c1],
+                ref_names: vec![],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c1,
+                parents: smallvec![],
+                ref_names: vec![],
+            }),
+        ];
+        fs.set_graph_commits(Path::new("/project/.git"), commits);
+
+        let project = Project::test(fs.clone(), [Path::new("/project")], cx).await;
+        cx.run_until_parked();
+
+        let repository = project.read_with(cx, |project, cx| {
+            project
+                .active_repository(cx)
+                .expect("should have a repository")
+        });
+
+        let (multi_workspace, cx) = cx.add_window_view(|window, cx| {
+            workspace::MultiWorkspace::test_new(project.clone(), window, cx)
+        });
+
+        let workspace = multi_workspace.read_with(&*cx, |multi, _| multi.workspace().clone());
+        let workspace_weak = workspace.downgrade();
+
+        let git_graph = cx.new_window_entity(|window, cx| {
+            GitGraph::new(
+                repository.read(cx).id,
+                project.read(cx).git_store().clone(),
+                workspace_weak,
+                None,
+                window,
+                cx,
+            )
+        });
+        cx.run_until_parked();
+
+        git_graph.read_with(&*cx, |graph, _| {
+            assert_eq!(graph.graph_data.commits.len(), 4);
+            assert_eq!(graph.selected_entry_idx, None);
+            assert_eq!(graph.active_lineage, None);
+            assert_eq!(graph.active_lineage_target, None);
+        });
+
+        git_graph.update_in(cx, |graph, _window, cx| {
+            graph.select_entry(2, ScrollStrategy::Nearest, cx);
+        });
+        cx.run_until_parked();
+
+        git_graph.read_with(&*cx, |graph, _| {
+            assert_eq!(graph.selected_entry_idx, Some(2));
+            assert_eq!(graph.active_lineage_target, Some(c2));
+            let lineage = graph.active_lineage.as_ref().expect("active lineage should be set");
+            assert!(lineage.contains(&c1), "lineage should contain parent c1");
+            assert!(lineage.contains(&c2), "lineage should contain selected commit c2");
+            assert!(lineage.contains(&c4), "lineage should contain descendant c4");
+            assert!(!lineage.contains(&c3), "lineage should not contain unrelated branch commit c3");
+        });
+
+        git_graph.update_in(cx, |graph, window, cx| {
+            graph.cancel(&menu::Cancel, window, cx);
+        });
+        cx.run_until_parked();
+
+        git_graph.read_with(&*cx, |graph, _| {
+            assert_eq!(graph.selected_entry_idx, None);
+            assert_eq!(graph.active_lineage, None);
+            assert_eq!(graph.active_lineage_target, None);
+        });
+
+        git_graph.update(cx, |graph, cx| {
+            graph.set_active_lineage(Some(c3), cx);
+            assert_eq!(graph.active_lineage_target, Some(c3));
+            let lineage = graph.active_lineage.as_ref().expect("active lineage should be set");
+            assert!(lineage.contains(&c1));
+            assert!(lineage.contains(&c3));
+            assert!(!lineage.contains(&c2));
+            assert!(!lineage.contains(&c4));
+
+            graph.set_active_lineage(None, cx);
+            assert_eq!(graph.active_lineage, None);
+            assert_eq!(graph.active_lineage_target, None);
+        });
     }
 }
