@@ -1783,7 +1783,7 @@ impl GitGraph {
                                 ToggleState::Unselected
                             },
                         )
-                        .label("仅看差异提交")
+                        .label(translate_ui("Filter to Compared Only", cx))
                         .label_size(LabelSize::Small)
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.toggle_filter_to_compared_only(cx);
@@ -1797,7 +1797,7 @@ impl GitGraph {
                                 IconButton::new("exit-branch-compare", IconName::Close)
                                     .shape(ui::IconButtonShape::Square)
                                     .icon_size(IconSize::Small)
-                                    .tooltip(Tooltip::text("退出对比"))
+                                    .tooltip(Tooltip::text(translate_ui("Exit Compare Mode", cx)))
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.exit_branch_compare(cx);
                                     })),
@@ -3232,7 +3232,7 @@ impl GitGraph {
             return Empty.into_any_element();
         };
 
-        let Some(commit_entry) = self.graph_data.commits.get(selected_idx) else {
+        let Some(commit_entry) = self.commit_at_display_index(selected_idx) else {
             return Empty.into_any_element();
         };
 
@@ -3371,6 +3371,11 @@ impl GitGraph {
             }));
 
         v_flex()
+            .id("commit-detail-panel")
+            .debug_selector({
+                let full_sha = full_sha.clone();
+                move || format!("commit-detail-panel-{}", full_sha)
+            })
             .min_w(px(300.))
             .h_full()
             .bg(cx.theme().colors().editor_background)
@@ -4920,7 +4925,7 @@ impl workspace::SerializableItem for GitGraph {
 
         let selected_sha = self
             .selected_entry_idx
-            .and_then(|idx| self.graph_data.commits.get(idx))
+            .and_then(|idx| self.commit_at_display_index(idx))
             .map(|commit| commit.data.sha.to_string());
 
         let search_query = self.search_state.editor.read(cx).text(cx);
@@ -8615,6 +8620,11 @@ mod tests {
                 ref_names: vec!["HEAD -> feature".into()],
             }),
             Arc::new(InitialGraphCommitData {
+                sha: c0,
+                parents: smallvec![],
+                ref_names: vec!["refs/heads/other".into()],
+            }),
+            Arc::new(InitialGraphCommitData {
                 sha: c4,
                 parents: smallvec![c1],
                 ref_names: vec!["refs/heads/main".into()],
@@ -8629,13 +8639,37 @@ mod tests {
                 parents: smallvec![],
                 ref_names: vec![],
             }),
-            Arc::new(InitialGraphCommitData {
-                sha: c0,
-                parents: smallvec![],
-                ref_names: vec!["refs/heads/other".into()],
-            }),
         ];
         fs.set_graph_commits(Path::new("/project/.git"), commits);
+        fs.set_commit_data(
+            Path::new("/project/.git"),
+            [
+                (
+                    CommitData {
+                        sha: c0,
+                        parents: smallvec![],
+                        author_name: "Author Zero".into(),
+                        author_email: "zero@example.com".into(),
+                        commit_timestamp: 1_700_000_000,
+                        subject: "Commit zero".into(),
+                        message: "Commit zero".into(),
+                    },
+                    false,
+                ),
+                (
+                    CommitData {
+                        sha: c4,
+                        parents: smallvec![c1],
+                        author_name: "Author Four".into(),
+                        author_email: "four@example.com".into(),
+                        commit_timestamp: 1_700_000_004,
+                        subject: "Commit four".into(),
+                        message: "Commit four".into(),
+                    },
+                    false,
+                ),
+            ],
+        );
 
         let project = Project::test(fs.clone(), [Path::new("/project")], cx).await;
         cx.run_until_parked();
@@ -8717,13 +8751,59 @@ mod tests {
             );
             assert_eq!(graph.visible_commit_count(), 4);
             let indices = graph.visible_commit_indices().expect("filtered indices should be set");
-            assert_eq!(indices, vec![0, 1, 2, 3]);
+            assert_eq!(indices, vec![0, 2, 3, 4]);
         });
 
         git_graph.update_in(cx, |graph, window, cx| {
             let filtered_rows = graph.render_table_rows(0..graph.visible_commit_count(), window, cx);
             assert_eq!(filtered_rows.len(), 4);
 
+            // Select display index 1 (which corresponds to c4, NOT commits[1] which is c0)
+            graph.select_entry(1, ScrollStrategy::Nearest, cx);
+        });
+        cx.draw(
+            point(px(0.), px(0.)),
+            gpui::size(px(1200.), px(800.)),
+            |_, _| multi_workspace.clone().into_any_element(),
+        );
+        cx.run_until_parked();
+
+        git_graph.read_with(&*cx, |graph, _| {
+            assert_eq!(graph.selected_entry_idx, Some(1));
+            assert_eq!(
+                graph
+                    .selected_entry_idx
+                    .and_then(|idx| graph.commit_at_display_index(idx))
+                    .map(|commit| commit.data.sha),
+                Some(c4)
+            );
+        });
+
+        assert!(
+            cx.debug_bounds("commit-detail-panel-4444444444444444444444444444444444444444")
+                .is_some(),
+            "commit detail panel should render metadata for selected filtered commit c4"
+        );
+        assert!(
+            cx.debug_bounds("commit-detail-panel-0000000000000000000000000000000000000000")
+                .is_none(),
+            "commit detail panel must not render metadata for commits[selected_idx] (c0)"
+        );
+
+        repository.read_with(cx, |repo, _| {
+            let loaded = repo.loaded_commit_data_for_test();
+            assert_eq!(loaded[&c4].author_name, "Author Four");
+        });
+
+        // Redraw with loaded c4 data
+        cx.draw(
+            point(px(0.), px(0.)),
+            gpui::size(px(1200.), px(800.)),
+            |_, _| multi_workspace.clone().into_any_element(),
+        );
+        cx.run_until_parked();
+
+        git_graph.update_in(cx, |graph, window, cx| {
             graph.toggle_filter_to_compared_only(cx);
             assert!(
                 !graph

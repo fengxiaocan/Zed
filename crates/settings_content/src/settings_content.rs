@@ -502,6 +502,8 @@ impl UiLanguage {
                 "Edit URL…" => "编辑 URL…",
                 "Open in Browser" => "在浏览器中打开",
                 "Jump to HEAD" => "跳转到 HEAD",
+                "Filter to Compared Only" => "仅看差异提交",
+                "Exit Compare Mode" => "退出对比",
                 "Checkout Commit" => "检出提交",
                 "Checkout Commit…" => "检出此提交…",
                 "Checking out this commit will put the repository into a 'detached HEAD' state. You can inspect changes or make experimental commits." => {
