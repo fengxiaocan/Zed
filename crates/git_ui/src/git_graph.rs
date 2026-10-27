@@ -888,6 +888,25 @@ fn is_head_commit(commit: &InitialGraphCommitData) -> bool {
         .any(|ref_name| ref_name == "HEAD" || ref_name.starts_with("HEAD ->"))
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BranchCompareResult {
+    pub ahead_commits: HashSet<Oid>,
+    pub behind_commits: HashSet<Oid>,
+    pub merge_base: Option<Oid>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BranchCompareState {
+    pub base_branch: SharedString,
+    pub target_branch: SharedString,
+    pub base_sha: Oid,
+    pub target_sha: Oid,
+    pub ahead_commits: Arc<HashSet<Oid>>,
+    pub behind_commits: Arc<HashSet<Oid>>,
+    pub merge_base: Option<Oid>,
+    pub filter_to_compared_only: bool,
+}
+
 struct GraphData {
     lane_states: SmallVec<[LaneState; 8]>,
     lane_colors: HashMap<ActiveLaneIdx, BranchColor>,
@@ -1200,6 +1219,36 @@ impl GraphData {
         lineage.extend(descendants);
         lineage
     }
+
+    pub fn compute_branch_compare(&self, base_sha: Oid, target_sha: Oid) -> BranchCompareResult {
+        let base_ancestors = self.find_ancestors(base_sha);
+        let target_ancestors = self.find_ancestors(target_sha);
+
+        let ahead_commits = target_ancestors
+            .difference(&base_ancestors)
+            .copied()
+            .collect();
+        let behind_commits = base_ancestors
+            .difference(&target_ancestors)
+            .copied()
+            .collect();
+        let common_ancestors: HashSet<Oid> = target_ancestors
+            .intersection(&base_ancestors)
+            .copied()
+            .collect();
+
+        let merge_base = self
+            .commits
+            .iter()
+            .find(|commit_entry| common_ancestors.contains(&commit_entry.data.sha))
+            .map(|commit_entry| commit_entry.data.sha);
+
+        BranchCompareResult {
+            ahead_commits,
+            behind_commits,
+            merge_base,
+        }
+    }
 }
 
 pub fn init(cx: &mut App) {
@@ -1486,6 +1535,7 @@ pub struct GitGraph {
     pending_select_sha: Option<Oid>,
     active_lineage: Option<Arc<HashSet<Oid>>>,
     active_lineage_target: Option<Oid>,
+    branch_compare_state: Option<BranchCompareState>,
 }
 
 impl GitGraph {
@@ -1497,6 +1547,7 @@ impl GitGraph {
         self.context_menu = None;
         self.active_lineage = None;
         self.active_lineage_target = None;
+        self.branch_compare_state = None;
         cx.emit(ItemEvent::Edit);
         cx.notify();
     }
@@ -1512,6 +1563,44 @@ impl GitGraph {
         self.active_lineage_target = target;
         self.active_lineage = target.map(|sha| Arc::new(self.graph_data.find_lineage(sha)));
         cx.notify();
+    }
+
+    pub fn enter_branch_compare(
+        &mut self,
+        base_branch: SharedString,
+        target_branch: SharedString,
+        base_sha: Oid,
+        target_sha: Oid,
+        cx: &mut Context<Self>,
+    ) {
+        let compare_result = self.graph_data.compute_branch_compare(base_sha, target_sha);
+        self.branch_compare_state = Some(BranchCompareState {
+            base_branch,
+            target_branch,
+            base_sha,
+            target_sha,
+            ahead_commits: Arc::new(compare_result.ahead_commits),
+            behind_commits: Arc::new(compare_result.behind_commits),
+            merge_base: compare_result.merge_base,
+            filter_to_compared_only: false,
+        });
+        cx.notify();
+    }
+
+    pub fn exit_branch_compare(&mut self, cx: &mut Context<Self>) {
+        self.branch_compare_state = None;
+        cx.notify();
+    }
+
+    pub fn toggle_filter_to_compared_only(&mut self, cx: &mut Context<Self>) {
+        if let Some(state) = self.branch_compare_state.as_mut() {
+            state.filter_to_compared_only = !state.filter_to_compared_only;
+            cx.notify();
+        }
+    }
+
+    pub fn branch_compare_state(&self) -> Option<&BranchCompareState> {
+        self.branch_compare_state.as_ref()
     }
 
     /// Computes the height of a single commit row in the git graph.
@@ -1749,6 +1838,7 @@ impl GitGraph {
             pending_select_sha: None,
             active_lineage: None,
             active_lineage_target: None,
+            branch_compare_state: None,
         };
 
         this.fetch_initial_graph_data(cx);
@@ -8152,6 +8242,161 @@ mod tests {
             assert!(updated_lineage.contains(&c1));
             assert!(updated_lineage.contains(&c2));
             assert!(updated_lineage.contains(&c4));
+        });
+    }
+
+    #[gpui::test]
+    fn test_branch_compare_ahead_behind() {
+        let mut graph_data = GraphData::new(8);
+        let c1 = Oid::from_str("1111111111111111111111111111111111111111").unwrap();
+        let c2 = Oid::from_str("2222222222222222222222222222222222222222").unwrap();
+        let c3 = Oid::from_str("3333333333333333333333333333333333333333").unwrap();
+        let c4 = Oid::from_str("4444444444444444444444444444444444444444").unwrap();
+
+        let commits = vec![
+            Arc::new(InitialGraphCommitData {
+                sha: c3,
+                parents: smallvec![c2],
+                ref_names: vec!["HEAD -> feature".into()],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c4,
+                parents: smallvec![c1],
+                ref_names: vec!["refs/heads/main".into()],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c2,
+                parents: smallvec![c1],
+                ref_names: vec![],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c1,
+                parents: smallvec![],
+                ref_names: vec![],
+            }),
+        ];
+
+        graph_data.add_commits(&commits);
+
+        let compare_result = graph_data.compute_branch_compare(c4, c3);
+        assert_eq!(compare_result.ahead_commits, HashSet::from_iter([c2, c3]));
+        assert_eq!(compare_result.behind_commits, HashSet::from_iter([c4]));
+        assert_eq!(compare_result.merge_base, Some(c1));
+    }
+
+    #[gpui::test]
+    async fn test_git_graph_branch_compare_mode(cx: &mut TestAppContext) {
+        init_test(cx);
+
+        let fs = FakeFs::new(cx.executor());
+        fs.insert_tree(
+            Path::new("/project"),
+            serde_json::json!({
+                ".git": {},
+                "file.txt": "content",
+            }),
+        )
+        .await;
+
+        let c1 = Oid::from_str("1111111111111111111111111111111111111111").unwrap();
+        let c2 = Oid::from_str("2222222222222222222222222222222222222222").unwrap();
+        let c3 = Oid::from_str("3333333333333333333333333333333333333333").unwrap();
+        let c4 = Oid::from_str("4444444444444444444444444444444444444444").unwrap();
+
+        let commits = vec![
+            Arc::new(InitialGraphCommitData {
+                sha: c3,
+                parents: smallvec![c2],
+                ref_names: vec!["HEAD -> feature".into()],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c4,
+                parents: smallvec![c1],
+                ref_names: vec!["refs/heads/main".into()],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c2,
+                parents: smallvec![c1],
+                ref_names: vec![],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c1,
+                parents: smallvec![],
+                ref_names: vec![],
+            }),
+        ];
+        fs.set_graph_commits(Path::new("/project/.git"), commits);
+
+        let project = Project::test(fs.clone(), [Path::new("/project")], cx).await;
+        cx.run_until_parked();
+
+        let repository = project.read_with(cx, |project, cx| {
+            project
+                .active_repository(cx)
+                .expect("should have a repository")
+        });
+
+        let (multi_workspace, cx) = cx.add_window_view(|window, cx| {
+            workspace::MultiWorkspace::test_new(project.clone(), window, cx)
+        });
+
+        let workspace = multi_workspace.read_with(&*cx, |multi, _| multi.workspace().clone());
+        let workspace_weak = workspace.downgrade();
+
+        let git_graph = cx.new_window_entity(|window, cx| {
+            GitGraph::new(
+                repository.read(cx).id,
+                project.read(cx).git_store().clone(),
+                workspace_weak,
+                None,
+                window,
+                cx,
+            )
+        });
+        cx.run_until_parked();
+
+        git_graph.read_with(&*cx, |graph, _| {
+            assert!(graph.branch_compare_state().is_none());
+        });
+
+        git_graph.update(cx, |graph, cx| {
+            graph.enter_branch_compare("main".into(), "feature".into(), c4, c3, cx);
+            let state = graph.branch_compare_state().expect("compare state should be set");
+            assert_eq!(state.base_branch, "main");
+            assert_eq!(state.target_branch, "feature");
+            assert_eq!(state.base_sha, c4);
+            assert_eq!(state.target_sha, c3);
+            assert_eq!(state.ahead_commits.len(), 2);
+            assert!(state.ahead_commits.contains(&c2));
+            assert!(state.ahead_commits.contains(&c3));
+            assert_eq!(state.behind_commits.len(), 1);
+            assert!(state.behind_commits.contains(&c4));
+            assert_eq!(state.merge_base, Some(c1));
+            assert!(!state.filter_to_compared_only);
+
+            graph.toggle_filter_to_compared_only(cx);
+            assert!(
+                graph
+                    .branch_compare_state()
+                    .expect("compare state should be set")
+                    .filter_to_compared_only
+            );
+
+            graph.toggle_filter_to_compared_only(cx);
+            assert!(
+                !graph
+                    .branch_compare_state()
+                    .expect("compare state should be set")
+                    .filter_to_compared_only
+            );
+
+            graph.exit_branch_compare(cx);
+            assert!(graph.branch_compare_state().is_none());
+
+            graph.enter_branch_compare("main".into(), "feature".into(), c4, c3, cx);
+            assert!(graph.branch_compare_state().is_some());
+            graph.invalidate_state(cx);
+            assert!(graph.branch_compare_state().is_none());
         });
     }
 }
