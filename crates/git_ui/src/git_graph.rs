@@ -905,6 +905,7 @@ pub struct BranchCompareState {
     pub behind_commits: Arc<HashSet<Oid>>,
     pub merge_base: Option<Oid>,
     pub filter_to_compared_only: bool,
+    pub filtered_commit_indices: Option<Arc<[usize]>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1599,6 +1600,7 @@ impl GitGraph {
             behind_commits: Arc::new(compare_result.behind_commits),
             merge_base: compare_result.merge_base,
             filter_to_compared_only: false,
+            filtered_commit_indices: None,
         });
         cx.notify();
     }
@@ -1608,13 +1610,38 @@ impl GitGraph {
         cx.notify();
     }
 
+    fn compute_filtered_commit_indices(&self) -> Option<Arc<[usize]>> {
+        let state = self.branch_compare_state.as_ref()?;
+        if !state.filter_to_compared_only {
+            return None;
+        }
+        let indices: Vec<usize> = self
+            .graph_data
+            .commits
+            .iter()
+            .enumerate()
+            .filter(|(_, commit)| {
+                state.ahead_commits.contains(&commit.data.sha)
+                    || state.behind_commits.contains(&commit.data.sha)
+                    || state.merge_base == Some(commit.data.sha)
+            })
+            .map(|(commit_index, _)| commit_index)
+            .collect();
+        Some(Arc::from(indices))
+    }
+
     pub fn toggle_filter_to_compared_only(&mut self, cx: &mut Context<Self>) {
         if let Some(state) = self.branch_compare_state.as_mut() {
             state.filter_to_compared_only = !state.filter_to_compared_only;
+            self.hovered_entry_idx = None;
             self.selected_entry_idx = None;
             self.selected_commit_diff = None;
             self.selected_commit_diff_stats = None;
             self.changed_files_expanded_dirs.clear();
+        }
+        let filtered_indices = self.compute_filtered_commit_indices();
+        if let Some(state) = self.branch_compare_state.as_mut() {
+            state.filtered_commit_indices = filtered_indices;
             cx.notify();
         }
     }
@@ -1632,31 +1659,19 @@ impl GitGraph {
             state.behind_commits = Arc::new(compare_result.behind_commits);
             state.merge_base = compare_result.merge_base;
         }
+        let filtered_indices = self.compute_filtered_commit_indices();
+        if let Some(state) = self.branch_compare_state.as_mut() {
+            state.filtered_commit_indices = filtered_indices;
+        }
     }
 
-    pub fn visible_commit_indices(&self) -> Option<Vec<usize>> {
+    pub fn visible_commit_indices(&self) -> Option<&Arc<[usize]>> {
         let state = self.branch_compare_state.as_ref()?;
-        if !state.filter_to_compared_only {
-            return None;
-        }
-        let indices: Vec<usize> = self
-            .graph_data
-            .commits
-            .iter()
-            .enumerate()
-            .filter(|(_, commit)| {
-                state.ahead_commits.contains(&commit.data.sha)
-                    || state.behind_commits.contains(&commit.data.sha)
-                    || state.merge_base == Some(commit.data.sha)
-            })
-            .map(|(commit_index, _)| commit_index)
-            .collect();
-        Some(indices)
+        state.filtered_commit_indices.as_ref()
     }
 
     fn visible_commit_count(&self) -> usize {
         self.visible_commit_indices()
-            .as_ref()
             .map_or(self.graph_data.commits.len(), |indices| indices.len())
     }
 
@@ -1746,7 +1761,7 @@ impl GitGraph {
                     .items_center()
                     .min_w_0()
                     .child(
-                        Icon::new(IconName::MagnifyingGlass)
+                        Icon::new(IconName::GitBranch)
                             .size(IconSize::Small)
                             .color(Color::Muted),
                     )
@@ -2061,7 +2076,8 @@ impl GitGraph {
             {
                 match event {
                     GitGraphEvent::FullyLoaded => {
-                        if let Some(pending_sha_index) =
+                        self.refresh_branch_compare_state();
+                        if let Some(pending_sha_raw_index) =
                             self.pending_select_sha.take().and_then(|oid| {
                                 repository
                                     .read(cx)
@@ -2069,7 +2085,14 @@ impl GitGraph {
                                     .and_then(|data| data.commit_oid_to_index.get(&oid).copied())
                             })
                         {
-                            self.select_entry(pending_sha_index, ScrollStrategy::Nearest, cx);
+                            let display_index = if let Some(indices) = self.visible_commit_indices() {
+                                indices.iter().position(|&index| index == pending_sha_raw_index)
+                            } else {
+                                Some(pending_sha_raw_index)
+                            };
+                            if let Some(display_index) = display_index {
+                                self.select_entry(display_index, ScrollStrategy::Nearest, cx);
+                            }
                         }
                         let count = match self.graph_data.max_commit_count {
                             AllCommitCount::FullyLoaded(count) | AllCommitCount::Loading(count) => {
@@ -2086,7 +2109,7 @@ impl GitGraph {
                     GitGraphEvent::CountUpdated(commit_count) => {
                         let old_count = self.graph_data.commits.len();
 
-                        if let Some(pending_selection_index) =
+                        let pending_selection_raw_index =
                             repository.update(cx, |repository, cx| {
                                 let GraphDataResponse {
                                     commits,
@@ -2111,17 +2134,25 @@ impl GitGraph {
                                 }
 
                                 pending_sha_index
-                            })
-                        {
-                            self.select_entry(pending_selection_index, ScrollStrategy::Nearest, cx);
-                            self.pending_select_sha.take();
-                        }
+                            });
 
                         if let Some(target) = self.active_lineage_target {
                             self.active_lineage =
                                 Some(Arc::new(self.graph_data.find_lineage(target)));
                         }
                         self.refresh_branch_compare_state();
+
+                        if let Some(raw_index) = pending_selection_raw_index {
+                            let display_index = if let Some(indices) = self.visible_commit_indices() {
+                                indices.iter().position(|&index| index == raw_index)
+                            } else {
+                                Some(raw_index)
+                            };
+                            if let Some(display_index) = display_index {
+                                self.select_entry(display_index, ScrollStrategy::Nearest, cx);
+                                self.pending_select_sha.take();
+                            }
+                        }
 
                         cx.notify();
                     }
@@ -2268,12 +2299,14 @@ impl GitGraph {
         if let Some(repository) = repository.as_ref() {
             const FETCH_RANGE: usize = 100;
             repository.update(cx, |repository, cx| {
-                if let Some(indices) = &visible_indices {
+                if let Some(indices) = visible_indices {
                     let start = range.start.saturating_sub(FETCH_RANGE);
                     let end = (range.end + FETCH_RANGE).min(indices.len());
-                    for &commit_idx in &indices[start..end] {
-                        if let Some(commit) = self.graph_data.commits.get(commit_idx) {
-                            repository.fetch_commit_data(commit.data.sha, false, cx);
+                    if start < end {
+                        for &commit_idx in indices.get(start..end).unwrap_or(&[]) {
+                            if let Some(commit) = self.graph_data.commits.get(commit_idx) {
+                                repository.fetch_commit_data(commit.data.sha, false, cx);
+                            }
                         }
                     }
                 } else {
@@ -2815,7 +2848,7 @@ impl GitGraph {
                 return;
             };
 
-            let Some(index) = selected_repository
+            let Some(raw_index) = selected_repository
                 .read(cx)
                 .get_graph_data(this.log_source.clone(), this.log_order)
                 .and_then(|data| data.commit_oid_to_index.get(&oid))
@@ -2826,7 +2859,14 @@ impl GitGraph {
             };
 
             this.pending_select_sha = None;
-            this.select_entry(index, ScrollStrategy::Center, cx);
+            let display_index = if let Some(indices) = this.visible_commit_indices() {
+                indices.iter().position(|&index| index == raw_index)
+            } else {
+                Some(raw_index)
+            };
+            if let Some(display_index) = display_index {
+                this.select_entry(display_index, ScrollStrategy::Center, cx);
+            }
         }
 
         if let Ok(oid) = sha.try_into() {
@@ -3734,7 +3774,6 @@ impl GitGraph {
             .unwrap_or(window.viewport_size().height);
         let visible_indices = self.visible_commit_indices();
         let loaded_commit_count = visible_indices
-            .as_ref()
             .map_or(self.graph_data.commits.len(), |indices| indices.len());
 
         let content_height = row_height * loaded_commit_count;
@@ -3754,17 +3793,25 @@ impl GitGraph {
 
         let viewport_range = first_visible_row.min(loaded_commit_count.saturating_sub(1))
             ..(last_visible_row).min(loaded_commit_count);
-        let rows: Vec<Rc<CommitEntry>> = if let Some(indices) = &visible_indices {
-            if viewport_range.start < indices.len() {
-                indices[viewport_range.clone()]
+        let rows: Vec<Rc<CommitEntry>> = if let Some(indices) = visible_indices {
+            let start = viewport_range.start;
+            let end = viewport_range.end.min(indices.len());
+            if start < end {
+                indices
+                    .get(start..end)
+                    .unwrap_or(&[])
                     .iter()
-                    .filter_map(|&orig_idx| self.graph_data.commits.get(orig_idx).cloned())
+                    .filter_map(|&original_index| self.graph_data.commits.get(original_index).cloned())
                     .collect()
             } else {
                 Vec::new()
             }
         } else {
-            self.graph_data.commits[viewport_range.clone()].to_vec()
+            self.graph_data
+                .commits
+                .get(viewport_range.clone())
+                .unwrap_or(&[])
+                .to_vec()
         };
         let commit_lines: Vec<_> = if visible_indices.is_some() {
             Vec::new()
@@ -4316,7 +4363,6 @@ impl Render for GitGraph {
         let (all_commit_count, is_loading) = self.commit_count_and_loading_state(cx);
         let visible_indices = self.visible_commit_indices();
         let commit_count = visible_indices
-            .as_ref()
             .map_or(all_commit_count, |indices| indices.len());
 
         let error = self.get_repository(cx).and_then(|repo| {
@@ -8751,7 +8797,14 @@ mod tests {
             );
             assert_eq!(graph.visible_commit_count(), 4);
             let indices = graph.visible_commit_indices().expect("filtered indices should be set");
-            assert_eq!(indices, vec![0, 2, 3, 4]);
+            assert_eq!(indices.as_ref(), &[0, 2, 3, 4]);
+
+            // select_commit_by_sha maps raw index to display index
+            graph.select_commit_by_sha(c4, cx);
+            assert_eq!(graph.selected_entry_idx, Some(1));
+            // Selecting commit not present in filtered view should be ignored
+            graph.select_commit_by_sha(c0, cx);
+            assert_eq!(graph.selected_entry_idx, Some(1));
         });
 
         git_graph.update_in(cx, |graph, window, cx| {
