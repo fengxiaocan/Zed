@@ -54,7 +54,7 @@ use settings::translate_ui;
 use theme::AccentColors;
 use time::{OffsetDateTime, UtcOffset, format_description::BorrowedFormatItem};
 use ui::{
-    Chip, ColumnWidthConfig, CommonAnimationExt as _, ContextMenu, DiffStat, Divider,
+    Checkbox, Chip, ColumnWidthConfig, CommonAnimationExt as _, ContextMenu, DiffStat, Divider,
     HeaderResizeInfo, HighlightedLabel, IndentGuideColors, ListItem, ListItemSpacing,
     RedistributableColumnsState, ScrollableHandle, Table, TableInteractionState,
     TableRenderContext, TableResizeBehavior, Tooltip, WithScrollbar, bind_redistributable_columns,
@@ -907,6 +907,23 @@ pub struct BranchCompareState {
     pub filter_to_compared_only: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommitCompareBadge {
+    Ahead,
+    Behind,
+    Base,
+}
+
+impl CommitCompareBadge {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Ahead => "Ahead",
+            Self::Behind => "Behind",
+            Self::Base => "Base",
+        }
+    }
+}
+
 struct GraphData {
     lane_states: SmallVec<[LaneState; 8]>,
     lane_colors: HashMap<ActiveLaneIdx, BranchColor>,
@@ -1232,15 +1249,14 @@ impl GraphData {
             .difference(&target_ancestors)
             .copied()
             .collect();
-        let common_ancestors: HashSet<Oid> = target_ancestors
-            .intersection(&base_ancestors)
-            .copied()
-            .collect();
 
         let merge_base = self
             .commits
             .iter()
-            .find(|commit_entry| common_ancestors.contains(&commit_entry.data.sha))
+            .find(|commit_entry| {
+                target_ancestors.contains(&commit_entry.data.sha)
+                    && base_ancestors.contains(&commit_entry.data.sha)
+            })
             .map(|commit_entry| commit_entry.data.sha);
 
         BranchCompareResult {
@@ -1595,12 +1611,200 @@ impl GitGraph {
     pub fn toggle_filter_to_compared_only(&mut self, cx: &mut Context<Self>) {
         if let Some(state) = self.branch_compare_state.as_mut() {
             state.filter_to_compared_only = !state.filter_to_compared_only;
+            self.selected_entry_idx = None;
+            self.selected_commit_diff = None;
+            self.selected_commit_diff_stats = None;
+            self.changed_files_expanded_dirs.clear();
             cx.notify();
         }
     }
 
     pub fn branch_compare_state(&self) -> Option<&BranchCompareState> {
         self.branch_compare_state.as_ref()
+    }
+
+    fn refresh_branch_compare_state(&mut self) {
+        if let Some(state) = self.branch_compare_state.as_mut() {
+            let compare_result = self
+                .graph_data
+                .compute_branch_compare(state.base_sha, state.target_sha);
+            state.ahead_commits = Arc::new(compare_result.ahead_commits);
+            state.behind_commits = Arc::new(compare_result.behind_commits);
+            state.merge_base = compare_result.merge_base;
+        }
+    }
+
+    pub fn visible_commit_indices(&self) -> Option<Vec<usize>> {
+        let state = self.branch_compare_state.as_ref()?;
+        if !state.filter_to_compared_only {
+            return None;
+        }
+        let indices: Vec<usize> = self
+            .graph_data
+            .commits
+            .iter()
+            .enumerate()
+            .filter(|(_, commit)| {
+                state.ahead_commits.contains(&commit.data.sha)
+                    || state.behind_commits.contains(&commit.data.sha)
+                    || state.merge_base == Some(commit.data.sha)
+            })
+            .map(|(commit_index, _)| commit_index)
+            .collect();
+        Some(indices)
+    }
+
+    fn visible_commit_count(&self) -> usize {
+        self.visible_commit_indices()
+            .as_ref()
+            .map_or(self.graph_data.commits.len(), |indices| indices.len())
+    }
+
+    fn commit_at_display_index(&self, display_index: usize) -> Option<&CommitEntry> {
+        if let Some(indices) = self.visible_commit_indices() {
+            let actual_index = *indices.get(display_index)?;
+            self.graph_data.commits.get(actual_index).map(|c| c.as_ref())
+        } else {
+            self.graph_data.commits.get(display_index).map(|c| c.as_ref())
+        }
+    }
+
+    pub fn commit_compare_badge(&self, sha: &Oid) -> Option<CommitCompareBadge> {
+        let state = self.branch_compare_state.as_ref()?;
+        if state.ahead_commits.contains(sha) {
+            Some(CommitCompareBadge::Ahead)
+        } else if state.behind_commits.contains(sha) {
+            Some(CommitCompareBadge::Behind)
+        } else if state.merge_base == Some(*sha) {
+            Some(CommitCompareBadge::Base)
+        } else {
+            None
+        }
+    }
+
+    pub fn render_compare_chip(&self, sha: &Oid, cx: &App) -> Option<Chip> {
+        let badge = self.commit_compare_badge(sha)?;
+        let status = cx.theme().status();
+        match badge {
+            CommitCompareBadge::Ahead => Some(
+                Chip::new(badge.label())
+                    .label_size(LabelSize::Small)
+                    .label_color(Color::Created)
+                    .bg_color(status.created_background)
+                    .border_color(status.created_border),
+            ),
+            CommitCompareBadge::Behind => Some(
+                Chip::new(badge.label())
+                    .label_size(LabelSize::Small)
+                    .label_color(Color::Info)
+                    .bg_color(status.info_background)
+                    .border_color(status.info_border),
+            ),
+            CommitCompareBadge::Base => Some(
+                Chip::new(badge.label())
+                    .label_size(LabelSize::Small)
+                    .label_color(Color::Hint)
+                    .bg_color(status.hint_background)
+                    .border_color(status.hint_border),
+            ),
+        }
+    }
+
+    pub fn compare_bar_ahead_behind_labels(&self) -> Option<(String, String)> {
+        let state = self.branch_compare_state.as_ref()?;
+        Some((
+            format!("+{} Ahead", state.ahead_commits.len()),
+            format!("-{} Behind", state.behind_commits.len()),
+        ))
+    }
+
+    pub fn render_compare_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let Some(state) = self.branch_compare_state.as_ref() else {
+            return div().into_any_element();
+        };
+
+        let colors = cx.theme().colors();
+        let status = cx.theme().status();
+        let (ahead_label, behind_label) = self
+            .compare_bar_ahead_behind_labels()
+            .unwrap_or_default();
+
+        h_flex()
+            .id("git-graph-compare-bar")
+            .w_full()
+            .px_3()
+            .py_1p5()
+            .gap_2()
+            .items_center()
+            .justify_between()
+            .border_b_1()
+            .border_color(colors.border_variant)
+            .bg(colors.toolbar_background)
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .min_w_0()
+                    .child(
+                        Icon::new(IconName::MagnifyingGlass)
+                            .size(IconSize::Small)
+                            .color(Color::Muted),
+                    )
+                    .child(
+                        Label::new(format!("{} ⮂ {}", state.target_branch, state.base_branch))
+                            .size(LabelSize::Small)
+                            .weight(gpui::FontWeight::SEMIBOLD),
+                    )
+                    .child(
+                        Chip::new(ahead_label)
+                            .label_size(LabelSize::Small)
+                            .label_color(Color::Created)
+                            .bg_color(status.created_background)
+                            .border_color(status.created_border),
+                    )
+                    .child(
+                        Chip::new(behind_label)
+                            .label_size(LabelSize::Small)
+                            .label_color(Color::Info)
+                            .bg_color(status.info_background)
+                            .border_color(status.info_border),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        Checkbox::new(
+                            "filter-compared-only",
+                            if state.filter_to_compared_only {
+                                ToggleState::Selected
+                            } else {
+                                ToggleState::Unselected
+                            },
+                        )
+                        .label("仅看差异提交")
+                        .label_size(LabelSize::Small)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.toggle_filter_to_compared_only(cx);
+                        })),
+                    )
+                    .child(
+                        div()
+                            .id("exit-branch-compare-button")
+                            .debug_selector(|| "exit-branch-compare-button".into())
+                            .child(
+                                IconButton::new("exit-branch-compare", IconName::Close)
+                                    .shape(ui::IconButtonShape::Square)
+                                    .icon_size(IconSize::Small)
+                                    .tooltip(Tooltip::text("退出对比"))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.exit_branch_compare(cx);
+                                    })),
+                            ),
+                    ),
+            )
+            .into_any_element()
     }
 
     /// Computes the height of a single commit row in the git graph.
@@ -1629,7 +1833,7 @@ impl GitGraph {
             .last_item_size
             .map_or(window.viewport_size().height, |size| size.item.height);
 
-        ((viewport_height / row_height).ceil() as usize).min(self.graph_data.commits.len())
+        ((viewport_height / row_height).ceil() as usize).min(self.visible_commit_count())
     }
 
     fn graph_canvas_content_width(&self) -> Pixels {
@@ -1917,6 +2121,7 @@ impl GitGraph {
                             self.active_lineage =
                                 Some(Arc::new(self.graph_data.find_lineage(target)));
                         }
+                        self.refresh_branch_compare_state();
 
                         cx.notify();
                     }
@@ -1954,6 +2159,7 @@ impl GitGraph {
             if let Some(target) = self.active_lineage_target {
                 self.active_lineage = Some(Arc::new(self.graph_data.find_lineage(target)));
             }
+            self.refresh_branch_compare_state();
         }
     }
 
@@ -2038,7 +2244,7 @@ impl GitGraph {
             .into_any_element()
     }
 
-    fn render_table_rows(
+    pub fn render_table_rows(
         &mut self,
         range: Range<usize>,
         window: &mut Window,
@@ -2055,27 +2261,43 @@ impl GitGraph {
         });
 
         let row_height = Self::row_height(window, cx);
+        let visible_indices = self.visible_commit_indices();
 
         // We fetch data outside the visible viewport to avoid loading entries when
         // users scroll through the git graph
         if let Some(repository) = repository.as_ref() {
             const FETCH_RANGE: usize = 100;
             repository.update(cx, |repository, cx| {
-                self.graph_data.commits[range.start.saturating_sub(FETCH_RANGE)
-                    ..(range.end + FETCH_RANGE)
-                        .min(self.graph_data.commits.len().saturating_sub(1))]
-                    .iter()
-                    .for_each(|commit| {
-                        repository.fetch_commit_data(commit.data.sha, false, cx);
-                    });
+                if let Some(indices) = &visible_indices {
+                    let start = range.start.saturating_sub(FETCH_RANGE);
+                    let end = (range.end + FETCH_RANGE).min(indices.len());
+                    for &commit_idx in &indices[start..end] {
+                        if let Some(commit) = self.graph_data.commits.get(commit_idx) {
+                            repository.fetch_commit_data(commit.data.sha, false, cx);
+                        }
+                    }
+                } else {
+                    let start = range.start.saturating_sub(FETCH_RANGE);
+                    let end = (range.end + FETCH_RANGE)
+                        .min(self.graph_data.commits.len().saturating_sub(1));
+                    if start < end && end <= self.graph_data.commits.len() {
+                        for commit in &self.graph_data.commits[start..end] {
+                            repository.fetch_commit_data(commit.data.sha, false, cx);
+                        }
+                    }
+                }
             });
         }
 
         range
             .map(|idx| {
-                let Some((commit, repository)) =
-                    self.graph_data.commits.get(idx).zip(repository.as_ref())
-                else {
+                let actual_commit_idx = if let Some(indices) = &visible_indices {
+                    indices.get(idx).copied()
+                } else {
+                    Some(idx)
+                };
+                let commit = actual_commit_idx.and_then(|i| self.graph_data.commits.get(i));
+                let Some((commit, repository)) = commit.zip(repository.as_ref()) else {
                     return vec![
                         div().h(row_height).into_any_element(),
                         div().h(row_height).into_any_element(),
@@ -2175,6 +2397,8 @@ impl GitGraph {
                     column_label(subject)
                 };
 
+                let compare_chip = self.render_compare_chip(&commit.data.sha, cx);
+
                 vec![
                     div()
                         .id(ElementId::NamedInteger("commit-subject".into(), idx as u64))
@@ -2183,6 +2407,7 @@ impl GitGraph {
                             h_flex()
                                 .gap_2()
                                 .overflow_hidden()
+                                .when_some(compare_chip, |this, chip| this.child(chip))
                                 .children((!commit.data.ref_names.is_empty()).then(|| {
                                     h_flex().gap_1().children(commit.data.ref_names.iter().map(
                                         |name| {
@@ -2236,11 +2461,12 @@ impl GitGraph {
     }
 
     fn select_next(&mut self, _: &SelectNext, window: &mut Window, cx: &mut Context<Self>) {
+        let commit_count = self.visible_commit_count();
         if let Some(selected_entry_idx) = &self.selected_entry_idx {
             self.select_entry(
                 selected_entry_idx
                     .saturating_add(1)
-                    .min(self.graph_data.commits.len().saturating_sub(1)),
+                    .min(commit_count.saturating_sub(1)),
                 ScrollStrategy::Nearest,
                 cx,
             );
@@ -2250,8 +2476,9 @@ impl GitGraph {
     }
 
     fn select_last(&mut self, _: &SelectLast, _window: &mut Window, cx: &mut Context<Self>) {
+        let commit_count = self.visible_commit_count();
         self.select_entry(
-            self.graph_data.commits.len().saturating_sub(1),
+            commit_count.saturating_sub(1),
             ScrollStrategy::Nearest,
             cx,
         );
@@ -2265,7 +2492,8 @@ impl GitGraph {
     }
 
     fn scroll_down(&mut self, _: &ScrollDown, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(last_entry_idx) = self.graph_data.commits.len().checked_sub(1) else {
+        let commit_count = self.visible_commit_count();
+        let Some(last_entry_idx) = commit_count.checked_sub(1) else {
             return;
         };
 
@@ -2406,11 +2634,12 @@ impl GitGraph {
         scroll_strategy: ScrollStrategy,
         cx: &mut Context<Self>,
     ) {
-        if self.selected_entry_idx == Some(idx) || idx >= self.graph_data.commits.len() {
+        let commit_count = self.visible_commit_count();
+        if self.selected_entry_idx == Some(idx) || idx >= commit_count {
             debug_assert!(
-                idx < self.graph_data.commits.len(),
-                "attempted to select out of bounds index: {idx}, commits.len: {}",
-                self.graph_data.commits.len()
+                idx < commit_count,
+                "attempted to select out of bounds index: {idx}, commit_count: {}",
+                commit_count
             );
             return;
         }
@@ -2426,7 +2655,7 @@ impl GitGraph {
             cx.notify();
         });
 
-        let Some(commit_sha) = self.graph_data.commits.get(idx).map(|commit| commit.data.sha) else {
+        let Some(commit_sha) = self.commit_at_display_index(idx).map(|commit| commit.data.sha) else {
             return;
         };
 
@@ -2639,7 +2868,7 @@ impl GitGraph {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(commit_entry) = self.graph_data.commits.get(entry_index) else {
+        let Some(commit_entry) = self.commit_at_display_index(entry_index) else {
             return;
         };
 
@@ -2659,7 +2888,7 @@ impl GitGraph {
     }
 
     fn copy_commit_sha(&mut self, entry_index: usize, cx: &mut Context<Self>) {
-        let Some(commit) = self.graph_data.commits.get(entry_index) else {
+        let Some(commit) = self.commit_at_display_index(entry_index) else {
             return;
         };
         cx.write_to_clipboard(ClipboardItem::new_string(commit.data.sha.to_string()));
@@ -2678,7 +2907,7 @@ impl GitGraph {
     }
 
     fn copy_commit_tag(&mut self, entry_index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(commit) = self.graph_data.commits.get(entry_index) else {
+        let Some(commit) = self.commit_at_display_index(entry_index) else {
             return;
         };
 
@@ -2724,7 +2953,7 @@ impl GitGraph {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(commit) = self.graph_data.commits.get(index) else {
+        let Some(commit) = self.commit_at_display_index(index) else {
             return;
         };
         let repository = self
@@ -3498,7 +3727,10 @@ impl GitGraph {
             .last_item_size
             .map(|size| size.item.height)
             .unwrap_or(window.viewport_size().height);
-        let loaded_commit_count = self.graph_data.commits.len();
+        let visible_indices = self.visible_commit_indices();
+        let loaded_commit_count = visible_indices
+            .as_ref()
+            .map_or(self.graph_data.commits.len(), |indices| indices.len());
 
         let content_height = row_height * loaded_commit_count;
         let max_scroll = (content_height - viewport_height).max(px(0.));
@@ -3517,17 +3749,31 @@ impl GitGraph {
 
         let viewport_range = first_visible_row.min(loaded_commit_count.saturating_sub(1))
             ..(last_visible_row).min(loaded_commit_count);
-        let rows = self.graph_data.commits[viewport_range.clone()].to_vec();
-        let commit_lines: Vec<_> = self
-            .graph_data
-            .lines
-            .iter()
-            .filter(|line| {
-                line.full_interval.start <= viewport_range.end
-                    && line.full_interval.end >= viewport_range.start
-            })
-            .cloned()
-            .collect();
+        let rows: Vec<Rc<CommitEntry>> = if let Some(indices) = &visible_indices {
+            if viewport_range.start < indices.len() {
+                indices[viewport_range.clone()]
+                    .iter()
+                    .filter_map(|&orig_idx| self.graph_data.commits.get(orig_idx).cloned())
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        } else {
+            self.graph_data.commits[viewport_range.clone()].to_vec()
+        };
+        let commit_lines: Vec<_> = if visible_indices.is_some() {
+            Vec::new()
+        } else {
+            self.graph_data
+                .lines
+                .iter()
+                .filter(|line| {
+                    line.full_interval.start <= viewport_range.end
+                        && line.full_interval.end >= viewport_range.start
+                })
+                .cloned()
+                .collect()
+        };
 
         let mut lines: BTreeMap<(bool, usize), Vec<_>> = BTreeMap::new();
 
@@ -3800,7 +4046,7 @@ impl GitGraph {
             let row_height = Self::row_height(window, cx);
             let absolute_row = (absolute_y / row_height).floor() as usize;
 
-            if absolute_row < self.graph_data.commits.len() {
+            if absolute_row < self.visible_commit_count() {
                 return Some(absolute_row);
             }
         }
@@ -3899,10 +4145,14 @@ impl GitGraph {
 
         let viewport_height = table_state.scroll_handle.viewport().size.height;
 
-        let commit_count = match self.graph_data.max_commit_count {
-            AllCommitCount::Loading(count) => count,
-            AllCommitCount::FullyLoaded(count) => count,
-            AllCommitCount::NotLoaded => self.graph_data.commits.len(),
+        let commit_count = if self.visible_commit_indices().is_some() {
+            self.visible_commit_count()
+        } else {
+            match self.graph_data.max_commit_count {
+                AllCommitCount::Loading(count) => count,
+                AllCommitCount::FullyLoaded(count) => count,
+                AllCommitCount::NotLoaded => self.graph_data.commits.len(),
+            }
         };
         let content_height = Self::row_height(window, cx) * commit_count;
         let max_vertical_scroll = (viewport_height - content_height).min(px(0.));
@@ -3957,6 +4207,7 @@ impl GitGraph {
                 if let Some(target) = self.active_lineage_target {
                     self.active_lineage = Some(Arc::new(self.graph_data.find_lineage(target)));
                 }
+                self.refresh_branch_compare_state();
 
                 (commit_count, is_loading)
             }
@@ -4057,7 +4308,11 @@ impl Render for GitGraph {
             self.search_state.state = QueryState::Empty;
             self.search(query, cx);
         }
-        let (commit_count, is_loading) = self.commit_count_and_loading_state(cx);
+        let (all_commit_count, is_loading) = self.commit_count_and_loading_state(cx);
+        let visible_indices = self.visible_commit_indices();
+        let commit_count = visible_indices
+            .as_ref()
+            .map_or(all_commit_count, |indices| indices.len());
 
         let error = self.get_repository(cx).and_then(|repo| {
             repo.read(cx)
@@ -4429,6 +4684,9 @@ impl Render for GitGraph {
                 v_flex()
                     .size_full()
                     .child(self.render_search_bar(cx))
+                    .when(self.branch_compare_state.is_some(), |this| {
+                        this.child(self.render_compare_bar(cx))
+                    })
                     .child(div().flex_1().child(content)),
             )
             .children(self.context_menu.as_ref().map(|context_menu| {
@@ -8285,6 +8543,52 @@ mod tests {
     }
 
     #[gpui::test]
+    fn test_branch_compare_incremental_refresh() {
+        let mut graph_data = GraphData::new(8);
+        let c1 = Oid::from_str("1111111111111111111111111111111111111111").unwrap();
+        let c2 = Oid::from_str("2222222222222222222222222222222222222222").unwrap();
+        let c3 = Oid::from_str("3333333333333333333333333333333333333333").unwrap();
+        let c4 = Oid::from_str("4444444444444444444444444444444444444444").unwrap();
+
+        let first_chunk = vec![
+            Arc::new(InitialGraphCommitData {
+                sha: c3,
+                parents: smallvec![c2],
+                ref_names: vec!["HEAD -> feature".into()],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c4,
+                parents: smallvec![c1],
+                ref_names: vec!["refs/heads/main".into()],
+            }),
+        ];
+        graph_data.add_commits(&first_chunk);
+
+        let initial_compare = graph_data.compute_branch_compare(c4, c3);
+        assert_eq!(initial_compare.merge_base, None);
+
+        let second_chunk = vec![
+            Arc::new(InitialGraphCommitData {
+                sha: c2,
+                parents: smallvec![c1],
+                ref_names: vec![],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c1,
+                parents: smallvec![],
+                ref_names: vec![],
+            }),
+        ];
+        graph_data.add_commits(&second_chunk);
+
+        let refreshed_compare = graph_data.compute_branch_compare(c4, c3);
+        assert_eq!(refreshed_compare.merge_base, Some(c1));
+        assert!(refreshed_compare.ahead_commits.contains(&c2));
+        assert!(refreshed_compare.ahead_commits.contains(&c3));
+        assert!(refreshed_compare.behind_commits.contains(&c4));
+    }
+
+    #[gpui::test]
     async fn test_git_graph_branch_compare_mode(cx: &mut TestAppContext) {
         init_test(cx);
 
@@ -8298,6 +8602,7 @@ mod tests {
         )
         .await;
 
+        let c0 = Oid::from_str("0000000000000000000000000000000000000000").unwrap();
         let c1 = Oid::from_str("1111111111111111111111111111111111111111").unwrap();
         let c2 = Oid::from_str("2222222222222222222222222222222222222222").unwrap();
         let c3 = Oid::from_str("3333333333333333333333333333333333333333").unwrap();
@@ -8323,6 +8628,11 @@ mod tests {
                 sha: c1,
                 parents: smallvec![],
                 ref_names: vec![],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c0,
+                parents: smallvec![],
+                ref_names: vec!["refs/heads/other".into()],
             }),
         ];
         fs.set_graph_commits(Path::new("/project/.git"), commits);
@@ -8353,10 +8663,14 @@ mod tests {
                 cx,
             )
         });
+        workspace.update_in(cx, |workspace, window, cx| {
+            workspace.add_item_to_active_pane(Box::new(git_graph.clone()), None, true, window, cx);
+        });
         cx.run_until_parked();
 
         git_graph.read_with(&*cx, |graph, _| {
             assert!(graph.branch_compare_state().is_none());
+            assert_eq!(graph.visible_commit_count(), 5);
         });
 
         git_graph.update(cx, |graph, cx| {
@@ -8374,6 +8688,26 @@ mod tests {
             assert_eq!(state.merge_base, Some(c1));
             assert!(!state.filter_to_compared_only);
 
+            let (ahead_label, behind_label) = graph
+                .compare_bar_ahead_behind_labels()
+                .expect("compare labels should be present");
+            assert_eq!(ahead_label, "+2 Ahead");
+            assert_eq!(behind_label, "-1 Behind");
+
+            assert_eq!(graph.commit_compare_badge(&c3), Some(CommitCompareBadge::Ahead));
+            assert_eq!(graph.commit_compare_badge(&c2), Some(CommitCompareBadge::Ahead));
+            assert_eq!(graph.commit_compare_badge(&c4), Some(CommitCompareBadge::Behind));
+            assert_eq!(graph.commit_compare_badge(&c1), Some(CommitCompareBadge::Base));
+            assert_eq!(graph.commit_compare_badge(&c0), None);
+
+            assert!(graph.render_compare_chip(&c3, cx).is_some());
+            assert!(graph.render_compare_chip(&c4, cx).is_some());
+            assert!(graph.render_compare_chip(&c1, cx).is_some());
+            assert!(graph.render_compare_chip(&c0, cx).is_none());
+
+            assert_eq!(graph.visible_commit_count(), 5);
+            assert!(graph.visible_commit_indices().is_none());
+
             graph.toggle_filter_to_compared_only(cx);
             assert!(
                 graph
@@ -8381,6 +8715,14 @@ mod tests {
                     .expect("compare state should be set")
                     .filter_to_compared_only
             );
+            assert_eq!(graph.visible_commit_count(), 4);
+            let indices = graph.visible_commit_indices().expect("filtered indices should be set");
+            assert_eq!(indices, vec![0, 1, 2, 3]);
+        });
+
+        git_graph.update_in(cx, |graph, window, cx| {
+            let filtered_rows = graph.render_table_rows(0..graph.visible_commit_count(), window, cx);
+            assert_eq!(filtered_rows.len(), 4);
 
             graph.toggle_filter_to_compared_only(cx);
             assert!(
@@ -8389,11 +8731,33 @@ mod tests {
                     .expect("compare state should be set")
                     .filter_to_compared_only
             );
+            assert_eq!(graph.visible_commit_count(), 5);
+            assert!(graph.visible_commit_indices().is_none());
 
-            graph.exit_branch_compare(cx);
+            let all_rows = graph.render_table_rows(0..graph.visible_commit_count(), window, cx);
+            assert_eq!(all_rows.len(), 5);
+        });
+
+        cx.draw(
+            point(px(0.), px(0.)),
+            gpui::size(px(1200.), px(800.)),
+            |_, _| multi_workspace.clone().into_any_element(),
+        );
+        cx.run_until_parked();
+
+        let close_bounds = cx.debug_bounds("exit-branch-compare-button");
+        assert!(close_bounds.is_some(), "exit compare button should be visible");
+        cx.simulate_click(close_bounds.unwrap().center(), gpui::Modifiers::none());
+        cx.run_until_parked();
+
+        git_graph.read_with(&*cx, |graph, _| {
             assert!(graph.branch_compare_state().is_none());
+        });
 
+        git_graph.update(cx, |graph, cx| {
             graph.enter_branch_compare("main".into(), "feature".into(), c4, c3, cx);
+            assert!(graph.branch_compare_state().is_some());
+            graph.refresh_branch_compare_state();
             assert!(graph.branch_compare_state().is_some());
             graph.invalidate_state(cx);
             assert!(graph.branch_compare_state().is_none());
