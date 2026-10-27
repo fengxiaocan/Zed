@@ -5,7 +5,7 @@ use crate::{
     commit_view::CommitView,
     git_status_icon,
 };
-use collections::{BTreeMap, HashMap, IndexSet};
+use collections::{BTreeMap, HashMap, HashSet, IndexSet};
 use editor::Editor;
 use file_icons::FileIcons;
 use git::{
@@ -43,6 +43,7 @@ use search::{
 use smallvec::{SmallVec, smallvec};
 use std::{
     cell::Cell,
+    collections::VecDeque,
     ops::Range,
     rc::Rc,
     sync::{Arc, OnceLock},
@@ -898,6 +899,8 @@ struct GraphData {
     lines: Vec<Rc<CommitLine>>,
     active_commit_lines: HashMap<CommitLineKey, usize>,
     active_commit_lines_by_parent: HashMap<Oid, SmallVec<[usize; 1]>>,
+    children_by_parent: HashMap<Oid, SmallVec<[Oid; 2]>>,
+    oid_to_index: HashMap<Oid, usize>,
 }
 
 impl GraphData {
@@ -914,6 +917,8 @@ impl GraphData {
             lines: Vec::default(),
             active_commit_lines: HashMap::default(),
             active_commit_lines_by_parent: HashMap::default(),
+            children_by_parent: HashMap::default(),
+            oid_to_index: HashMap::default(),
         }
     }
 
@@ -925,6 +930,8 @@ impl GraphData {
         self.lines.clear();
         self.active_commit_lines.clear();
         self.active_commit_lines_by_parent.clear();
+        self.children_by_parent.clear();
+        self.oid_to_index.clear();
         self.next_color = BranchColor(0);
         self.max_commit_count = AllCommitCount::NotLoaded;
         self.max_lanes = 0;
@@ -952,9 +959,18 @@ impl GraphData {
     fn add_commits(&mut self, commits: &[Arc<InitialGraphCommitData>]) {
         self.commits.reserve(commits.len());
         self.lines.reserve(commits.len() / 2);
+        self.oid_to_index.reserve(commits.len());
 
         for commit in commits.iter() {
             let commit_row = self.commits.len();
+            self.oid_to_index.insert(commit.sha, commit_row);
+
+            for parent in &commit.parents {
+                self.children_by_parent
+                    .entry(*parent)
+                    .or_default()
+                    .push(commit.sha);
+            }
 
             let commit_lane = self
                 .parent_to_lanes
@@ -1059,6 +1075,56 @@ impl GraphData {
         }
 
         self.max_commit_count = AllCommitCount::Loading(self.commits.len());
+    }
+
+    #[allow(dead_code)]
+    pub fn find_ancestors(&self, target_sha: Oid) -> HashSet<Oid> {
+        let mut ancestors = HashSet::default();
+        let mut queue = VecDeque::new();
+        ancestors.insert(target_sha);
+        queue.push_back(target_sha);
+
+        while let Some(current_sha) = queue.pop_front() {
+            if let Some(&commit_index) = self.oid_to_index.get(&current_sha) {
+                if let Some(commit_entry) = self.commits.get(commit_index) {
+                    for parent_sha in &commit_entry.data.parents {
+                        if ancestors.insert(*parent_sha) {
+                            queue.push_back(*parent_sha);
+                        }
+                    }
+                }
+            }
+        }
+
+        ancestors
+    }
+
+    #[allow(dead_code)]
+    pub fn find_descendants(&self, target_sha: Oid) -> HashSet<Oid> {
+        let mut descendants = HashSet::default();
+        let mut queue = VecDeque::new();
+        descendants.insert(target_sha);
+        queue.push_back(target_sha);
+
+        while let Some(current_sha) = queue.pop_front() {
+            if let Some(children) = self.children_by_parent.get(&current_sha) {
+                for child_sha in children {
+                    if descendants.insert(*child_sha) {
+                        queue.push_back(*child_sha);
+                    }
+                }
+            }
+        }
+
+        descendants
+    }
+
+    #[allow(dead_code)]
+    pub fn find_lineage(&self, target_sha: Oid) -> HashSet<Oid> {
+        let mut lineage = self.find_ancestors(target_sha);
+        let descendants = self.find_descendants(target_sha);
+        lineage.extend(descendants);
+        lineage
     }
 }
 
@@ -4765,6 +4831,7 @@ mod tests {
     use settings::{SettingsStore, ThemeSettingsContent};
     use smallvec::{SmallVec, smallvec};
     use std::path::Path;
+    use std::str::FromStr;
     use std::sync::{Arc, Mutex};
 
     fn init_test(cx: &mut TestAppContext) {
@@ -7604,5 +7671,52 @@ mod tests {
                 .map(|m| m.message.entity_id());
             assert_eq!(message_entity_id, new_entity_id);
         });
+    }
+
+    #[gpui::test]
+    fn test_lineage_traversal() {
+        let mut graph_data = GraphData::new(8);
+        let c1 = Oid::from_str("1111111111111111111111111111111111111111").unwrap();
+        let c2 = Oid::from_str("2222222222222222222222222222222222222222").unwrap();
+        let c3 = Oid::from_str("3333333333333333333333333333333333333333").unwrap();
+        let c4 = Oid::from_str("4444444444444444444444444444444444444444").unwrap();
+        let c5 = Oid::from_str("5555555555555555555555555555555555555555").unwrap();
+
+        let commits = vec![
+            Arc::new(InitialGraphCommitData {
+                sha: c5,
+                parents: smallvec![c3, c2],
+                ref_names: vec![],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c4,
+                parents: smallvec![c2],
+                ref_names: vec!["HEAD".into()],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c3,
+                parents: smallvec![c1],
+                ref_names: vec![],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c2,
+                parents: smallvec![c1],
+                ref_names: vec![],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c1,
+                parents: smallvec![],
+                ref_names: vec![],
+            }),
+        ];
+
+        graph_data.add_commits(&commits);
+
+        let lineage = graph_data.find_lineage(c2);
+        assert!(lineage.contains(&c1), "lineage should contain parent c1");
+        assert!(lineage.contains(&c2), "lineage should contain self c2");
+        assert!(lineage.contains(&c4), "lineage should contain child c4");
+        assert!(lineage.contains(&c5), "lineage should contain merge child c5");
+        assert!(!lineage.contains(&c3), "lineage should not contain unrelated branch c3");
     }
 }
