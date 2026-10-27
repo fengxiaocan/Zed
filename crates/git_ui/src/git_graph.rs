@@ -887,6 +887,13 @@ struct CommitLineKey {
     parent: Oid,
 }
 
+fn is_head_commit(commit: &InitialGraphCommitData) -> bool {
+    commit
+        .ref_names
+        .iter()
+        .any(|ref_name| ref_name == "HEAD" || ref_name.starts_with("HEAD ->"))
+}
+
 struct GraphData {
     lane_states: SmallVec<[LaneState; 8]>,
     lane_colors: HashMap<ActiveLaneIdx, BranchColor>,
@@ -901,6 +908,8 @@ struct GraphData {
     active_commit_lines_by_parent: HashMap<Oid, SmallVec<[usize; 1]>>,
     children_by_parent: HashMap<Oid, SmallVec<[Oid; 2]>>,
     oid_to_index: HashMap<Oid, usize>,
+    trunk_shas: HashSet<Oid>,
+    head_seen: bool,
 }
 
 impl GraphData {
@@ -919,6 +928,8 @@ impl GraphData {
             active_commit_lines_by_parent: HashMap::default(),
             children_by_parent: HashMap::default(),
             oid_to_index: HashMap::default(),
+            trunk_shas: HashSet::default(),
+            head_seen: false,
         }
     }
 
@@ -932,19 +943,42 @@ impl GraphData {
         self.active_commit_lines_by_parent.clear();
         self.children_by_parent.clear();
         self.oid_to_index.clear();
+        self.trunk_shas.clear();
+        self.head_seen = false;
         self.next_color = BranchColor(0);
         self.max_commit_count = AllCommitCount::NotLoaded;
         self.max_lanes = 0;
     }
 
-    fn first_empty_lane_idx(&mut self) -> ActiveLaneIdx {
-        self.lane_states
-            .iter()
-            .position(LaneState::is_empty)
-            .unwrap_or_else(|| {
+    fn first_empty_lane_idx_for_commit(&mut self, is_trunk: bool) -> ActiveLaneIdx {
+        if is_trunk {
+            self.lane_states
+                .iter()
+                .position(LaneState::is_empty)
+                .unwrap_or_else(|| {
+                    self.lane_states.push(LaneState::Empty);
+                    self.lane_states.len() - 1
+                })
+        } else {
+            if self.lane_states.is_empty() {
                 self.lane_states.push(LaneState::Empty);
-                self.lane_states.len() - 1
-            })
+            }
+            self.lane_states
+                .iter()
+                .enumerate()
+                .skip(1)
+                .find_map(|(lane_index, state)| {
+                    if state.is_empty() {
+                        Some(lane_index)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_else(|| {
+                    self.lane_states.push(LaneState::Empty);
+                    self.lane_states.len() - 1
+                })
+        }
     }
 
     fn get_lane_color(&mut self, lane_idx: ActiveLaneIdx) -> BranchColor {
@@ -961,6 +995,13 @@ impl GraphData {
         self.lines.reserve(commits.len() / 2);
         self.oid_to_index.reserve(commits.len());
 
+        let contains_head = commits.iter().any(|commit| is_head_commit(commit));
+        if contains_head {
+            self.head_seen = true;
+        } else if !self.head_seen && self.commits.is_empty() && !commits.is_empty() {
+            self.trunk_shas.insert(commits[0].sha);
+        }
+
         for commit in commits.iter() {
             let commit_row = self.commits.len();
             self.oid_to_index.insert(commit.sha, commit_row);
@@ -972,12 +1013,55 @@ impl GraphData {
                     .push(commit.sha);
             }
 
-            let commit_lane = self
-                .parent_to_lanes
-                .get(&commit.sha)
-                .and_then(|lanes| lanes.iter().min().copied());
+            let is_head = is_head_commit(commit);
+            if is_head {
+                self.head_seen = true;
+                self.trunk_shas.insert(commit.sha);
+            }
 
-            let commit_lane = commit_lane.unwrap_or_else(|| self.first_empty_lane_idx());
+            let is_trunk = is_head
+                || self.trunk_shas.contains(&commit.sha)
+                || self
+                    .parent_to_lanes
+                    .get(&commit.sha)
+                    .map_or(false, |lanes| lanes.contains(&0));
+
+            if is_trunk {
+                if let Some(first_parent) = commit.parents.first() {
+                    self.trunk_shas.insert(*first_parent);
+                }
+            }
+
+            let commit_lane = if is_head {
+                if self.lane_states.first().map_or(false, |state| !state.is_empty()) {
+                    let shifted_lane = self.first_empty_lane_idx_for_commit(false);
+                    let mut state = std::mem::replace(&mut self.lane_states[0], LaneState::Empty);
+                    if let LaneState::Active {
+                        starting_col,
+                        parent,
+                        ..
+                    } = &mut state
+                    {
+                        if let Some(lanes) = self.parent_to_lanes.get_mut(parent) {
+                            for lane in lanes.iter_mut() {
+                                if *lane == 0 {
+                                    *lane = shifted_lane;
+                                }
+                            }
+                        }
+                        *starting_col = shifted_lane;
+                    }
+                    self.lane_states[shifted_lane] = state;
+                }
+                0
+            } else {
+                let commit_lane = self
+                    .parent_to_lanes
+                    .get(&commit.sha)
+                    .and_then(|lanes| lanes.iter().min().copied());
+
+                commit_lane.unwrap_or_else(|| self.first_empty_lane_idx_for_commit(is_trunk))
+            };
 
             let commit_color = self.get_lane_color(commit_lane);
 
@@ -1027,6 +1111,11 @@ impl GraphData {
                 .enumerate()
                 .for_each(|(parent_idx, parent)| {
                     if parent_idx == 0 {
+                        if commit_lane >= self.lane_states.len() {
+                            self.lane_states
+                                .resize_with(commit_lane + 1, || LaneState::Empty);
+                        }
+
                         self.lane_states[commit_lane] = LaneState::Active {
                             parent: *parent,
                             child: commit.sha,
@@ -1042,7 +1131,7 @@ impl GraphData {
                             .or_default()
                             .push(commit_lane);
                     } else {
-                        let new_lane = self.first_empty_lane_idx();
+                        let new_lane = self.first_empty_lane_idx_for_commit(false);
 
                         self.lane_states[new_lane] = LaneState::Active {
                             parent: *parent,
@@ -5093,11 +5182,17 @@ mod tests {
             for (parent_index, parent) in entry.data.parents.iter().enumerate() {
                 let lane = if parent_index == 0 {
                     entry.lane
-                } else if let Some(empty_lane) =
-                    active_lane_parents.iter().position(Option::is_none)
+                } else if let Some(empty_lane) = active_lane_parents
+                    .iter()
+                    .enumerate()
+                    .skip(1)
+                    .find_map(|(idx, p)| if p.is_none() { Some(idx) } else { None })
                 {
                     empty_lane
                 } else {
+                    if active_lane_parents.is_empty() {
+                        active_lane_parents.push(None);
+                    }
                     active_lane_parents.push(None);
                     active_lane_parents.len() - 1
                 };
@@ -7718,5 +7813,93 @@ mod tests {
         assert!(lineage.contains(&c4), "lineage should contain child c4");
         assert!(lineage.contains(&c5), "lineage should contain merge child c5");
         assert!(!lineage.contains(&c3), "lineage should not contain unrelated branch c3");
+    }
+
+    #[gpui::test]
+    fn test_lane_0_head_priority() {
+        let mut graph_data = GraphData::new(8);
+        let c1 = Oid::from_str("1111111111111111111111111111111111111111").unwrap();
+        let c2 = Oid::from_str("2222222222222222222222222222222222222222").unwrap();
+        let c3 = Oid::from_str("3333333333333333333333333333333333333333").unwrap();
+        let c4 = Oid::from_str("4444444444444444444444444444444444444444").unwrap();
+
+        let commits = vec![
+            Arc::new(InitialGraphCommitData {
+                sha: c4,
+                parents: smallvec![c2],
+                ref_names: vec!["HEAD".into(), "refs/heads/main".into()],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c3,
+                parents: smallvec![c1],
+                ref_names: vec!["refs/heads/feature".into()],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c2,
+                parents: smallvec![c1],
+                ref_names: vec![],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c1,
+                parents: smallvec![],
+                ref_names: vec![],
+            }),
+        ];
+
+        graph_data.add_commits(&commits);
+
+        let c4_entry = graph_data.commits.iter().find(|c| c.data.sha == c4).unwrap();
+        let c2_entry = graph_data.commits.iter().find(|c| c.data.sha == c2).unwrap();
+        let c1_entry = graph_data.commits.iter().find(|c| c.data.sha == c1).unwrap();
+        assert_eq!(c4_entry.lane, 0, "HEAD commit should be on lane 0");
+        assert_eq!(c2_entry.lane, 0, "Trunk commit c2 should be on lane 0");
+        assert_eq!(c1_entry.lane, 0, "Root trunk commit c1 should be on lane 0");
+
+        let c3_entry = graph_data.commits.iter().find(|c| c.data.sha == c3).unwrap();
+        assert_eq!(c3_entry.lane, 1, "Side branch c3 should be on lane 1");
+    }
+
+    #[gpui::test]
+    fn test_lane_0_head_priority_commit_before_head() {
+        let mut graph_data = GraphData::new(8);
+        let c1 = Oid::from_str("1111111111111111111111111111111111111111").unwrap();
+        let c2 = Oid::from_str("2222222222222222222222222222222222222222").unwrap();
+        let c3 = Oid::from_str("3333333333333333333333333333333333333333").unwrap();
+        let c4 = Oid::from_str("4444444444444444444444444444444444444444").unwrap();
+
+        let commits = vec![
+            Arc::new(InitialGraphCommitData {
+                sha: c3,
+                parents: smallvec![c1],
+                ref_names: vec!["refs/heads/feature".into()],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c4,
+                parents: smallvec![c2],
+                ref_names: vec!["HEAD".into(), "refs/heads/main".into()],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c2,
+                parents: smallvec![c1],
+                ref_names: vec![],
+            }),
+            Arc::new(InitialGraphCommitData {
+                sha: c1,
+                parents: smallvec![],
+                ref_names: vec![],
+            }),
+        ];
+
+        graph_data.add_commits(&commits);
+
+        let c4_entry = graph_data.commits.iter().find(|c| c.data.sha == c4).unwrap();
+        let c2_entry = graph_data.commits.iter().find(|c| c.data.sha == c2).unwrap();
+        let c1_entry = graph_data.commits.iter().find(|c| c.data.sha == c1).unwrap();
+        assert_eq!(c4_entry.lane, 0, "HEAD commit should be on lane 0");
+        assert_eq!(c2_entry.lane, 0, "Trunk commit c2 should be on lane 0");
+        assert_eq!(c1_entry.lane, 0, "Root trunk commit c1 should be on lane 0");
+
+        let c3_entry = graph_data.commits.iter().find(|c| c.data.sha == c3).unwrap();
+        assert_eq!(c3_entry.lane, 1, "Side branch c3 should be on lane 1");
     }
 }
