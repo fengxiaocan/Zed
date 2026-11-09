@@ -10,6 +10,7 @@ pub struct QuickCommand {
     pub name: String,
     pub command: String,
     pub cwd: Option<String>,
+    pub folder: Option<String>,
 }
 
 impl From<&QuickCommandEntryContent> for QuickCommand {
@@ -18,6 +19,11 @@ impl From<&QuickCommandEntryContent> for QuickCommand {
             name: entry.name.clone(),
             command: entry.command.clone(),
             cwd: entry.cwd.clone(),
+            folder: entry
+                .folder
+                .as_ref()
+                .map(|f| f.trim().to_string())
+                .filter(|f| !f.is_empty()),
         }
     }
 }
@@ -53,3 +59,50 @@ impl Settings for QuickCommandsSettings {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use settings_content::QuickCommandEntryContent;
+
+    #[test]
+    fn test_quick_command_folder_deserialization_compatibility() {
+        // 兼容旧版：无 folder 字段的 json 能平滑解析
+        let legacy_json = r#"{
+            "name": "Build Project",
+            "command": "./gradlew assembleDebug",
+            "cwd": "/workspace"
+        }"#;
+        let entry: QuickCommandEntryContent = serde_json::from_str(legacy_json).unwrap();
+        assert_eq!(entry.name, "Build Project");
+        assert_eq!(entry.command, "./gradlew assembleDebug");
+        assert_eq!(entry.cwd.as_deref(), Some("/workspace"));
+        assert_eq!(entry.folder, None);
+
+        let cmd = QuickCommand::from(&entry);
+        assert_eq!(cmd.folder, None);
+
+        // 新版：包含 folder 字段
+        let new_json = r#"{
+            "name": "Clean Git",
+            "command": "git clean -fd",
+            "folder": "Git Tools"
+        }"#;
+        let entry_with_folder: QuickCommandEntryContent = serde_json::from_str(new_json).unwrap();
+        assert_eq!(entry_with_folder.folder.as_deref(), Some("Git Tools"));
+
+        let cmd_with_folder = QuickCommand::from(&entry_with_folder);
+        assert_eq!(cmd_with_folder.folder.as_deref(), Some("Git Tools"));
+
+        // 空白字符串转为 None
+        let empty_folder_entry = QuickCommandEntryContent {
+            name: "Test".into(),
+            command: "echo 1".into(),
+            cwd: None,
+            folder: Some("   ".into()),
+        };
+        let cmd_empty = QuickCommand::from(&empty_folder_entry);
+        assert_eq!(cmd_empty.folder, None);
+    }
+}
+

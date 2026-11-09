@@ -135,6 +135,7 @@ impl QuickCommandsPanel {
                 name: c.name.clone(),
                 command: c.command.clone(),
                 cwd: c.cwd.clone(),
+                folder: c.folder.clone(),
             })
             .collect();
         self.persist_commands(entries, cx);
@@ -977,10 +978,16 @@ impl QuickCommandModal {
                     name: c.name.clone(),
                     command: c.command.clone(),
                     cwd: c.cwd.clone(),
+                    folder: c.folder.clone(),
                 })
                 .collect();
 
-            let entry = QuickCommandEntryContent { name, command, cwd };
+            let entry = QuickCommandEntryContent {
+                name,
+                command,
+                cwd,
+                folder: None,
+            };
             match self.editing_index {
                 Some(index) if index < entries.len() => {
                     entries[index] = entry;
@@ -1000,6 +1007,7 @@ impl QuickCommand {
             name: String::new(),
             command: String::new(),
             cwd: None,
+            folder: None,
         }
     }
 }

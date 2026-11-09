@@ -438,6 +438,14 @@ impl UiLanguage {
                     "命令（例如 ./gradlew.bat installDebug）…"
                 }
                 "Working directory (optional)…" => "工作目录（可选）…",
+                "Folder" => "文件夹",
+                "Folder (optional)" => "文件夹 / 分类 (可选)",
+                "Ungrouped" => "未分类",
+                "Rename Folder" => "重命名文件夹",
+                "Delete Folder" => "删除文件夹",
+                "Add Command to Folder" => "添加命令到此文件夹",
+                "New Folder Name" => "新文件夹名称",
+                "Folder name…" => "文件夹名称…",
                 "Browse for Folder…" => "浏览文件夹…",
                 "Select Working Directory" => "选择工作目录",
                 "Branches coming soon" => "分支列表即将推出",
@@ -1803,6 +1811,9 @@ pub struct QuickCommandEntryContent {
     pub command: String,
     /// Optional working directory override. When omitted, the project root is used.
     pub cwd: Option<String>,
+    /// Optional folder / category name. When omitted or empty, the command is grouped under "Ungrouped".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
 }
 
 #[derive(
