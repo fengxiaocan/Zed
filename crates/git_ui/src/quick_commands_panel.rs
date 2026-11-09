@@ -447,6 +447,17 @@ impl QuickCommandsPanel {
         let weak_bottom = weak.clone();
         let weak_delete = weak;
 
+        let groups = group_commands(&self.commands);
+        let mut is_first_in_folder = index == 0;
+        let mut is_last_in_folder = index + 1 >= total;
+        for group in groups {
+            if let Some(position) = group.command_indices.iter().position(|&cmd_index| cmd_index == index) {
+                is_first_in_folder = position == 0;
+                is_last_in_folder = position + 1 >= group.command_indices.len();
+                break;
+            }
+        }
+
         let context_menu = ContextMenu::build(window, cx, move |menu, _, cx| {
             menu.context(cx.focus_handle())
                 .item(
@@ -473,25 +484,13 @@ impl QuickCommandsPanel {
                 )
                 .separator()
                 .item(
-                    ContextMenuEntry::new(translate_ui("Move to Top", cx))
-                        .icon(IconName::ChevronUp)
-                        .disabled(index == 0)
-                        .handler(move |_window, cx| {
-                            if let Some(this) = weak_top.upgrade() {
-                                this.update(cx, |this, cx| {
-                                    this.move_command_to_top(index, cx);
-                                });
-                            }
-                        }),
-                )
-                .item(
                     ContextMenuEntry::new(translate_ui("Move Up", cx))
                         .icon(IconName::ArrowUp)
-                        .disabled(index == 0)
+                        .disabled(is_first_in_folder)
                         .handler(move |_window, cx| {
                             if let Some(this) = weak_up.upgrade() {
                                 this.update(cx, |this, cx| {
-                                    this.move_command_up(index, cx);
+                                    this.move_command_up_in_folder(index, cx);
                                 });
                             }
                         }),
@@ -499,23 +498,11 @@ impl QuickCommandsPanel {
                 .item(
                     ContextMenuEntry::new(translate_ui("Move Down", cx))
                         .icon(IconName::ArrowDown)
-                        .disabled(index + 1 >= total)
+                        .disabled(is_last_in_folder)
                         .handler(move |_window, cx| {
                             if let Some(this) = weak_down.upgrade() {
                                 this.update(cx, |this, cx| {
-                                    this.move_command_down(index, cx);
-                                });
-                            }
-                        }),
-                )
-                .item(
-                    ContextMenuEntry::new(translate_ui("Move to Bottom", cx))
-                        .icon(IconName::ChevronDown)
-                        .disabled(index + 1 >= total)
-                        .handler(move |_window, cx| {
-                            if let Some(this) = weak_bottom.upgrade() {
-                                this.update(cx, |this, cx| {
-                                    this.move_command_to_bottom(index, cx);
+                                    this.move_command_down_in_folder(index, cx);
                                 });
                             }
                         }),
@@ -709,7 +696,7 @@ impl QuickCommandsPanel {
             ElementId::from("qc-folder-popover"),
             folder_for_rename.clone(),
         ))
-        .trigger(
+        .trigger_with_tooltip(
             IconButton::new(
                 (
                     ElementId::from("qc-folder-more"),
@@ -718,6 +705,7 @@ impl QuickCommandsPanel {
                 IconName::Ellipsis,
             )
             .size(ButtonSize::Compact),
+            Tooltip::text(translate_ui("More Options", cx)),
         )
         .menu(move |window, cx| {
             let weak_rename = weak.clone();
