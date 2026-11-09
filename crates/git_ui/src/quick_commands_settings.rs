@@ -22,8 +22,8 @@ impl From<&QuickCommandEntryContent> for QuickCommand {
             folder: entry
                 .folder
                 .as_ref()
-                .map(|f| f.trim().to_string())
-                .filter(|f| !f.is_empty()),
+                .map(|folder| folder.trim().to_string())
+                .filter(|folder| !folder.is_empty()),
         }
     }
 }
