@@ -256,10 +256,19 @@ impl QuickCommandsPanel {
 
     pub fn prompt_rename_folder(
         &mut self,
-        _folder_name: &str,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
+        folder_name: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
     ) {
+        let weak_panel = cx.entity().downgrade();
+        let folder_name = folder_name.to_string();
+        if let Some(workspace) = self.workspace.upgrade() {
+            workspace.update(cx, |workspace, cx| {
+                workspace.toggle_modal(window, cx, |window, cx| {
+                    RenameFolderModal::new(folder_name, weak_panel, window, cx)
+                });
+            });
+        }
     }
 
     fn edit_command(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -1604,6 +1613,204 @@ impl Render for QuickCommandModal {
                                 Button::new("qc-save", translate_ui("Save", cx))
                                     .style(ButtonStyle::Filled)
                                     .disabled(command_empty)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.confirm(&menu::Confirm, window, cx);
+                                    })),
+                            ),
+                    ),
+            )
+    }
+}
+
+pub struct RenameFolderModal {
+    old_name: String,
+    editor: Entity<Editor>,
+    panel: WeakEntity<QuickCommandsPanel>,
+    _subscription: Subscription,
+}
+
+impl RenameFolderModal {
+    pub fn new(
+        old_name: String,
+        panel: WeakEntity<QuickCommandsPanel>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let editor = cx.new(|cx| {
+            let mut editor = Editor::single_line(window, cx);
+            editor.set_placeholder_text(translate_ui("New Folder Name", cx), window, cx);
+            editor.set_text(old_name.clone(), window, cx);
+            editor.select_all(&Default::default(), window, cx);
+            editor
+        });
+
+        let _subscription = cx.subscribe(&editor, |_, _, event: &editor::EditorEvent, cx| {
+            if matches!(event, editor::EditorEvent::BufferEdited) {
+                cx.notify();
+            }
+        });
+
+        Self {
+            old_name,
+            editor,
+            panel,
+            _subscription,
+        }
+    }
+
+    fn cancel(&mut self, _: &menu::Cancel, _window: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(DismissEvent);
+    }
+
+    fn confirm(&mut self, _: &menu::Confirm, _window: &mut Window, cx: &mut Context<Self>) {
+        let new_name = self.editor.read(cx).text(cx).trim().to_string();
+        if new_name.is_empty() || new_name == self.old_name.trim() {
+            return;
+        }
+
+        if let Some(panel) = self.panel.upgrade() {
+            panel.update(cx, |panel, cx| {
+                panel.rename_folder(&self.old_name, &new_name, cx);
+            });
+        }
+
+        cx.emit(DismissEvent);
+    }
+
+    fn render_field(
+        label: SharedString,
+        editor: Entity<Editor>,
+        window: &mut Window,
+        cx: &App,
+    ) -> impl IntoElement {
+        let focused = editor.focus_handle(cx).contains_focused(window, cx);
+        v_flex()
+            .w_full()
+            .gap_1()
+            .child(Label::new(label).size(LabelSize::Small).color(Color::Muted))
+            .child(
+                div()
+                    .w_full()
+                    .px_2()
+                    .py_1p5()
+                    .min_h_8()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(if focused {
+                        cx.theme().colors().border_focused
+                    } else {
+                        cx.theme().colors().border_variant
+                    })
+                    .bg(cx.theme().colors().editor_background)
+                    .child(editor),
+            )
+    }
+}
+
+impl EventEmitter<DismissEvent> for RenameFolderModal {}
+
+impl ModalView for RenameFolderModal {
+    fn fade_out_background(&self) -> bool {
+        true
+    }
+
+    fn render_bare(&self) -> bool {
+        true
+    }
+}
+
+impl Focusable for RenameFolderModal {
+    fn focus_handle(&self, cx: &App) -> FocusHandle {
+        self.editor.focus_handle(cx)
+    }
+}
+
+impl Render for RenameFolderModal {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let current_text = self.editor.read(cx).text(cx);
+        let trimmed_name = current_text.trim();
+        let save_disabled = trimmed_name.is_empty() || trimmed_name == self.old_name.trim();
+
+        let mut overlay_bg = cx.theme().colors().elevated_surface_background;
+        overlay_bg.fade_out(0.2);
+
+        v_flex()
+            .absolute()
+            .size_full()
+            .inset_0()
+            .occlude()
+            .bg(overlay_bg)
+            .items_center()
+            .justify_center()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|_, _, _, cx| {
+                    cx.emit(DismissEvent);
+                }),
+            )
+            .child(
+                v_flex()
+                    .key_context("RenameFolderModal")
+                    .tab_group()
+                    .on_action(cx.listener(Self::cancel))
+                    .on_action(cx.listener(Self::confirm))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                        cx.stop_propagation();
+                    })
+                    .elevation_3(cx)
+                    .w(rems(30.))
+                    .overflow_hidden()
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .px_4()
+                            .pt_3()
+                            .pb_2()
+                            .gap_2()
+                            .border_b_1()
+                            .border_color(cx.theme().colors().border_variant)
+                            .child(
+                                Icon::new(IconName::Folder)
+                                    .size(IconSize::Small)
+                                    .color(Color::Accent),
+                            )
+                            .child(
+                                Headline::new(translate_ui("Rename Folder", cx))
+                                    .size(HeadlineSize::Small),
+                            ),
+                    )
+                    .child(
+                        v_flex()
+                            .px_4()
+                            .py_3()
+                            .w_full()
+                            .gap_3()
+                            .child(Self::render_field(
+                                translate_ui("New Folder Name", cx).into(),
+                                self.editor.clone(),
+                                window,
+                                cx,
+                            )),
+                    )
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .px_4()
+                            .py_3()
+                            .gap_2()
+                            .justify_end()
+                            .border_t_1()
+                            .border_color(cx.theme().colors().border_variant)
+                            .child(
+                                Button::new("qc-rename-cancel", translate_ui("Cancel", cx))
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.cancel(&menu::Cancel, window, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("qc-rename-save", translate_ui("Save", cx))
+                                    .style(ButtonStyle::Filled)
+                                    .disabled(save_disabled)
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.confirm(&menu::Confirm, window, cx);
                                     })),
