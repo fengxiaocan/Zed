@@ -293,13 +293,22 @@ impl QuickCommandsPanel {
     }
 
     pub fn rename_folder(&mut self, old_name: &str, new_name: &str, cx: &mut Context<Self>) {
-        rename_folder_in_commands(&mut self.commands, old_name, new_name);
-        self.sync_and_persist(cx);
+        if rename_folder_in_commands(&mut self.commands, old_name, new_name) {
+            if self.collapsed_folders.remove(old_name) {
+                let trimmed_new = new_name.trim();
+                if !trimmed_new.is_empty() {
+                    self.collapsed_folders.insert(trimmed_new.to_string());
+                }
+            }
+            self.sync_and_persist(cx);
+        }
     }
 
     pub fn delete_folder(&mut self, folder_name: &str, cx: &mut Context<Self>) {
-        delete_folder_in_commands(&mut self.commands, folder_name);
-        self.sync_and_persist(cx);
+        if delete_folder_in_commands(&mut self.commands, folder_name) {
+            self.collapsed_folders.remove(folder_name);
+            self.sync_and_persist(cx);
+        }
     }
 
     fn move_command_up(&mut self, index: usize, cx: &mut Context<Self>) {
