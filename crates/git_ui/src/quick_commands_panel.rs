@@ -1,5 +1,6 @@
 use crate::quick_commands_settings::{QuickCommand, QuickCommandsSettings};
 use anyhow::Result;
+use collections::HashSet;
 use editor::Editor;
 use fs::Fs;
 use gpui::{
@@ -46,12 +47,135 @@ pub fn register(workspace: &mut Workspace) {
     });
 }
 
+pub const UNGROUPED_FOLDER_KEY: &str = "::ungrouped::";
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommandFolderGroup {
+    pub folder_name: Option<String>,
+    pub command_indices: Vec<usize>,
+}
+
+impl CommandFolderGroup {
+    pub fn folder_key(&self) -> &str {
+        self.folder_name.as_deref().unwrap_or(UNGROUPED_FOLDER_KEY)
+    }
+}
+
+pub fn group_commands(commands: &[QuickCommand]) -> Vec<CommandFolderGroup> {
+    let mut groups: Vec<CommandFolderGroup> = Vec::new();
+    let mut ungrouped_indices = Vec::new();
+
+    for (index, command) in commands.iter().enumerate() {
+        let cleaned_folder = command
+            .folder
+            .as_ref()
+            .map(|folder| folder.trim())
+            .filter(|folder| !folder.is_empty());
+        if let Some(folder_name) = cleaned_folder {
+            if let Some(existing_group) = groups
+                .iter_mut()
+                .find(|group| group.folder_name.as_deref() == Some(folder_name))
+            {
+                existing_group.command_indices.push(index);
+            } else {
+                groups.push(CommandFolderGroup {
+                    folder_name: Some(folder_name.to_string()),
+                    command_indices: vec![index],
+                });
+            }
+        } else {
+            ungrouped_indices.push(index);
+        }
+    }
+
+    if !ungrouped_indices.is_empty() {
+        groups.push(CommandFolderGroup {
+            folder_name: None,
+            command_indices: ungrouped_indices,
+        });
+    }
+
+    groups
+}
+
+pub fn reorder_command_up_in_folder(commands: &mut [QuickCommand], global_index: usize) -> bool {
+    let groups = group_commands(commands);
+    for group in groups {
+        if let Some(position) = group
+            .command_indices
+            .iter()
+            .position(|&target_index| target_index == global_index)
+        {
+            if position > 0 {
+                let previous_global_index = group.command_indices[position - 1];
+                commands.swap(global_index, previous_global_index);
+                return true;
+            }
+            break;
+        }
+    }
+    false
+}
+
+pub fn reorder_command_down_in_folder(commands: &mut [QuickCommand], global_index: usize) -> bool {
+    let groups = group_commands(commands);
+    for group in groups {
+        if let Some(position) = group
+            .command_indices
+            .iter()
+            .position(|&target_index| target_index == global_index)
+        {
+            if position + 1 < group.command_indices.len() {
+                let next_global_index = group.command_indices[position + 1];
+                commands.swap(global_index, next_global_index);
+                return true;
+            }
+            break;
+        }
+    }
+    false
+}
+
+pub fn rename_folder_in_commands(
+    commands: &mut [QuickCommand],
+    old_name: &str,
+    new_name: &str,
+) -> bool {
+    let trimmed_new = new_name.trim();
+    let target_folder = if trimmed_new.is_empty() {
+        None
+    } else {
+        Some(trimmed_new.to_string())
+    };
+
+    let mut changed = false;
+    for command in commands.iter_mut() {
+        if command.folder.as_deref() == Some(old_name) {
+            command.folder = target_folder.clone();
+            changed = true;
+        }
+    }
+    changed
+}
+
+pub fn delete_folder_in_commands(commands: &mut [QuickCommand], folder_name: &str) -> bool {
+    let mut changed = false;
+    for command in commands.iter_mut() {
+        if command.folder.as_deref() == Some(folder_name) {
+            command.folder = None;
+            changed = true;
+        }
+    }
+    changed
+}
+
 pub struct QuickCommandsPanel {
     focus_handle: FocusHandle,
     workspace: WeakEntity<Workspace>,
     project: Entity<Project>,
     fs: Arc<dyn Fs>,
     commands: Vec<QuickCommand>,
+    collapsed_folders: HashSet<String>,
     context_menu: Option<(Entity<ContextMenu>, Point<Pixels>, Subscription)>,
     _settings_subscription: Subscription,
 }
@@ -82,9 +206,23 @@ impl QuickCommandsPanel {
             project,
             fs: workspace.app_state().fs.clone(),
             commands,
+            collapsed_folders: HashSet::default(),
             context_menu: None,
             _settings_subscription,
         }
+    }
+
+    pub fn toggle_folder_collapse(&mut self, folder_key: &str, cx: &mut Context<Self>) {
+        if self.collapsed_folders.contains(folder_key) {
+            self.collapsed_folders.remove(folder_key);
+        } else {
+            self.collapsed_folders.insert(folder_key.to_string());
+        }
+        cx.notify();
+    }
+
+    pub fn is_folder_collapsed(&self, folder_key: &str) -> bool {
+        self.collapsed_folders.contains(folder_key)
     }
 
     fn persist_commands(&self, commands: Vec<QuickCommandEntryContent>, cx: &mut App) {
@@ -131,15 +269,37 @@ impl QuickCommandsPanel {
         let entries: Vec<QuickCommandEntryContent> = self
             .commands
             .iter()
-            .map(|c| QuickCommandEntryContent {
-                name: c.name.clone(),
-                command: c.command.clone(),
-                cwd: c.cwd.clone(),
-                folder: c.folder.clone(),
+            .map(|command| QuickCommandEntryContent {
+                name: command.name.clone(),
+                command: command.command.clone(),
+                cwd: command.cwd.clone(),
+                folder: command.folder.clone(),
             })
             .collect();
         self.persist_commands(entries, cx);
         cx.notify();
+    }
+
+    pub fn move_command_up_in_folder(&mut self, global_index: usize, cx: &mut Context<Self>) {
+        if reorder_command_up_in_folder(&mut self.commands, global_index) {
+            self.sync_and_persist(cx);
+        }
+    }
+
+    pub fn move_command_down_in_folder(&mut self, global_index: usize, cx: &mut Context<Self>) {
+        if reorder_command_down_in_folder(&mut self.commands, global_index) {
+            self.sync_and_persist(cx);
+        }
+    }
+
+    pub fn rename_folder(&mut self, old_name: &str, new_name: &str, cx: &mut Context<Self>) {
+        rename_folder_in_commands(&mut self.commands, old_name, new_name);
+        self.sync_and_persist(cx);
+    }
+
+    pub fn delete_folder(&mut self, folder_name: &str, cx: &mut Context<Self>) {
+        delete_folder_in_commands(&mut self.commands, folder_name);
+        self.sync_and_persist(cx);
     }
 
     fn move_command_up(&mut self, index: usize, cx: &mut Context<Self>) {
@@ -1187,5 +1347,155 @@ impl Render for QuickCommandModal {
                             ),
                     ),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_group_commands_by_folder() {
+        let commands = vec![
+            QuickCommand {
+                name: "command_1".into(),
+                command: "echo 1".into(),
+                cwd: None,
+                folder: Some("Git".into()),
+            },
+            QuickCommand {
+                name: "command_2".into(),
+                command: "echo 2".into(),
+                cwd: None,
+                folder: None,
+            },
+            QuickCommand {
+                name: "command_3".into(),
+                command: "echo 3".into(),
+                cwd: None,
+                folder: Some("Build".into()),
+            },
+            QuickCommand {
+                name: "command_4".into(),
+                command: "echo 4".into(),
+                cwd: None,
+                folder: Some("Git".into()),
+            },
+            QuickCommand {
+                name: "command_5".into(),
+                command: "echo 5".into(),
+                cwd: None,
+                folder: Some("   ".into()),
+            },
+        ];
+
+        let groups = group_commands(&commands);
+        assert_eq!(groups.len(), 3);
+
+        assert_eq!(groups[0].folder_name.as_deref(), Some("Git"));
+        assert_eq!(groups[0].command_indices, vec![0, 3]);
+        assert_eq!(groups[0].folder_key(), "Git");
+
+        assert_eq!(groups[1].folder_name.as_deref(), Some("Build"));
+        assert_eq!(groups[1].command_indices, vec![2]);
+        assert_eq!(groups[1].folder_key(), "Build");
+
+        assert_eq!(groups[2].folder_name, None);
+        assert_eq!(groups[2].command_indices, vec![1, 4]);
+        assert_eq!(groups[2].folder_key(), UNGROUPED_FOLDER_KEY);
+    }
+
+    #[test]
+    fn test_reorder_command_in_folder() {
+        let mut commands = vec![
+            QuickCommand {
+                name: "git_status".into(),
+                command: "git status".into(),
+                cwd: None,
+                folder: Some("Git".into()),
+            },
+            QuickCommand {
+                name: "cargo_build".into(),
+                command: "cargo build".into(),
+                cwd: None,
+                folder: Some("Build".into()),
+            },
+            QuickCommand {
+                name: "git_commit".into(),
+                command: "git commit".into(),
+                cwd: None,
+                folder: Some("Git".into()),
+            },
+            QuickCommand {
+                name: "cargo_test".into(),
+                command: "cargo test".into(),
+                cwd: None,
+                folder: Some("Build".into()),
+            },
+            QuickCommand {
+                name: "ungrouped_1".into(),
+                command: "echo 1".into(),
+                cwd: None,
+                folder: None,
+            },
+            QuickCommand {
+                name: "ungrouped_2".into(),
+                command: "echo 2".into(),
+                cwd: None,
+                folder: None,
+            },
+        ];
+
+        assert!(reorder_command_up_in_folder(&mut commands, 2));
+        assert_eq!(commands[0].name, "git_commit");
+        assert_eq!(commands[2].name, "git_status");
+
+        assert!(!reorder_command_up_in_folder(&mut commands, 0));
+
+        assert!(reorder_command_down_in_folder(&mut commands, 0));
+        assert_eq!(commands[0].name, "git_status");
+        assert_eq!(commands[2].name, "git_commit");
+
+        assert!(!reorder_command_down_in_folder(&mut commands, 2));
+
+        assert!(reorder_command_up_in_folder(&mut commands, 5));
+        assert_eq!(commands[4].name, "ungrouped_2");
+        assert_eq!(commands[5].name, "ungrouped_1");
+    }
+
+    #[test]
+    fn test_rename_and_delete_folder() {
+        let mut commands = vec![
+            QuickCommand {
+                name: "command_1".into(),
+                command: "echo 1".into(),
+                cwd: None,
+                folder: Some("OldFolder".into()),
+            },
+            QuickCommand {
+                name: "command_2".into(),
+                command: "echo 2".into(),
+                cwd: None,
+                folder: Some("OtherFolder".into()),
+            },
+            QuickCommand {
+                name: "command_3".into(),
+                command: "echo 3".into(),
+                cwd: None,
+                folder: Some("OldFolder".into()),
+            },
+        ];
+
+        rename_folder_in_commands(&mut commands, "OldFolder", "NewFolder");
+        assert_eq!(commands[0].folder.as_deref(), Some("NewFolder"));
+        assert_eq!(commands[1].folder.as_deref(), Some("OtherFolder"));
+        assert_eq!(commands[2].folder.as_deref(), Some("NewFolder"));
+
+        rename_folder_in_commands(&mut commands, "NewFolder", "   ");
+        assert_eq!(commands[0].folder, None);
+        assert_eq!(commands[2].folder, None);
+
+        delete_folder_in_commands(&mut commands, "OtherFolder");
+        assert_eq!(commands[1].folder, None);
     }
 }
