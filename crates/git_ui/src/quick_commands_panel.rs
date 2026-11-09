@@ -5,9 +5,9 @@ use editor::Editor;
 use fs::Fs;
 use gpui::{
     actions, anchored, deferred, div, Action, App, AsyncWindowContext, ClickEvent, Context,
-    DismissEvent, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    MouseButton, MouseDownEvent, ParentElement, PathPromptOptions, Pixels, Point, Render, Styled,
-    Subscription, WeakEntity, Window,
+    DismissEvent, ElementId, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
+    IntoElement, MouseButton, MouseDownEvent, ParentElement, PathPromptOptions, Pixels, Point,
+    Render, Styled, Subscription, WeakEntity, Window,
 };
 use project::{DirectoryLister, Project};
 use settings::{translate_ui, update_settings_file, Settings, SettingsStore};
@@ -241,6 +241,23 @@ impl QuickCommandsPanel {
                 });
             });
         }
+    }
+
+    pub fn add_command_to_folder(
+        &mut self,
+        _folder: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.add_command(window, cx);
+    }
+
+    pub fn prompt_rename_folder(
+        &mut self,
+        _folder_name: &str,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) {
     }
 
     fn edit_command(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -571,7 +588,183 @@ impl QuickCommandsPanel {
             })
     }
 
-    fn render_command_row(&self, index: usize, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_folder_header(
+        &self,
+        group: &CommandFolderGroup,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let folder_key = group.folder_key().to_string();
+        let is_collapsed = self.is_folder_collapsed(&folder_key);
+        let is_ungrouped = group.folder_name.is_none();
+        let folder_display_name = if let Some(ref name) = group.folder_name {
+            name.clone()
+        } else {
+            translate_ui("Ungrouped", cx).to_string()
+        };
+        let count = group.command_indices.len();
+        let folder_name_for_action = group.folder_name.clone();
+
+        h_flex()
+            .id((ElementId::from("quick-command-folder"), folder_key.clone()))
+            .w_full()
+            .items_center()
+            .justify_between()
+            .px_2()
+            .py_1p5()
+            .rounded_md()
+            .bg(cx.theme().colors().element_background.opacity(0.6))
+            .hover(|style| style.bg(cx.theme().colors().element_hover))
+            .border_1()
+            .border_color(cx.theme().colors().border_variant.opacity(0.4))
+            .cursor_pointer()
+            .on_click(cx.listener({
+                let key = folder_key.clone();
+                move |this, _event, _window, cx| {
+                    this.toggle_folder_collapse(&key, cx);
+                }
+            }))
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap_1p5()
+                    .child(
+                        Icon::new(if is_collapsed {
+                            IconName::ChevronRight
+                        } else {
+                            IconName::ChevronDown
+                        })
+                        .size(IconSize::XSmall)
+                        .color(Color::Muted),
+                    )
+                    .child(
+                        Icon::new(if is_ungrouped {
+                            IconName::FolderOpen
+                        } else {
+                            IconName::Folder
+                        })
+                        .size(IconSize::Small)
+                        .color(if is_ungrouped {
+                            Color::Muted
+                        } else {
+                            Color::Accent
+                        }),
+                    )
+                    .child(
+                        Label::new(folder_display_name)
+                            .size(LabelSize::Small)
+                            .weight(gpui::FontWeight::SEMIBOLD),
+                    )
+                    .child(
+                        div()
+                            .px_1p5()
+                            .py_0p5()
+                            .rounded_full()
+                            .bg(cx.theme().colors().editor_background)
+                            .border_1()
+                            .border_color(cx.theme().colors().border_variant.opacity(0.5))
+                            .child(
+                                Label::new(format!("{count}"))
+                                    .size(LabelSize::XSmall)
+                                    .color(Color::Muted),
+                            ),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .id((ElementId::from("qc-folder-actions"), folder_key.clone()))
+                    .items_center()
+                    .gap_0p5()
+                    .on_click(|_event, _window, cx| cx.stop_propagation())
+                    .child(
+                        IconButton::new(
+                            (ElementId::from("qc-folder-add"), folder_key),
+                            IconName::Plus,
+                        )
+                        .size(ButtonSize::Compact)
+                        .tooltip(move |_window, cx| {
+                            Tooltip::simple(
+                                translate_ui("Add Command to Folder", cx).to_string(),
+                                cx,
+                            )
+                        })
+                        .on_click(cx.listener({
+                            let folder = folder_name_for_action.clone();
+                            move |this, _event, window, cx| {
+                                this.add_command_to_folder(folder.clone(), window, cx);
+                            }
+                        })),
+                    )
+                    .when_some(folder_name_for_action, |this, folder_name| {
+                        this.child(self.render_folder_menu(folder_name, cx))
+                    }),
+            )
+    }
+
+    fn render_folder_menu(&self, folder_name: String, cx: &mut Context<Self>) -> impl IntoElement {
+        let weak = cx.entity().downgrade();
+        let folder_for_rename = folder_name.clone();
+        let folder_for_delete = folder_name;
+
+        PopoverMenu::new((
+            ElementId::from("qc-folder-popover"),
+            folder_for_rename.clone(),
+        ))
+        .trigger(
+            IconButton::new(
+                (
+                    ElementId::from("qc-folder-more"),
+                    folder_for_rename.clone(),
+                ),
+                IconName::Ellipsis,
+            )
+            .size(ButtonSize::Compact),
+        )
+        .menu(move |window, cx| {
+            let weak_rename = weak.clone();
+            let weak_delete = weak.clone();
+            let folder_name_for_rename = folder_for_rename.clone();
+            let folder_name_for_delete = folder_for_delete.clone();
+
+            Some(ContextMenu::build(window, cx, move |menu, _window, cx| {
+                menu.context(cx.focus_handle())
+                    .item(
+                        ContextMenuEntry::new(translate_ui("Rename Folder", cx))
+                            .icon(IconName::Pencil)
+                            .handler(move |window, cx| {
+                                if let Some(this) = weak_rename.upgrade() {
+                                    this.update(cx, |this, cx| {
+                                        this.prompt_rename_folder(
+                                            &folder_name_for_rename,
+                                            window,
+                                            cx,
+                                        );
+                                    });
+                                }
+                            }),
+                    )
+                    .separator()
+                    .item(
+                        ContextMenuEntry::new(translate_ui("Delete Folder", cx))
+                            .icon(IconName::Trash)
+                            .handler(move |_window, cx| {
+                                if let Some(this) = weak_delete.upgrade() {
+                                    this.update(cx, |this, cx| {
+                                        this.delete_folder(&folder_name_for_delete, cx);
+                                    });
+                                }
+                            }),
+                    )
+            }))
+        })
+    }
+
+    fn render_command_row(
+        &self,
+        index: usize,
+        is_first_in_folder: bool,
+        is_last_in_folder: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let command = &self.commands[index];
         let has_name = !command.name.trim().is_empty();
         let title = if has_name {
@@ -580,16 +773,22 @@ impl QuickCommandsPanel {
             command.command.clone()
         };
         let command_text = command.command.clone();
-        let cwd_text = command.cwd.as_deref().filter(|c| !c.trim().is_empty());
-        let total_commands = self.commands.len();
+        let cwd_text = command
+            .cwd
+            .as_deref()
+            .filter(|working_directory| !working_directory.trim().is_empty());
 
         let mut tooltip_parts = Vec::new();
         if has_name {
             tooltip_parts.push(format!("{}: {}", translate_ui("Name", cx), command.name));
         }
         tooltip_parts.push(format!("{}: {}", translate_ui("Command", cx), command.command));
-        if let Some(cwd) = cwd_text {
-            tooltip_parts.push(format!("{}: {}", translate_ui("Working Directory", cx), cwd));
+        if let Some(working_directory) = cwd_text {
+            tooltip_parts.push(format!(
+                "{}: {}",
+                translate_ui("Working Directory", cx),
+                working_directory
+            ));
         }
         let tooltip_text = tooltip_parts.join("\n");
 
@@ -671,7 +870,7 @@ impl QuickCommandsPanel {
                                 ),
                         )
                     })
-                    .when_some(cwd_text, |this, cwd| {
+                    .when_some(cwd_text, |this, working_directory| {
                         this.child(
                             h_flex()
                                 .items_center()
@@ -682,7 +881,7 @@ impl QuickCommandsPanel {
                                         .color(Color::Muted),
                                 )
                                 .child(
-                                    Label::new(cwd.to_string())
+                                    Label::new(working_directory.to_string())
                                         .size(LabelSize::XSmall)
                                         .color(Color::Muted)
                                         .truncate(),
@@ -702,30 +901,30 @@ impl QuickCommandsPanel {
                             .tooltip(move |_window, cx| {
                                 Tooltip::simple(translate_ui("Run", cx).to_string(), cx)
                             })
-                            .on_click(cx.listener(move |this, _, window, cx| {
+                            .on_click(cx.listener(move |this, _event, window, cx| {
                                 this.run_command(index, window, cx);
                             })),
                     )
                     .child(
                         IconButton::new(("qc-move-up", index), IconName::ArrowUp)
                             .size(ButtonSize::Compact)
-                            .disabled(index == 0)
+                            .disabled(is_first_in_folder)
                             .tooltip(move |_window, cx| {
                                 Tooltip::simple(translate_ui("Move Up", cx).to_string(), cx)
                             })
-                            .on_click(cx.listener(move |this, _, _window, cx| {
-                                this.move_command_up(index, cx);
+                            .on_click(cx.listener(move |this, _event, _window, cx| {
+                                this.move_command_up_in_folder(index, cx);
                             })),
                     )
                     .child(
                         IconButton::new(("qc-move-down", index), IconName::ArrowDown)
                             .size(ButtonSize::Compact)
-                            .disabled(index + 1 >= total_commands)
+                            .disabled(is_last_in_folder)
                             .tooltip(move |_window, cx| {
                                 Tooltip::simple(translate_ui("Move Down", cx).to_string(), cx)
                             })
-                            .on_click(cx.listener(move |this, _, _window, cx| {
-                                this.move_command_down(index, cx);
+                            .on_click(cx.listener(move |this, _event, _window, cx| {
+                                this.move_command_down_in_folder(index, cx);
                             })),
                     )
                     .child(
@@ -734,7 +933,7 @@ impl QuickCommandsPanel {
                             .tooltip(move |_window, cx| {
                                 Tooltip::simple(translate_ui("Edit", cx).to_string(), cx)
                             })
-                            .on_click(cx.listener(move |this, _, window, cx| {
+                            .on_click(cx.listener(move |this, _event, window, cx| {
                                 this.edit_command(index, window, cx);
                             })),
                     )
@@ -744,7 +943,7 @@ impl QuickCommandsPanel {
                             .tooltip(move |_window, cx| {
                                 Tooltip::simple(translate_ui("Delete", cx).to_string(), cx)
                             })
-                            .on_click(cx.listener(move |this, _, _window, cx| {
+                            .on_click(cx.listener(move |this, _event, _window, cx| {
                                 this.delete_command(index, cx);
                             })),
                     ),
@@ -796,7 +995,7 @@ impl QuickCommandsPanel {
                         .style(ButtonStyle::Filled)
                         .size(ButtonSize::Default)
                         .start_icon(Icon::new(IconName::Plus))
-                        .on_click(cx.listener(|this, _, window, cx| {
+                        .on_click(cx.listener(|this, _event, window, cx| {
                             this.add_command(window, cx);
                         })),
                 )
@@ -809,11 +1008,35 @@ impl QuickCommandsPanel {
             .size_full()
             .overflow_y_scroll()
             .p_2()
-            .gap_1p5();
+            .gap_2();
 
-        for index in 0..self.commands.len() {
-            list = list.child(self.render_command_row(index, cx));
+        let groups = group_commands(&self.commands);
+        for group in &groups {
+            let folder_key = group.folder_key();
+            let is_collapsed = self.is_folder_collapsed(folder_key);
+
+            let mut folder_section = v_flex().gap_1();
+            folder_section = folder_section.child(self.render_folder_header(group, cx));
+
+            if !is_collapsed {
+                let mut command_list = v_flex().gap_1p5().pl_3();
+                let total_in_folder = group.command_indices.len();
+                for (position, &global_index) in group.command_indices.iter().enumerate() {
+                    let is_first = position == 0;
+                    let is_last = position + 1 >= total_in_folder;
+                    command_list = command_list.child(self.render_command_row(
+                        global_index,
+                        is_first,
+                        is_last,
+                        cx,
+                    ));
+                }
+                folder_section = folder_section.child(command_list);
+            }
+
+            list = list.child(folder_section);
         }
+
         list.into_any_element()
     }
 }
