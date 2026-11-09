@@ -1,6 +1,6 @@
 use crate::quick_commands_settings::{QuickCommand, QuickCommandsSettings};
 use anyhow::Result;
-use collections::HashSet;
+use collections::{BTreeSet, HashSet};
 use editor::Editor;
 use fs::Fs;
 use gpui::{
@@ -232,24 +232,26 @@ impl QuickCommandsPanel {
     }
 
     fn add_command(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.add_command_to_folder(None, window, cx);
+    }
+
+    pub fn add_command_to_folder(
+        &mut self,
+        folder: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let weak = cx.entity().downgrade();
         let workspace_handle = self.workspace.clone();
         if let Some(workspace) = workspace_handle.upgrade() {
             workspace.update(cx, |workspace, cx| {
                 workspace.toggle_modal(window, cx, |window, cx| {
-                    QuickCommandModal::new_add(weak, workspace_handle.clone(), window, cx)
+                    let mut initial = QuickCommand::default_values();
+                    initial.folder = folder;
+                    QuickCommandModal::new(None, initial, weak, workspace_handle.clone(), window, cx)
                 });
             });
         }
-    }
-
-    pub fn add_command_to_folder(
-        &mut self,
-        _folder: Option<String>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.add_command(window, cx);
     }
 
     pub fn prompt_rename_folder(
@@ -328,35 +330,6 @@ impl QuickCommandsPanel {
         }
     }
 
-    fn move_command_up(&mut self, index: usize, cx: &mut Context<Self>) {
-        if index > 0 && index < self.commands.len() {
-            self.commands.swap(index, index - 1);
-            self.sync_and_persist(cx);
-        }
-    }
-
-    fn move_command_down(&mut self, index: usize, cx: &mut Context<Self>) {
-        if index + 1 < self.commands.len() {
-            self.commands.swap(index, index + 1);
-            self.sync_and_persist(cx);
-        }
-    }
-
-    fn move_command_to_top(&mut self, index: usize, cx: &mut Context<Self>) {
-        if index > 0 && index < self.commands.len() {
-            let cmd = self.commands.remove(index);
-            self.commands.insert(0, cmd);
-            self.sync_and_persist(cx);
-        }
-    }
-
-    fn move_command_to_bottom(&mut self, index: usize, cx: &mut Context<Self>) {
-        if index + 1 < self.commands.len() {
-            let cmd = self.commands.remove(index);
-            self.commands.push(cmd);
-            self.sync_and_persist(cx);
-        }
-    }
 
     fn delete_command(&mut self, index: usize, cx: &mut Context<Self>) {
         if index >= self.commands.len() {
@@ -441,10 +414,8 @@ impl QuickCommandsPanel {
         let weak = cx.entity().downgrade();
         let weak_run = weak.clone();
         let weak_edit = weak.clone();
-        let weak_top = weak.clone();
         let weak_up = weak.clone();
         let weak_down = weak.clone();
-        let weak_bottom = weak.clone();
         let weak_delete = weak;
 
         let groups = group_commands(&self.commands);
@@ -1186,32 +1157,18 @@ impl Render for QuickCommandsPanel {
 pub struct QuickCommandModal {
     name_editor: Entity<Editor>,
     command_editor: Entity<Editor>,
+    folder_editor: Entity<Editor>,
     cwd_editor: Entity<Editor>,
     panel: WeakEntity<QuickCommandsPanel>,
     workspace: WeakEntity<Workspace>,
     editing_index: Option<usize>,
     _name_subscription: Subscription,
     _command_subscription: Subscription,
+    _folder_subscription: Subscription,
     _cwd_subscription: Subscription,
 }
 
 impl QuickCommandModal {
-    fn new_add(
-        panel: WeakEntity<QuickCommandsPanel>,
-        workspace: WeakEntity<Workspace>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        Self::new(
-            None,
-            QuickCommand::default_values(),
-            panel,
-            workspace,
-            window,
-            cx,
-        )
-    }
-
     fn new_edit(
         index: usize,
         command: QuickCommand,
@@ -1247,6 +1204,16 @@ impl QuickCommandModal {
             editor.set_text(initial.command.clone(), window, cx);
             editor
         });
+        let folder_editor = cx.new(|cx| {
+            let mut editor = Editor::single_line(window, cx);
+            editor.set_placeholder_text(
+                translate_ui("Folder (optional)", cx),
+                window,
+                cx,
+            );
+            editor.set_text(initial.folder.clone().unwrap_or_default(), window, cx);
+            editor
+        });
         let cwd_editor = cx.new(|cx| {
             let mut editor = Editor::single_line(window, cx);
             editor.set_placeholder_text(
@@ -1270,6 +1237,12 @@ impl QuickCommandModal {
                     cx.notify();
                 }
             });
+        let _folder_subscription =
+            cx.subscribe(&folder_editor, |_, _, event: &editor::EditorEvent, cx| {
+                if matches!(event, editor::EditorEvent::BufferEdited) {
+                    cx.notify();
+                }
+            });
         let _cwd_subscription =
             cx.subscribe(&cwd_editor, |_, _, event: &editor::EditorEvent, cx| {
                 if matches!(event, editor::EditorEvent::BufferEdited) {
@@ -1280,12 +1253,14 @@ impl QuickCommandModal {
         Self {
             name_editor,
             command_editor,
+            folder_editor,
             cwd_editor,
             panel,
             workspace,
             editing_index,
             _name_subscription,
             _command_subscription,
+            _folder_subscription,
             _cwd_subscription,
         }
     }
@@ -1337,9 +1312,21 @@ impl QuickCommandModal {
     fn confirm(&mut self, _: &menu::Confirm, _window: &mut Window, cx: &mut Context<Self>) {
         let name = self.name_editor.read(cx).text(cx).trim().to_string();
         let command = self.command_editor.read(cx).text(cx).trim().to_string();
+        let folder = {
+            let value = self.folder_editor.read(cx).text(cx).trim().to_string();
+            if value.is_empty() {
+                None
+            } else {
+                Some(value)
+            }
+        };
         let cwd = {
             let value = self.cwd_editor.read(cx).text(cx).trim().to_string();
-            if value.is_empty() { None } else { Some(value) }
+            if value.is_empty() {
+                None
+            } else {
+                Some(value)
+            }
         };
         if command.is_empty() {
             return;
@@ -1354,11 +1341,11 @@ impl QuickCommandModal {
             let mut entries: Vec<QuickCommandEntryContent> = QuickCommandsSettings::get_global(cx)
                 .commands
                 .iter()
-                .map(|c| QuickCommandEntryContent {
-                    name: c.name.clone(),
-                    command: c.command.clone(),
-                    cwd: c.cwd.clone(),
-                    folder: c.folder.clone(),
+                .map(|command_item| QuickCommandEntryContent {
+                    name: command_item.name.clone(),
+                    command: command_item.command.clone(),
+                    cwd: command_item.cwd.clone(),
+                    folder: command_item.folder.clone(),
                 })
                 .collect();
 
@@ -1366,7 +1353,7 @@ impl QuickCommandModal {
                 name,
                 command,
                 cwd,
-                folder: None,
+                folder,
             };
             match self.editing_index {
                 Some(index) if index < entries.len() => {
@@ -1459,6 +1446,21 @@ impl Render for QuickCommandModal {
         let mut overlay_bg = cx.theme().colors().elevated_surface_background;
         overlay_bg.fade_out(0.2);
 
+        let existing_folders: Vec<String> = QuickCommandsSettings::get_global(cx)
+            .commands
+            .iter()
+            .filter_map(|command| {
+                let folder = command.folder.as_deref()?.trim();
+                if folder.is_empty() {
+                    None
+                } else {
+                    Some(folder.to_string())
+                }
+            })
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+
         v_flex()
             .absolute()
             .size_full()
@@ -1521,6 +1523,47 @@ impl Render for QuickCommandModal {
                                 window,
                                 cx,
                             ))
+                            .child(Self::render_field(
+                                translate_ui("Folder", cx).into(),
+                                self.folder_editor.clone(),
+                                None,
+                                window,
+                                cx,
+                            ))
+                            .when(!existing_folders.is_empty(), |this| {
+                                let folder_editor = self.folder_editor.clone();
+                                this.child(
+                                    h_flex()
+                                        .w_full()
+                                        .items_center()
+                                        .flex_wrap()
+                                        .gap_1()
+                                        .children(existing_folders.into_iter().map(|folder_name| {
+                                            let folder_editor = folder_editor.clone();
+                                            let folder_name_to_set = folder_name.clone();
+                                            div()
+                                                .id((ElementId::from("qc-folder-chip"), folder_name.clone()))
+                                                .px_1p5()
+                                                .py_0p5()
+                                                .rounded_md()
+                                                .bg(cx.theme().colors().element_background)
+                                                .hover(|style| style.bg(cx.theme().colors().element_hover))
+                                                .border_1()
+                                                .border_color(cx.theme().colors().border_variant.opacity(0.6))
+                                                .cursor_pointer()
+                                                .on_click(cx.listener(move |_modal, _event, window, cx| {
+                                                    folder_editor.update(cx, |editor, cx| {
+                                                        editor.set_text(folder_name_to_set.clone(), window, cx);
+                                                    });
+                                                }))
+                                                .child(
+                                                    Label::new(folder_name)
+                                                        .size(LabelSize::XSmall)
+                                                        .color(Color::Muted),
+                                                )
+                                        })),
+                                )
+                            })
                             .child(Self::render_field(
                                 translate_ui("Working Directory", cx).into(),
                                 self.cwd_editor.clone(),
@@ -1717,5 +1760,57 @@ mod tests {
 
         delete_folder_in_commands(&mut commands, "OtherFolder");
         assert_eq!(commands[1].folder, None);
+    }
+
+    #[test]
+    fn test_extract_unique_folders() {
+        let commands = [
+            QuickCommand {
+                name: "command_1".into(),
+                command: "echo 1".into(),
+                cwd: None,
+                folder: Some("Beta".into()),
+            },
+            QuickCommand {
+                name: "command_2".into(),
+                command: "echo 2".into(),
+                cwd: None,
+                folder: Some("Alpha".into()),
+            },
+            QuickCommand {
+                name: "command_3".into(),
+                command: "echo 3".into(),
+                cwd: None,
+                folder: Some("Beta".into()),
+            },
+            QuickCommand {
+                name: "command_4".into(),
+                command: "echo 4".into(),
+                cwd: None,
+                folder: Some("   ".into()),
+            },
+            QuickCommand {
+                name: "command_5".into(),
+                command: "echo 5".into(),
+                cwd: None,
+                folder: None,
+            },
+        ];
+
+        let existing_folders: Vec<String> = commands
+            .iter()
+            .filter_map(|command| {
+                let folder = command.folder.as_deref()?.trim();
+                if folder.is_empty() {
+                    None
+                } else {
+                    Some(folder.to_string())
+                }
+            })
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+
+        assert_eq!(existing_folders, vec!["Alpha", "Beta"]);
     }
 }
