@@ -5,6 +5,9 @@ mod agent_model_selector;
 mod agent_panel;
 mod agent_registry_ui;
 mod buffer_codegen;
+pub mod cli_session_manager;
+mod cli_session_sources;
+mod cli_sessions_panel;
 mod completion_provider;
 mod config_options;
 mod context;
@@ -75,6 +78,8 @@ pub use crate::agent_panel::{
     ThreadTitleRegenerationResult,
 };
 use crate::agent_registry_ui::AgentRegistryPage;
+pub use crate::cli_session_sources::default_cli_session_catalog;
+pub use crate::cli_sessions_panel::CliSessionsPanel;
 pub use crate::inline_assistant::InlineAssistant;
 pub use crate::message_editor::MessageEditorEvent;
 pub use crate::thread_metadata_store::ThreadId;
@@ -626,6 +631,7 @@ pub fn init(
         init_language_model_settings(cx);
     }
     agent_panel::init(cx);
+    cli_sessions_panel::init(cx);
     context_server_configuration::init(language_registry, fs.clone(), cx);
     thread_metadata_store::init(cx);
     terminal_thread_metadata_store::init(cx);
