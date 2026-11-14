@@ -7,6 +7,7 @@ use gpui::{
     WeakEntity, Window, actions, div, px,
 };
 use language::Buffer;
+use project::DisableAiSettings;
 use settings::translate_ui;
 use ui::{Color, LabelSize, prelude::*};
 use workspace::{
@@ -100,6 +101,18 @@ impl CliSessionsPanel {
     }
 
     fn refresh(&mut self, cx: &mut Context<Self>) {
+        if DisableAiSettings::get_global(cx).disable_ai {
+            self.loading = false;
+            self.results.clear();
+            self.source_issues.clear();
+            self.selected = None;
+            self.details = None;
+            self.error = None;
+            self.status = None;
+            cx.notify();
+            return;
+        }
+
         let catalog = self.catalog.clone();
         let query = self.search_query.clone();
         self.loading = true;

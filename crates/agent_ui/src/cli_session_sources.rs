@@ -4,11 +4,11 @@ use std::{
     fs,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
-    process::Command,
 };
 
 use chrono::{DateTime, Utc};
 use serde_json::Value;
+use util::command::new_std_command;
 
 use crate::cli_session_manager::{
     CliResumeRequest, CliSessionCapabilities, CliSessionCatalog, CliSessionDetails, CliSessionKey,
@@ -363,7 +363,7 @@ impl CliSessionProvider for GrokBuildProvider {
 
     fn list_sessions(&self) -> anyhow::Result<Vec<CliSessionSummary>> {
         let program = program_on_path("grok")?;
-        let output = Command::new(program)
+        let output = new_std_command(program)
             .arg("--no-auto-update")
             .args(["sessions", "list", "-n", "200"])
             .current_dir(&self.working_directory)
@@ -382,7 +382,7 @@ impl CliSessionProvider for GrokBuildProvider {
     }
 
     fn search_sessions(&self, query: &str) -> anyhow::Result<Option<Vec<CliSessionSummary>>> {
-        let output = Command::new(program_on_path("grok")?)
+        let output = new_std_command(program_on_path("grok")?)
             .arg("--no-auto-update")
             .args(["sessions", "search"])
             .arg(query)
@@ -404,7 +404,7 @@ impl CliSessionProvider for GrokBuildProvider {
 
     fn read_session(&self, key: &CliSessionKey) -> anyhow::Result<CliSessionDetails> {
         self.ensure_key(key)?;
-        let output = Command::new(program_on_path("grok")?)
+        let output = new_std_command(program_on_path("grok")?)
             .arg("--no-auto-update")
             .arg("export")
             .arg(&key.id)
